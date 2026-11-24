@@ -1,6 +1,6 @@
 import React from 'react';
-import { BRAND } from '@/lib/theme';
-import { CogIcon, PlayIcon, FolderIcon } from '@heroicons/react/24/outline';
+import { Badge, Box, Button, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { IconFolder, IconPlayerPlay, IconSettings } from '@tabler/icons-react';
 
 interface Workflow {
     id: string;
@@ -28,64 +28,53 @@ const WorkflowList: React.FC<WorkflowListProps> = ({ workflows = [], onSelect })
 
     if (workflowsArray.length === 0) {
         return (
-            <div className="text-center py-12 rounded-xl" style={{ backgroundColor: BRAND.linkWater }}>
-                <CogIcon className="h-12 w-12 mx-auto mb-3" style={{ color: BRAND.viking }} />
-                <p className="text-lg" style={{ color: BRAND.text }}>No workflows available.</p>
-                <p className="text-sm text-gray-500 mt-1">Workflows will appear here once configured.</p>
-            </div>
+            <Paper withBorder radius="md" py={48} px="md">
+                <Stack align="center" gap={4}>
+                    <Box c="dimmed" mb="xs" style={{ display: 'flex' }}><IconSettings size={44} stroke={1.5} /></Box>
+                    <Text size="lg">No workflows available.</Text>
+                    <Text size="sm" c="dimmed">Workflows will appear here once configured.</Text>
+                </Stack>
+            </Paper>
         );
     }
 
     return (
-        <div className="space-y-8">
+        <Stack gap="xl">
             {Object.entries(grouped).map(([category, items]) => (
-                <div key={category} className="space-y-4">
-                    <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: BRAND.linkWater }}>
-                        <FolderIcon className="h-6 w-6" style={{ color: BRAND.curious }} />
-                        <h2 className="text-xl font-bold" style={{ color: BRAND.text }}>{category}</h2>
-                        <span className="text-sm text-gray-500">({items.length} workflows)</span>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <Stack key={category} gap="md">
+                    <Group gap="sm" pb="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+                        <Box c="dimmed" style={{ display: 'flex' }}><IconFolder size={22} /></Box>
+                        <Title order={3}>{category}</Title>
+                        <Text size="sm" c="dimmed">({items.length} workflows)</Text>
+                    </Group>
+                    <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md">
                         {items.map((wf) => (
-                            <div
-                                key={wf.id}
-                                className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all border border-gray-100 group"
-                            >
-                                <div className="p-5">
-                                    <div className="flex justify-between items-start">
-                                        <div className="flex items-start gap-3">
-                                            <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                                                <CogIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>{wf.name}</h3>
-                                                <span
-                                                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mt-1"
-                                                    style={{ backgroundColor: BRAND.linkWater, color: BRAND.curious }}
-                                                >
-                                                    {wf.provider}
-                                                </span>
-                                            </div>
+                            <Paper key={wf.id} withBorder radius="md" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                                <Box p="md" style={{ flex: 1 }}>
+                                    <Group align="flex-start" gap="sm" wrap="nowrap">
+                                        <ThemeIcon variant="light" color="gray" size="lg" radius="md">
+                                            <IconSettings size={18} />
+                                        </ThemeIcon>
+                                        <div>
+                                            <Text fw={600} size="lg">{wf.name}</Text>
+                                            <Badge variant="default" radius="xl" size="sm" tt="none" mt={4}>
+                                                {wf.provider}
+                                            </Badge>
                                         </div>
-                                    </div>
-                                    <p className="mt-3 text-sm text-gray-600 line-clamp-2">{wf.description}</p>
-                                </div>
-                                <div className="px-5 py-3" style={{ backgroundColor: BRAND.linkWater + '50' }}>
-                                    <button
-                                        onClick={() => onSelect(wf)}
-                                        className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md w-full justify-center"
-                                        style={{ backgroundColor: BRAND.curious }}
-                                    >
-                                        <PlayIcon className="h-4 w-4" />
+                                    </Group>
+                                    <Text mt="sm" size="sm" c="dimmed" lineClamp={2}>{wf.description}</Text>
+                                </Box>
+                                <Box px="md" py="sm" bg="var(--mantine-color-default-hover)">
+                                    <Button fullWidth leftSection={<IconPlayerPlay size={16} />} onClick={() => onSelect(wf)}>
                                         Select Workflow
-                                    </button>
-                                </div>
-                            </div>
+                                    </Button>
+                                </Box>
+                            </Paper>
                         ))}
-                    </div>
-                </div>
+                    </SimpleGrid>
+                </Stack>
             ))}
-        </div>
+        </Stack>
     );
 };
 

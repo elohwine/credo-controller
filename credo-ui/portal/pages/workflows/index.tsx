@@ -5,17 +5,18 @@ import Layout from '@/components/Layout';
 import WorkflowList from '@/components/workflows/WorkflowList';
 import DynamicForm from '@/components/workflows/DynamicForm';
 import CredentialOfferCard from '@/components/credential/CredentialOfferCard';
-import { BRAND } from '@/lib/theme';
+import { Alert, Box, Button, Center, Group, Loader, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 import {
-  ArrowLeftIcon,
-  PlayIcon,
-  ArrowPathIcon,
-  CheckCircleIcon,
-  ExclamationCircleIcon,
-  CogIcon,
-  DocumentTextIcon,
-  CurrencyDollarIcon,
-} from '@heroicons/react/24/outline';
+  IconAlertCircle,
+  IconArrowLeft,
+  IconCalculator,
+  IconCategory,
+  IconCircleCheck,
+  IconPlayerPlay,
+  IconRefresh,
+  IconSettings,
+} from '@tabler/icons-react';
+import { StatTile } from '../../../shared/StatTile';
 
 export default function WorkflowsPage() {
     const env = useContext(EnvContext);
@@ -102,66 +103,55 @@ export default function WorkflowsPage() {
     };
 
     return (
-        <Layout title="Issuance Workflows">
-            <div className="px-4 sm:px-6 lg:px-8 py-6">
+        <Layout title="Workflows">
+            <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
                 {/* Header */}
-                <div className="sm:flex sm:items-center sm:justify-between mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Issuance Workflows</h1>
-                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Execute credential issuance workflows and automate verification processes</p>
-                    </div>
+                <div>
+                    <Title order={2}>Workflows</Title>
+                    <Text size="sm" c="dimmed" mt={4}>Run automated business processes and share the results</Text>
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 mb-8">
-                    {[
-                        { label: 'Available Workflows', value: workflows.length, icon: <CogIcon className="h-6 w-6" /> },
-                        { label: 'Active', value: workflows.filter(w => w.status === 'active').length, icon: <PlayIcon className="h-6 w-6" /> },
-                        { label: 'Categories', value: [...new Set(workflows.map(w => w.category || 'General'))].length, icon: <DocumentTextIcon className="h-6 w-6" /> },
-                    ].map((stat, idx) => (
-                        <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
-                            <dt>
-                                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
-                                    <span className="text-white">{stat.icon}</span>
-                                </div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
-                            </dt>
-                            <dd className="ml-16 flex items-baseline">
-                                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
-                            </dd>
-                        </div>
-                    ))}
-                </div>
+                <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
+                    <StatTile label="Available Workflows" value={workflows.length} icon={IconSettings} />
+                    <StatTile label="Active" value={workflows.filter(w => w.status === 'active').length} icon={IconPlayerPlay} />
+                    <StatTile label="Categories" value={[...new Set(workflows.map(w => w.category || 'General'))].length} icon={IconCategory} />
+                </SimpleGrid>
 
                 {isLoading ? (
-                    <div className="text-center py-12 text-gray-500">
-                        <ArrowPathIcon className="h-8 w-8 mx-auto mb-3 animate-spin" style={{ color: BRAND.curious }} />
-                        Loading workflows...
-                    </div>
+                    <Stack align="center" gap="sm" py="xl">
+                        <Loader size="md" />
+                        <Text c="dimmed">Loading workflows...</Text>
+                    </Stack>
                 ) : selectedWorkflow ? (
-                    <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
+                    <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
                         {/* Workflow Header */}
-                        <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                            <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-3">
-                                    <CogIcon className="h-6 w-6" style={{ color: BRAND.curious }} />
-                                    <div>
-                                        <h2 className="text-xl font-bold" style={{ color: BRAND.text }}>{selectedWorkflow.name}</h2>
-                                        <p className="text-sm text-gray-600">{selectedWorkflow.description}</p>
-                                    </div>
+                        <Group
+                            justify="space-between"
+                            wrap="wrap"
+                            gap="sm"
+                            px="lg"
+                            py="md"
+                            bg="var(--mantine-color-default-hover)"
+                            style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+                        >
+                            <Group gap="sm" wrap="nowrap">
+                                <Box c="dimmed" style={{ display: 'flex' }}><IconSettings size={22} /></Box>
+                                <div>
+                                    <Title order={3}>{selectedWorkflow.name}</Title>
+                                    <Text size="sm" c="dimmed">{selectedWorkflow.description}</Text>
                                 </div>
-                                <button
-                                    onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }}
-                                    className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium border transition-colors hover:bg-gray-50"
-                                    style={{ borderColor: BRAND.viking, color: BRAND.text }}
-                                >
-                                    <ArrowLeftIcon className="h-4 w-4" />
-                                    Back to List
-                                </button>
-                            </div>
-                        </div>
+                            </Group>
+                            <Button
+                                variant="default"
+                                leftSection={<IconArrowLeft size={16} />}
+                                onClick={() => { setSelectedWorkflow(null); setResult(null); setError(null); }}
+                            >
+                                Back to List
+                            </Button>
+                        </Group>
 
-                        <div className="p-6">
+                        <Box p="lg">
                             {!result ? (
                                 <DynamicForm
                                     schema={selectedWorkflow.inputSchema}
@@ -169,11 +159,11 @@ export default function WorkflowsPage() {
                                     isLoading={isExecuting}
                                 />
                             ) : (
-                                <div className="text-center">
-                                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style={{ backgroundColor: BRAND.linkWater }}>
-                                        <CheckCircleIcon className="h-8 w-8 text-green-600" />
-                                    </div>
-                                    <h3 className="text-lg font-bold mb-4" style={{ color: BRAND.text }}>Workflow Executed Successfully!</h3>
+                                <Stack align="center" gap="md">
+                                    <ThemeIcon size={56} radius="xl" variant="light" color="success">
+                                        <IconCircleCheck size={30} />
+                                    </ThemeIcon>
+                                    <Title order={4}>Workflow completed</Title>
 
                                     {result.offer && (
                                         <CredentialOfferCard
@@ -187,49 +177,47 @@ export default function WorkflowsPage() {
 
                                     {/* Finance result without offer (calculation only) */}
                                     {!result.offer && result.finance && (
-                                        <div className="rounded-xl overflow-hidden max-w-md mx-auto" style={{ backgroundColor: BRAND.linkWater }}>
-                                            <div className="px-4 py-3 flex items-center gap-2" style={{ backgroundColor: BRAND.linkWater }}>
-                                                <CurrencyDollarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                                                <span className="font-semibold" style={{ color: BRAND.text }}>Calculation Result</span>
-                                            </div>
-                                            <div className="p-6 bg-white">
-                                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                                    <span className="text-gray-600">Subtotal:</span>
-                                                    <span className="font-mono text-right">{result.finance.subtotal}</span>
-                                                    <span className="text-gray-600">Tax:</span>
-                                                    <span className="font-mono text-right">{result.finance.taxAmount}</span>
-                                                    <span className="font-bold pt-2 border-t" style={{ color: BRAND.text }}>Total:</span>
-                                                    <span className="font-bold font-mono text-right pt-2 border-t" style={{ color: BRAND.curious }}>{result.finance.grandTotal}</span>
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <Paper withBorder radius="md" maw={448} w="100%" style={{ overflow: 'hidden' }}>
+                                            <Group gap="xs" px="md" py="sm" bg="var(--mantine-color-default-hover)">
+                                                <Box c="dimmed" style={{ display: 'flex' }}><IconCalculator size={18} /></Box>
+                                                <Text fw={600}>Calculation Result</Text>
+                                            </Group>
+                                            <Stack gap="xs" p="lg">
+                                                <Group justify="space-between">
+                                                    <Text size="sm" c="dimmed">Subtotal:</Text>
+                                                    <Text size="sm" ff="monospace">{result.finance.subtotal}</Text>
+                                                </Group>
+                                                <Group justify="space-between">
+                                                    <Text size="sm" c="dimmed">Tax:</Text>
+                                                    <Text size="sm" ff="monospace">{result.finance.taxAmount}</Text>
+                                                </Group>
+                                                <Group justify="space-between" pt="xs" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+                                                    <Text size="sm" fw={700}>Total:</Text>
+                                                    <Text size="sm" fw={700} ff="monospace">{result.finance.grandTotal}</Text>
+                                                </Group>
+                                            </Stack>
+                                        </Paper>
                                     )}
 
-                                    <div className="mt-6">
-                                        <button
-                                            onClick={() => setResult(null)}
-                                            className="inline-flex items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium text-white transition-all hover:shadow-md"
-                                            style={{ backgroundColor: BRAND.curious }}
-                                        >
-                                            <ArrowPathIcon className="h-4 w-4" />
+                                    <Center mt="sm">
+                                        <Button leftSection={<IconRefresh size={16} />} onClick={() => setResult(null)}>
                                             Run Again
-                                        </button>
-                                    </div>
-                                </div>
+                                        </Button>
+                                    </Center>
+                                </Stack>
                             )}
 
                             {error && (
-                                <div className="mt-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-                                    <ExclamationCircleIcon className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-                                    <span className="text-red-700">{error}</span>
-                                </div>
+                                <Alert mt="lg" color="red" variant="light" icon={<IconAlertCircle size={18} />}>
+                                    {error}
+                                </Alert>
                             )}
-                        </div>
-                    </div>
+                        </Box>
+                    </Paper>
                 ) : (
                     <WorkflowList workflows={workflows} onSelect={setSelectedWorkflow} />
                 )}
-            </div>
+            </Stack>
         </Layout>
     );
 }

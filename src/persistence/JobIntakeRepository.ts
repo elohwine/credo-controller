@@ -19,6 +19,8 @@ export interface JobIntakeInput {
   reference?: string
   /** The client's store number: the job lands in that store's file. */
   storeNumber?: string
+  /** The branch (depot) that covers the job. */
+  branch?: string
   poNumber?: string
   problemType?: string
   description: string

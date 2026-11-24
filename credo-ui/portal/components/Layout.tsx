@@ -57,16 +57,6 @@ interface LayoutProps {
     title?: string;
 }
 
-// Credentis brand colors
-const BRAND = {
-    curious: '#2188CA',
-    linkWater: '#D0E6F3',
-    viking: '#6FB4DC',
-    cornflower: '#88C4E3',
-    dark: '#0A3D5C',
-    text: 'var(--brand-text)',
-};
-
 /** Pages a signed-out visitor may open: sign-in itself, and links sent to clients (pay, check a receipt, accept an offer). */
 const OPEN_WITHOUT_SIGN_IN = ['/auth', '/pay', '/verify', '/offer', '/success', '/failed', '/consent'];
 
@@ -279,14 +269,14 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                 <meta name="viewport" content="initial-scale=1.0, width=device-width" />
             </Head>
             <AppShell.Header>
-                <Box style={{ height: 3, background: `linear-gradient(90deg, ${BRAND.curious} 0%, ${BRAND.viking} 100%)` }} />
+                <Box style={{ height: 3, backgroundColor: 'var(--mantine-primary-color-filled)' }} />
                 <Group justify="space-between" h={61} px="md" wrap="nowrap">
                     <Group gap="sm" wrap="nowrap">
                         {compactHeader && !publicPage && (
                             <Burger opened={navOpened} onClick={() => setNavOpened((open) => !open)} aria-label="Open menu" />
                         )}
                         <Link href="/" style={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-                            <Group gap={6} wrap="nowrap" c={dark ? '#88C4E3' : BRAND.curious}>
+                            <Group gap={6} wrap="nowrap" c="var(--mantine-primary-color-light-color)">
                                 <BrandMark size={40} />
                                 <Text fw={700} size="lg">{PRODUCT_NAME}</Text>
                             </Group>
@@ -344,7 +334,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
             </AppShell.Navbar>}
             <AppShell.Main>
                 <LayoutNestingContext.Provider value={true}>
-                    <div className="max-w-7xl mx-auto">
+                    <Box maw={1280} mx="auto">
                         {task && (
                             <Alert mb="sm">
                                 <Group justify="space-between">
@@ -354,7 +344,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                             </Alert>
                         )}
                         {needsSignIn ? null : children}
-                    </div>
+                    </Box>
                 </LayoutNestingContext.Provider>
                 <Footer />
             </AppShell.Main>

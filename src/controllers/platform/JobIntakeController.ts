@@ -60,6 +60,7 @@ function validateInput(body: JobIntakeInput): void {
   }
   for (const [field, max] of [
     ['storeNumber', 40],
+    ['branch', 100],
     ['vanId', 80],
     ['poNumber', 120],
     ['problemType', 120],

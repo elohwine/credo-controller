@@ -65,14 +65,6 @@ import {
     type RequestRouteKey,
 } from '@/lib/requestCatalog'
 
-const BRAND = {
-    curious: '#2188CA',
-    linkWater: '#D0E6F3',
-    viking: '#6FB4DC',
-    dark: '#0A3D5C',
-    text: 'var(--brand-text)',
-}
-
 interface KpiTile {
     label: string
     value: string | number
@@ -132,11 +124,11 @@ const QuickLinkCard = ({ label, description, href, icon, onClick, disabledLine }
                         width: 40,
                         height: 40,
                         borderRadius: 10,
-                        backgroundColor: BRAND.linkWater,
+                        backgroundColor: 'var(--mantine-primary-color-light)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: BRAND.curious,
+                        color: 'var(--mantine-primary-color-light-color)',
                         flexShrink: 0,
                     }}
                 >

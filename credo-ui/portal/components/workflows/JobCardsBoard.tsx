@@ -41,7 +41,6 @@ import {
   IconArchive,
 } from '@tabler/icons-react'
 import { StatTile } from '../../../shared/StatTile'
-import { BRAND } from '@/lib/theme'
 import JobCardDetail from './JobCardDetail'
 import NewJobModal from './NewJobModal'
 import { EnvContext } from '@/pages/_app'
@@ -549,7 +548,7 @@ export default function JobCardsBoard() {
             <Box style={inboxTask ? { display: 'none' } : undefined}>
             <Group justify="space-between" mb="lg">
                 <div>
-            <Title order={2} style={{ color: BRAND.text }}>
+            <Title order={2}>
               Jobs
             </Title>
             <Text size="sm" c="dimmed">
@@ -599,7 +598,6 @@ export default function JobCardsBoard() {
                     {canCreate && (
               <Button
                 leftSection={<IconPlus size={16} />}
-                style={{ backgroundColor: BRAND.curious }}
                 onClick={() => setShowNewJob(true)}
               >
                             New job
@@ -751,8 +749,8 @@ export default function JobCardsBoard() {
                                     <Group gap="xs">
                         <div
                           style={{
-                            backgroundColor: BRAND.curious,
-                            color: 'white',
+                            backgroundColor: 'var(--mantine-primary-color-light)',
+                            color: 'var(--mantine-primary-color-light-color)',
                             padding: '6px',
                             borderRadius: '50%',
                           }}
@@ -760,7 +758,7 @@ export default function JobCardsBoard() {
                                             <IconBriefcase size={16} />
                                         </div>
                                         <div>
-                          <Text fw={600} size="md" style={{ color: BRAND.text }} lineClamp={2}>
+                          <Text fw={600} size="md" lineClamp={2}>
                             {heading.title}
                           </Text>
                           <Text size="xs" c="dimmed">
@@ -783,21 +781,21 @@ export default function JobCardsBoard() {
 
                                 <Stack gap="xs" mb="lg">
                                     <Group gap={6} mt="xs">
-                                        <IconMapPin size={14} color={BRAND.viking} />
+                                        <IconMapPin size={14} color="var(--mantine-color-dimmed)" />
                         <Text size="xs" c="dimmed">
                           {location}
                         </Text>
                                     </Group>
 
                                     <Group gap={6}>
-                                        <IconUser size={14} color={BRAND.viking} />
+                                        <IconUser size={14} color="var(--mantine-color-dimmed)" />
                         <Text size="xs" c="dimmed">
                           Assigned to: {assignee}
                         </Text>
                                     </Group>
 
                                     <Group gap={6}>
-                                        <IconCalendar size={14} color={BRAND.viking} />
+                                        <IconCalendar size={14} color="var(--mantine-color-dimmed)" />
                         <Text size="xs" c="dimmed">
                           Scheduled:{' '}
                           {input.scheduledDate ||
@@ -809,7 +807,6 @@ export default function JobCardsBoard() {
                                 <Group grow>
                                     <Button
                                         variant="outline"
-                                        color={BRAND.curious}
                                         leftSection={<IconEye size={16} />}
                                         onClick={() => setSelectedJob(job)}
                                     >
@@ -830,7 +827,7 @@ export default function JobCardsBoard() {
                 </Group>
             )}
             {!loading && !jobsLoadError && filteredJobs.length === 0 && (
-                <Paper p="xl" mt="md" radius="md" withBorder ta="center" style={{ backgroundColor: '#f8fafc' }}>
+                <Paper p="xl" mt="md" radius="md" withBorder ta="center" style={{ backgroundColor: 'var(--mantine-color-default-hover)' }}>
                     <Text c="dimmed">
                       {statusFilter !== 'all'
                         ? 'No jobs match this filter. Choose another status to see more jobs.'

@@ -33,16 +33,6 @@ import {
     IconWallet,
 } from "@tabler/icons-react";
 
-// Credentis brand colors (from Layout.tsx)
-const BRAND = {
-    curious: "#2188CA",
-    linkWater: "#D0E6F3",
-    viking: "#6FB4DC",
-    cornflower: "#88C4E3",
-    dark: "#0A3D5C",
-    text: 'var(--brand-text)',
-};
-
 interface ConsentDetails {
     credentialType: string;
     credentialId: string;
@@ -174,7 +164,7 @@ export default function AcceptCredential() {
             <Layout title="Loading...">
                 <Container size="sm" py={80}>
                     <Stack align="center" gap="lg">
-                        <Loader size="xl" color={BRAND.curious} />
+                        <Loader size="xl" />
                         <Text c="dimmed">Loading credential details...</Text>
                     </Stack>
                 </Container>
@@ -204,29 +194,24 @@ export default function AcceptCredential() {
         <Layout title={`Accept ${details?.credentialType || "Credential"}`}>
             <Container size="sm" py={40}>
                 <Card shadow="xl" radius="lg" withBorder p={0} style={{ overflow: "hidden" }}>
-                    {/* Header with gradient */}
+                    {/* Header */}
                     <Box
                         style={{
-                            background: `linear-gradient(135deg, ${BRAND.dark} 0%, ${BRAND.curious} 100%)`,
+                            backgroundColor: "var(--mantine-color-default-hover)",
+                            borderBottom: "1px solid var(--mantine-color-default-border)",
                             padding: "32px 24px",
                             textAlign: "center",
                         }}
                     >
-                        <ThemeIcon
-                            size={80}
-                            radius={40}
-                            variant="light"
-                            color="white"
-                            style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-                        >
-                            <CredIcon size={40} color="white" />
+                        <ThemeIcon size={80} radius={40} variant="light">
+                            <CredIcon size={40} />
                         </ThemeIcon>
 
-                        <Title order={2} c="white" mt="md">
+                        <Title order={2} mt="md">
                             Accept {details?.credentialType}?
                         </Title>
 
-                        <Text c="rgba(255,255,255,0.8)" size="sm" mt={4}>
+                        <Text c="dimmed" size="sm" mt={4}>
                             Save this verified credential to your wallet
                         </Text>
 
@@ -240,7 +225,7 @@ export default function AcceptCredential() {
                         {/* Issuer info */}
                         <Paper radius="md" p="md" withBorder mb="lg">
                             <Group>
-                                <ThemeIcon size={40} radius="md" color={BRAND.curious}>
+                                <ThemeIcon size={40} radius="md" variant="light">
                                     <IconShieldCheck size={20} />
                                 </ThemeIcon>
                                 <Box>
@@ -308,7 +293,6 @@ export default function AcceptCredential() {
                                 Decline
                             </Button>
                             <Button
-                                color={BRAND.curious}
                                 size="lg"
                                 leftSection={<IconCheck size={18} />}
                                 onClick={handleAccept}
@@ -321,7 +305,7 @@ export default function AcceptCredential() {
 
                         {/* Trust footer */}
                         <Group justify="center" mt="xl" gap={4}>
-                            <IconShieldCheck size={14} color={BRAND.curious} />
+                            <IconShieldCheck size={14} color="var(--mantine-color-dimmed)" />
                             <Text size="xs" c="dimmed">
                                 Secured by {PRODUCT_NAME}
                             </Text>

@@ -17252,6 +17252,10 @@
             "type": "string",
             "description": "The client's store number: the job lands in that store's file."
           },
+          "branch": {
+            "type": "string",
+            "description": "The branch (depot) that covers the job."
+          },
           "poNumber": {
             "type": "string"
           },
@@ -17442,6 +17446,10 @@
           "storeNumber": {
             "type": "string",
             "description": "The client's store number: the job lands in that store's file."
+          },
+          "branch": {
+            "type": "string",
+            "description": "The branch (depot) that covers the job."
           },
           "poNumber": {
             "type": "string"
@@ -18067,6 +18075,17 @@
           "email": {
             "type": "string"
           },
+          "address": {
+            "type": "string",
+            "description": "Street address, kept from the store import; the job's location when the office picks the store."
+          },
+          "postcode": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string",
+            "description": "The branch that usually covers this store: the one most of its jobs went to."
+          },
           "openJobs": {
             "type": "number",
             "format": "double"
@@ -18081,6 +18100,29 @@
           "name",
           "openJobs",
           "totalJobs"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobChoices": {
+        "description": "Branches and problem types the office already uses, for the job form's choices.",
+        "properties": {
+          "branches": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "problemTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "branches",
+          "problemTypes"
         ],
         "type": "object",
         "additionalProperties": false
@@ -18237,57 +18279,6 @@
         "type": "object",
         "additionalProperties": false
       },
-      "BillSummary": {
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "quote",
-              "invoice"
-            ]
-          },
-          "reference": {
-            "type": "string"
-          },
-          "description": {
-            "type": "string"
-          },
-          "amount": {
-            "type": "number",
-            "format": "double"
-          },
-          "currency": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
-          "jobRunId": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string"
-          },
-          "payUrl": {
-            "type": "string",
-            "description": "The page the client pays the bill on."
-          }
-        },
-        "required": [
-          "id",
-          "kind",
-          "description",
-          "amount",
-          "currency",
-          "status",
-          "createdAt"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "PendingIntakeSummary": {
         "properties": {
           "id": {
@@ -18350,6 +18341,80 @@
           "reference",
           "description",
           "source",
+          "createdAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "JobLinksInput": {
+        "description": "The store, branch, van and site a job is linked to. Empty string or null clears a link.",
+        "properties": {
+          "storeNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "branch": {
+            "type": "string",
+            "nullable": true
+          },
+          "vanId": {
+            "type": "string",
+            "nullable": true
+          },
+          "location": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "type": "object",
+        "additionalProperties": false
+      },
+      "BillSummary": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "quote",
+              "invoice"
+            ]
+          },
+          "reference": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number",
+            "format": "double"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "jobRunId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "payUrl": {
+            "type": "string",
+            "description": "The page the client pays the bill on."
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "description",
+          "amount",
+          "currency",
+          "status",
           "createdAt"
         ],
         "type": "object",
@@ -50291,6 +50356,106 @@
           }
         ],
         "parameters": []
+      }
+    },
+    "/api/platform/operations/job-choices": {
+      "get": {
+        "operationId": "JobChoices",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobChoices"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Branches and problem types already in use, for the job forms.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/platform/operations/jobs/{jobId}/links": {
+      "put": {
+        "operationId": "LinkJob",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/JobSummary"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PendingIntakeSummary"
+                    }
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Link a job (booked, or still waiting in intake) to a store, branch, van and site. An empty\nvalue clears that link; a field left out stays as it is.",
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "jobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobLinksInput"
+              }
+            }
+          }
+        }
       }
     },
     "/api/platform/operations/stores/{storeNumber}": {

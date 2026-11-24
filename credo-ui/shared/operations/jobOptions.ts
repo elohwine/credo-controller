@@ -5,3 +5,6 @@ export const FIELD_PRIORITY_OPTIONS = [
   { value: 'out_of_hours', label: 'Out of hours' },
   { value: 'normal', label: 'Normal' },
 ]
+
+/** Used until the organisation's own problem types load. */
+export const FIELD_PROBLEM_TYPES = ['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']

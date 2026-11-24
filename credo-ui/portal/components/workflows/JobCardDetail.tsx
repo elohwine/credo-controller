@@ -29,7 +29,6 @@ import {
   IconFiles,
   IconHistory,
   IconCheck,
-  IconMapPin,
   IconCalendar,
   IconUser,
   IconCash,
@@ -37,7 +36,6 @@ import {
 } from '@tabler/icons-react'
 import { isOrganisationJobRecord, jobClientWait } from '../../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../../shared/fieldEvidence'
-import { BRAND } from '@/lib/theme'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
 import { getOrgScopedToken, readActiveOrganization, readCurrentUserId } from '@/utils/organizationContext'
 import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, uniqueOptions } from '@/lib/jobPeople'
@@ -77,7 +75,9 @@ import { FailedVisitPanel } from '../../../shared/operations/FailedVisitPanel'
 import { ImportedJobDetails } from '../../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../../shared/operations/JobOnSite'
 import { jobPeopleOptions } from '../../../shared/jobPeople'
+import { useRouter } from 'next/router'
 import { usePortalOperations } from '@/lib/operations'
+import { JobLinksEditor } from '../../../shared/operations/JobLinksEditor'
 
 const DETAIL_TAB_ICONS: Record<DetailTabKey, React.JSX.Element> = {
   details: <IconFileText size={16} />,
@@ -124,6 +124,7 @@ interface JobCardDetailProps {
 
 export default function JobCardDetail({ job, opened, onClose, onRefresh, initialTab = 'details' }: JobCardDetailProps) {
   const { api: operations, notify } = usePortalOperations()
+  const router = useRouter()
   const openRelatedWork = useRelatedWorkNavigation()
   const openBilling = useJobBillingNavigation()
   const [submitting, setSubmitting] = useState(false)
@@ -217,6 +218,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   const activeOrgRole = String(readActiveOrganization()?.role || '').toLowerCase()
   // Only organization owners and admins can move a job to another worker.
   const canReassign = ['owner', 'admin'].includes(activeOrgRole)
+  const canLinkResources =
+    ['owner', 'admin', 'dispatcher', 'manager'].includes(activeOrgRole) &&
+    !['completed', 'cancelled', 'failed'].includes(String(job?.status || '').toLowerCase()) &&
+    !['RECONCILED', 'CANCELLED', 'COMPLETED'].includes(String(job?.output?.workflowStage || '').toUpperCase())
   const currentUserId = readCurrentUserId()
   const fieldActors = actorsForWorkflow(actorReports, ['field', 'fept'])
 
@@ -624,7 +629,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
         return (
           <Stack gap={2}>
             <Group gap="sm" wrap="nowrap" align="flex-start">
-              <Text fw={700} size="lg" style={{ color: BRAND.text }} lineClamp={2}>
+              <Text fw={700} size="lg" lineClamp={2}>
                 {heading.title}
               </Text>
               <Badge
@@ -704,7 +709,6 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
         )}
         {job?.status === 'paused' && pauseReason === 'await_acknowledgement' && (
           <Button
-            style={{ backgroundColor: BRAND.curious }}
             leftSection={<IconWallet size={16} />}
             onClick={() => openProof('acknowledgement')}
             loading={proofCreating && proofStage === 'acknowledgement'}
@@ -788,7 +792,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
           {actionError}
         </Alert>
       )}
-      <Tabs value={tab} onChange={(value) => setTab((value as typeof tab) || 'details')} color={BRAND.curious}>
+      <Tabs value={tab} onChange={(value) => setTab((value as typeof tab) || 'details')}>
         <Tabs.List mb="md">
           {detailTabsFor({
             capturesPhotos: true,
@@ -1086,33 +1090,28 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               )}
 
               <Text size="sm" c="dimmed">
-                Store number
-              </Text>
-              <Text size="md" mb="sm">
-                {input.storeNumber ? (
-                  <Anchor href={`/operations?store=${encodeURIComponent(input.storeNumber)}`}>
-                    {input.storeNumber}
-                  </Anchor>
-                ) : (
-                  'N/A'
-                )}
-                {input.callOut ? ' · Call-out' : ''}
-              </Text>
-
-              <Text size="sm" c="dimmed">
                 Client PO
               </Text>
               <Text size="md" mb="sm">
                 {input.poNumber || 'N/A'}
               </Text>
 
-              <Text size="sm" c="dimmed">
-                Location
-              </Text>
-              <Group gap="xs" mb="sm">
-                <IconMapPin size={16} color={BRAND.curious} />
-                <Text size="md">{input.location || 'N/A'}</Text>
-              </Group>
+              <Divider my="sm" />
+              <JobLinksEditor
+                api={operations}
+                surface="portal"
+                jobId={String(job?.id || '')}
+                links={input}
+                canEdit={canLinkResources}
+                assigneeId={assigneeId || null}
+                date={input.scheduledDate}
+                names={Object.fromEntries(members.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
+                onOpenStore={(storeNumber) => void router.push(`/operations?store=${encodeURIComponent(storeNumber)}`)}
+                onSaved={() => {
+                  notify('The store, branch and van are saved on this job.', 'success')
+                  onRefresh()
+                }}
+              />
             </Card>
 
             <Card withBorder radius="md">
@@ -1142,7 +1141,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                     Field worker
                   </Text>
                   <Group gap="xs">
-                    <IconUser size={16} color={BRAND.curious} />
+                    <IconUser size={16} color="var(--mantine-color-dimmed)" />
                     <Text size="md">
                       {!assigneeId ? 'Nobody yet' : assigneeName || `Team member · ${assigneeId.slice(0, 6)}`}
                     </Text>
@@ -1200,13 +1199,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                     Scheduled Date
                   </Text>
                   <Group gap="xs">
-                    <IconCalendar size={16} color={BRAND.curious} />
+                    <IconCalendar size={16} color="var(--mantine-color-dimmed)" />
                     <Text size="md">{input.scheduledDate || 'N/A'}</Text>
                   </Group>
-                  <Text size="sm" c="dimmed" mt="sm">
-                    Assigned vehicle
-                  </Text>
-                  <Text size="md">{input.vehicleReference || 'N/A'}</Text>
                 </Grid.Col>
               </Grid>
             </Card>

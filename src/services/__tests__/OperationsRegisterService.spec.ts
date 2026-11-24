@@ -246,6 +246,50 @@ describe('Stores, attendants and vans', () => {
     expect(second.duplicateOf).toBe(fresh.id)
   })
 
+  it("matches an emailed job to a known store by subject number or postcode, with the store's address and usual branch", () => {
+    upsertContact({ orgTenantId: ORG, name: '1535 - Swadlincote', notes: 'Address: 1535 - Swadlincote, Belmont Street\nContact: Unknown', storeNumber: '1535' })
+    db.prepare(`UPDATE org_contacts SET postcode = 'DE11 8JU' WHERE store_number = '1535'`).run()
+    addJob('RUN-L1', { storeNumber: '1535', description: 'Signage', branch: 'Luton' })
+    addJob('RUN-L2', { storeNumber: '1535', description: 'Doors', branch: 'Luton' }, 'completed')
+    addJob('RUN-P1', { storeNumber: '1535', description: 'Lights', branch: 'Peterborough' })
+
+    const bySubject = service.matchStore(ORG, { subject: '1535 Swadlincote_Signage - EARLY START' })
+    expect(bySubject).toMatchObject({ storeNumber: '1535', branch: 'Luton', postcode: 'DE11 8JU', address: '1535 - Swadlincote, Belmont Street' })
+    expect(service.matchStore(ORG, { subject: 'Urgent leak', text: 'Site: Belmont St, de11 8ju' })?.storeNumber).toBe('1535')
+    expect(service.matchStore(ORG, { subject: 'PO 99999 leak' })).toBeUndefined()
+  })
+
+  it('offers the branches and problem types already in use, most used first', () => {
+    service.saveVan(ORG, 'owner', { registration: 'KN69 SYY', branch: 'Peterborough' })
+    addJob('RUN-B1', { description: 'a', branch: 'Luton', problemType: 'Signage' })
+    addJob('RUN-B2', { description: 'b', branch: 'Luton' })
+    const choices = service.jobChoices(ORG)
+    expect(choices.branches).toEqual(['Luton', 'Peterborough'])
+    expect(choices.problemTypes[0]).toBe('Signage')
+    expect(choices.problemTypes).toContain('Plumbing')
+  })
+
+  it('links an open job or waiting intake to a store, branch, van and site, and clears a link', () => {
+    upsertContact({ orgTenantId: ORG, name: 'Spar Borrowdale', storeNumber: '1042' })
+    const van = service.saveVan(ORG, 'owner', { registration: 'AEB 1234' })
+    addJob('RUN-LINK', { description: 'From email' }, 'paused', { workflowInput: { description: 'From email' } })
+
+    const linked = service.linkJob(ORG, 'RUN-LINK', { storeNumber: '1042', branch: 'Luton', vanId: van.id, location: 'Borrowdale' })
+    expect(linked).toMatchObject({ storeNumber: '1042', branch: 'Luton', vehicle: 'AEB 1234', location: 'Borrowdale', clientName: 'Spar Borrowdale' })
+    const stored = db.prepare(`SELECT input, output FROM workflow_runs WHERE id = 'RUN-LINK'`).get() as { input: string; output: string }
+    expect(JSON.parse(stored.output).workflowInput).toMatchObject({ vanId: van.id, branch: 'Luton' })
+    expect((service.linkJob(ORG, 'RUN-LINK', { vanId: null }) as { vehicle?: string }).vehicle).toBeUndefined()
+
+    const intake = jobIntakeRepository.create(ORG, 'mail:jobs', { description: 'Waiting', amount: 0, currency: 'USD' })
+    expect(service.linkJob(ORG, intake.id, { storeNumber: '1042', branch: 'Luton' })).toMatchObject({ branch: 'Luton' })
+    expect(jobIntakeRepository.getForTenant(intake.id, ORG)!.payload.storeNumber).toBe('1042')
+
+    addJob('RUN-FINISHED', { description: 'Done' }, 'completed')
+    expect(() => service.linkJob(ORG, 'RUN-FINISHED', { branch: 'Luton' })).toThrow('finished or cancelled')
+    service.saveVan(ORG, 'owner', { id: van.id, status: 'off_road' })
+    expect(() => service.linkJob(ORG, 'RUN-LINK', { vanId: van.id })).toThrow('off the road')
+  })
+
   describe('jobs mailbox', () => {
     const config: MailIntakeConfig = {
       tenantId: 't',

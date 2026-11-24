@@ -31,8 +31,13 @@ import { ContactPickerSelect } from '@/components/finance/ContactPickerSelect'
 import { IconBriefcase } from '@tabler/icons-react'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from './JobPaymentPlanFields'
 import { usePortalOperations } from '@/lib/operations'
-import { JobScheduleFields } from '../../../shared/operations/JobScheduleFields'
-import { FIELD_BRANCH_OPTIONS, FIELD_PRIORITY_OPTIONS } from '../../../shared/operations/jobOptions'
+import { JobScheduleFields, useJobChoices, withCurrent } from '../../../shared/operations/JobScheduleFields'
+import { storeSite } from '../../../shared/operations/operationsApi'
+import {
+  FIELD_BRANCH_OPTIONS,
+  FIELD_PRIORITY_OPTIONS,
+  FIELD_PROBLEM_TYPES,
+} from '../../../shared/operations/jobOptions'
 
 interface Member {
   userId: string
@@ -76,6 +81,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   const [setupError, setSetupError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const { api: operations } = usePortalOperations()
+  const choices = useJobChoices(operations, { branches: FIELD_BRANCH_OPTIONS, problemTypes: FIELD_PROBLEM_TYPES })
   const [form, setForm] = useState({
     storeNumber: '',
     branch: '',
@@ -318,7 +324,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           <Autocomplete
             label="Branch"
             placeholder="Choose or enter a branch"
-            data={FIELD_BRANCH_OPTIONS}
+            data={choices.branches}
             value={form.branch}
             onChange={(branch) => setForm({ ...form, branch })}
           />
@@ -342,8 +348,9 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           label="Problem type"
           placeholder="Select a type"
           clearable
-          data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']}
-          value={form.problemType}
+          searchable
+          data={withCurrent(choices.problemTypes, form.problemType)}
+          value={form.problemType || null}
           onChange={(value) => setForm({ ...form, problemType: value || '' })}
         />
         <ContactPickerSelect
@@ -428,11 +435,18 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
               storeNumber: store.storeNumber,
               clientName: prev.clientName || store.name,
               clientPhone: prev.clientPhone || store.phone || '',
+              location: prev.location || storeSite(store),
+              branch: prev.branch || store.branch || '',
             }))
           }
           vanId={form.vanId || null}
           onVan={(van) =>
-            setForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))
+            setForm((prev) => ({
+              ...prev,
+              vanId: van?.id || '',
+              vehicleReference: van?.registration || '',
+              branch: prev.branch || van?.branch || '',
+            }))
           }
           callOut={form.callOut}
           onCallOut={(callOut) => setForm((prev) => ({ ...prev, callOut }))}

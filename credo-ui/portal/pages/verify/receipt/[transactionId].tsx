@@ -1,10 +1,10 @@
-import { useState, useEffect, useContext } from 'react'
+import { useState, useEffect, useContext, type ReactNode } from 'react'
 import { useRouter } from 'next/router'
 import axios from 'axios'
 import { EnvContext } from '@/pages/_app'
 import { appUrls } from '@/lib/appUrls'
 import Layout from '@/components/Layout'
-import { BRAND } from '@/lib/theme'
+import { Anchor, Box, Button, Divider, Group, List, Loader, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { 
   IconCheck, 
@@ -140,160 +140,139 @@ export default function ReceiptVerification() {
     }
   }
 
+  const detail = (label: string, value: ReactNode, mono = false) => (
+    <div style={{ minWidth: 0 }}>
+      <Text size="sm" c="dimmed">{label}</Text>
+      <Text size="sm" fw={500} ff={mono ? 'monospace' : undefined} truncate>{value}</Text>
+    </div>
+  )
+
   // ===== SIMPLE DELIVERY VERIFICATION UI =====
   return (
     <Layout>
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 -mt-16">
-        
+      <Stack align="center" justify="center" gap="lg" p="md" mih="calc(100vh - 8rem)">
+
         {/* Loading State */}
         {loading && (
-          <div className="text-center">
-            <div className="animate-spin w-16 h-16 border-4 rounded-full mx-auto mb-4" style={{ borderColor: BRAND.linkWater, borderTopColor: BRAND.curious }}></div>
-            <p className="text-xl" style={{ color: BRAND.text }}>Verifying payment...</p>
-          </div>
+          <Stack align="center" gap="md">
+            <Loader size="xl" />
+            <Text size="xl">Verifying payment...</Text>
+          </Stack>
         )}
 
-        {/* VERIFIED - Big Green Check */}
+        {/* VERIFIED */}
         {!loading && result?.verified && !deliveryConfirmed && (
-          <div className="w-full max-w-md">
-            {/* Big Success Icon */}
-            <div className="bg-green-500 rounded-3xl p-8 text-center mb-6 shadow-xl">
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
-                <IconCheck size={56} className="text-green-500" strokeWidth={3} />
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">PAYMENT VERIFIED</h1>
-              <p className="text-green-100 text-lg">Safe to release goods</p>
-            </div>
+          <Stack w="100%" maw={448} gap="md">
+            <Paper withBorder shadow="sm" radius="lg" p="xl" ta="center" style={{ borderTop: '4px solid var(--mantine-color-success-6, var(--mantine-color-green-6))' }}>
+              <Stack align="center" gap="xs">
+                <ThemeIcon size={88} radius="xl" color="success" variant="light">
+                  <IconCheck size={52} stroke={3} />
+                </ThemeIcon>
+                <Title order={2} c="success">Payment verified</Title>
+                <Text size="lg" c="dimmed">Safe to release goods</Text>
+              </Stack>
+            </Paper>
 
             {/* Amount & Key Info */}
-            <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
-              <div className="text-center mb-4">
-                <p className="text-sm text-gray-500">Amount Paid</p>
-                <p className="text-4xl font-bold text-gray-900">
+            <Paper withBorder shadow="sm" radius="lg" p="lg">
+              <Stack align="center" gap={2} mb="md">
+                <Text size="sm" c="dimmed">Amount Paid</Text>
+                <Text fz={36} fw={700}>
                   {result.currency || 'USD'} {(result.amount || 0).toFixed(2)}
-                </p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4 text-sm border-t pt-4">
-                <div>
-                  <p className="text-gray-500">Transaction</p>
-                  <p className="font-mono font-medium truncate">{result.transactionId || transactionId}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Customer</p>
-                  <p className="font-medium">{result.payerPhone || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">Payment</p>
-                  <p className="font-medium">{result.paymentMethod || 'EcoCash'}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">When</p>
-                  <p className="font-medium">
-                    {result.timestamp ? formatTxnTime(result.timestamp) : 'Today'}
-                  </p>
-                </div>
-              </div>
-            </div>
+                </Text>
+              </Stack>
+              <Divider mb="md" />
+              <SimpleGrid cols={2} spacing="md">
+                {detail('Transaction', result.transactionId || transactionId, true)}
+                {detail('Customer', result.payerPhone || 'N/A')}
+                {detail('Payment', result.paymentMethod || 'EcoCash')}
+                {detail('When', result.timestamp ? formatTxnTime(result.timestamp) : 'Today')}
+              </SimpleGrid>
+            </Paper>
 
             {/* Confirm Delivery Button */}
-            <button
-              onClick={handleConfirmDelivery}
-              className="w-full py-4 text-white rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:opacity-90 active:scale-98 transition-all shadow-lg"
-              style={{ backgroundColor: BRAND.curious }}
-            >
-              <IconTruck size={24} />
-              CONFIRM DELIVERY
-            </button>
-          </div>
+            <Button onClick={handleConfirmDelivery} fullWidth size="lg" radius="md" leftSection={<IconTruck size={22} />}>
+              Confirm delivery
+            </Button>
+          </Stack>
         )}
 
         {/* Delivery Confirmed */}
         {!loading && deliveryConfirmed && (
-          <div className="w-full max-w-md text-center">
-            <div className="rounded-3xl p-8 mb-6 shadow-xl" style={{ backgroundColor: BRAND.curious }}>
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
-                <IconTruck size={48} style={{ color: BRAND.curious }} />
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">DELIVERY RECORDED</h1>
-              <p style={{ color: BRAND.linkWater }}>Transaction: {transactionId}</p>
-            </div>
-            <button
-              onClick={() => router.push('/verify/receipt')}
-              className="font-medium"
-              style={{ color: BRAND.curious }}
-            >
+          <Stack w="100%" maw={448} gap="md" ta="center">
+            <Paper withBorder shadow="sm" radius="lg" p="xl">
+              <Stack align="center" gap="xs">
+                <ThemeIcon size={88} radius="xl" variant="light">
+                  <IconTruck size={48} />
+                </ThemeIcon>
+                <Title order={2}>Delivery recorded</Title>
+                <Text c="dimmed">Transaction: {transactionId}</Text>
+              </Stack>
+            </Paper>
+            <Anchor component="button" fw={500} onClick={() => router.push('/verify/receipt')}>
               ← Verify Another
-            </button>
-          </div>
+            </Anchor>
+          </Stack>
         )}
 
-        {/* NOT VERIFIED - Big Red X */}
+        {/* NOT VERIFIED */}
         {!loading && result && !result.verified && (
-          <div className="w-full max-w-md">
-            <div className="bg-red-500 rounded-3xl p-8 text-center mb-6 shadow-xl">
-              <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-4">
-                <IconX size={56} className="text-red-500" strokeWidth={3} />
-              </div>
-              <h1 className="text-3xl font-bold text-white mb-2">NOT VERIFIED</h1>
-              <p className="text-red-100 text-lg">Do NOT release goods</p>
-            </div>
+          <Stack w="100%" maw={448} gap="md">
+            <Paper withBorder shadow="sm" radius="lg" p="xl" ta="center" style={{ borderTop: '4px solid var(--mantine-color-danger-6, var(--mantine-color-red-6))' }}>
+              <Stack align="center" gap="xs">
+                <ThemeIcon size={88} radius="xl" color="danger" variant="light">
+                  <IconX size={52} stroke={3} />
+                </ThemeIcon>
+                <Title order={2} c="danger">Not verified</Title>
+                <Text size="lg" c="dimmed">Do NOT release goods</Text>
+              </Stack>
+            </Paper>
 
-            <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
-              <div className="flex items-start gap-3">
-                <IconAlertTriangle size={24} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <Paper withBorder shadow="sm" radius="lg" p="lg">
+              <Group align="flex-start" gap="sm" wrap="nowrap">
+                <Box c="warning" style={{ display: 'flex', flexShrink: 0 }} mt={2}><IconAlertTriangle size={22} /></Box>
                 <div>
-                  <p className="font-semibold text-gray-900 mb-2">Verification Failed</p>
-                  <p className="text-gray-600 text-sm">{result.error}</p>
-                  <ul className="text-sm text-gray-500 mt-3 space-y-1">
-                    <li>• Ask customer to show wallet receipt</li>
-                    <li>• Re-enter transaction ID carefully</li>
-                    <li>• Contact merchant if issue persists</li>
-                  </ul>
+                  <Text fw={600} mb={6}>Verification Failed</Text>
+                  <Text size="sm" c="dimmed">{result.error}</Text>
+                  <List size="sm" c="dimmed" mt="sm" spacing={4}>
+                    <List.Item>Ask customer to show the receipt in their app</List.Item>
+                    <List.Item>Re-enter transaction ID carefully</List.Item>
+                    <List.Item>Contact merchant if issue persists</List.Item>
+                  </List>
                 </div>
-              </div>
-            </div>
+              </Group>
+            </Paper>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleRefresh}
-                className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium flex items-center justify-center gap-2"
-              >
-                <IconRefresh size={20} />
+            <Group grow gap="sm">
+              <Button variant="default" radius="md" size="md" leftSection={<IconRefresh size={18} />} onClick={handleRefresh}>
                 Retry
-              </button>
-              <button
-                onClick={() => router.push('/verify/receipt')}
-                className="flex-1 py-3 bg-gray-800 text-white rounded-xl font-medium"
-              >
+              </Button>
+              <Button radius="md" size="md" onClick={() => router.push('/verify/receipt')}>
                 New Lookup
-              </button>
-            </div>
-          </div>
+              </Button>
+            </Group>
+          </Stack>
         )}
 
         {/* No Transaction ID */}
         {!loading && !transactionId && (
-          <div className="text-center">
-            <IconReceipt size={64} className="text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 mb-4">No transaction ID provided</p>
-            <button
-              onClick={() => router.push('/verify/receipt')}
-              className="px-6 py-3 bg-primary text-white rounded-xl font-medium"
-            >
+          <Stack align="center" gap="sm">
+            <Box c="dimmed" style={{ display: 'flex' }}><IconReceipt size={64} stroke={1.5} /></Box>
+            <Text c="dimmed">No transaction ID provided</Text>
+            <Button radius="md" onClick={() => router.push('/verify/receipt')}>
               Enter Transaction ID
-            </button>
-          </div>
+            </Button>
+          </Stack>
         )}
 
         {/* Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-xs" style={{ color: BRAND.viking }}>
-            Secured by <span className="font-semibold" style={{ color: BRAND.curious }}>{PRODUCT_NAME}</span>
-          </p>
-          <p className="text-xs text-gray-400 mt-1">{new Date().toLocaleString()}</p>
-        </div>
-      </div>
+        <Stack gap={2} align="center" mt="lg">
+          <Text size="xs" c="dimmed">
+            Secured by <Text span size="xs" fw={600} c="var(--mantine-color-text)">{PRODUCT_NAME}</Text>
+          </Text>
+          <Text size="xs" c="dimmed">{new Date().toLocaleString()}</Text>
+        </Stack>
+      </Stack>
     </Layout>
   )
 }

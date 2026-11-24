@@ -136,9 +136,30 @@ export interface StoreSummary {
   name: string
   phone?: string
   email?: string
+  /** Street address, kept from the store import; the job's location when the office picks the store. */
+  address?: string
+  postcode?: string
+  /** The branch that usually covers this store: the one most of its jobs went to. */
+  branch?: string
   openJobs: number
   totalJobs: number
 }
+
+/** Branches and problem types the office already uses, for the job form's choices. */
+export interface JobChoices {
+  branches: string[]
+  problemTypes: string[]
+}
+
+/** The store, branch, van and site a job is linked to. Empty string or null clears a link. */
+export interface JobLinksInput {
+  storeNumber?: string | null
+  branch?: string | null
+  vanId?: string | null
+  location?: string | null
+}
+
+export const DEFAULT_PROBLEM_TYPES = ['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']
 
 export interface StoreFile {
   store: StoreSummary
@@ -478,7 +499,206 @@ export class OperationsRegisterService {
       if (OPEN_FIELD_JOB_CATEGORIES.has(job.category)) store.openJobs += 1
       stores.set(job.storeNumber, store)
     }
+    const branches = this.storeBranches(orgTenantId, jobs)
+    for (const store of stores.values()) {
+      const branch = branches.get(store.storeNumber)
+      if (branch) store.branch = branch
+    }
     return [...stores.values()].sort((a, b) => a.storeNumber.localeCompare(b.storeNumber, undefined, { numeric: true }))
+  }
+
+  /** Each store's usual branch: the branch most of its live and old-system jobs went to. */
+  private storeBranches(orgTenantId: string, jobs: JobSummary[] = this.listJobs(orgTenantId)): Map<string, string> {
+    const counts = new Map<string, Map<string, number>>()
+    const add = (store: unknown, branch: unknown) => {
+      const storeNumber = normalizeStoreNumber(store)
+      const name = clean(branch, 100)
+      if (!storeNumber || !name) return
+      const perStore = counts.get(storeNumber) || new Map<string, number>()
+      perStore.set(name, (perStore.get(name) || 0) + 1)
+      counts.set(storeNumber, perStore)
+    }
+    for (const job of jobs) add(job.storeNumber, job.branch)
+    for (const item of this.pendingIntakes(orgTenantId)) add(item.storeNumber, item.branch)
+    for (const row of this.historyBranches(orgTenantId)) add(row.storeNumber, row.branch)
+    return new Map(
+      [...counts.entries()].map(([storeNumber, perStore]) => [
+        storeNumber,
+        [...perStore.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
+      ]),
+    )
+  }
+
+  private historyBranches(orgTenantId: string): Array<{ storeNumber?: string; branch?: string }> {
+    try {
+      return this.db
+        .prepare(
+          `SELECT store_number AS storeNumber, json_extract(details_json, '$.branch') AS branch
+             FROM job_history WHERE org_tenant_id = ?`,
+        )
+        .all(orgTenantId) as Array<{ storeNumber?: string; branch?: string }>
+    } catch {
+      return []
+    }
+  }
+
+  private distinctColumn(sql: string, orgTenantId: string): string[] {
+    try {
+      return (this.db.prepare(sql).all(orgTenantId) as Array<{ value?: string }>)
+        .map((row) => clean(row.value, 120))
+        .filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * The branches and problem types this organisation already uses: from its vans, staff, jobs,
+   * old-system history, rate cards and job sheets. Most used first.
+   */
+  public jobChoices(orgTenantId: string): JobChoices {
+    const tally = (values: string[]) => {
+      const counts = new Map<string, { label: string; count: number }>()
+      for (const value of values) {
+        const key = value.toLowerCase()
+        const entry = counts.get(key) || { label: value, count: 0 }
+        entry.count += 1
+        counts.set(key, entry)
+      }
+      return [...counts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)).map((e) => e.label)
+    }
+    const jobs = this.listJobs(orgTenantId)
+    const intakes = this.pendingIntakes(orgTenantId)
+    const branches = tally([
+      ...this.listVans(orgTenantId).map((van) => clean(van.branch, 100)),
+      ...this.distinctColumn(`SELECT branch AS value FROM employees WHERE tenant_id = ?`, orgTenantId),
+      ...jobs.map((job) => clean(job.branch, 100)),
+      ...intakes.map((item) => clean(item.branch, 100)),
+      ...this.historyBranches(orgTenantId).map((row) => clean(row.branch, 100)),
+    ].filter(Boolean))
+    const used = tally([
+      ...this.distinctColumn(`SELECT problem_type AS value FROM org_job_sheets WHERE org_tenant_id = ?`, orgTenantId),
+      ...this.distinctColumn(
+        `SELECT problem_type AS value FROM org_rate_cards WHERE org_tenant_id = ? AND active = 1`,
+        orgTenantId,
+      ),
+      ...jobs.map((job) => clean(job.problemType, 120)),
+      ...this.distinctColumn(`SELECT problem_type AS value FROM job_history WHERE org_tenant_id = ?`, orgTenantId),
+    ].filter(Boolean))
+    const seen = new Set(used.map((value) => value.toLowerCase()))
+    return {
+      branches,
+      problemTypes: [...used, ...DEFAULT_PROBLEM_TYPES.filter((value) => !seen.has(value.toLowerCase()))],
+    }
+  }
+
+  /**
+   * The store a client's email is about: its store number when the email gives one we know, else a
+   * known store number at the start of the subject ("1535 Swadlincote_Signage"), else the store
+   * whose postcode the email mentions.
+   */
+  public matchStore(
+    orgTenantId: string,
+    hints: { storeNumber?: string; subject?: string; text?: string; senderEmail?: string },
+  ): StoreSummary | undefined {
+    const contacts = listContacts(orgTenantId).filter((contact) => contact.storeNumber)
+    if (contacts.length === 0) return undefined
+    const byNumber = new Map(contacts.map((contact) => [contact.storeNumber!, contact]))
+    const pick = (contact?: OrgContact) => {
+      if (!contact) return undefined
+      const store = storeFromContact(contact)
+      const branch = this.storeBranches(orgTenantId).get(store.storeNumber)
+      return branch ? { ...store, branch } : store
+    }
+    const given = normalizeStoreNumber(hints.storeNumber)
+    if (given && byNumber.has(given)) return pick(byNumber.get(given))
+    const sender = String(hints.senderEmail || '').toLowerCase()
+    if (sender) {
+      const bySender = contacts.find((contact) => contact.email?.toLowerCase() === sender)
+      if (bySender) return pick(bySender)
+    }
+    for (const candidate of String(hints.subject || '').match(/\b\d{3,6}\b/g) || []) {
+      const contact = byNumber.get(normalizeStoreNumber(candidate))
+      if (contact) return pick(contact)
+    }
+    const text = `${hints.subject || ''}\n${hints.text || ''}`.toUpperCase().replace(/\s+/g, ' ')
+    const byPostcode = contacts.find((contact) => {
+      const postcode = String(contact.postcode || '').toUpperCase().replace(/\s+/g, ' ').trim()
+      return postcode.length >= 5 && text.includes(postcode)
+    })
+    return pick(byPostcode)
+  }
+
+  /**
+   * Link a job to a store, branch, van and site after it came in, the way a worker is given out.
+   * A finished or cancelled job keeps what it was done with.
+   */
+  public linkJob(orgTenantId: string, jobId: string, changes: JobLinksInput): JobSummary | PendingIntakeSummary {
+    const updates: Record<string, unknown> = {}
+    const removals: string[] = []
+    const set = (key: string, value: string) => {
+      if (value) updates[key] = value
+      else removals.push(key)
+    }
+    if (changes.storeNumber !== undefined) {
+      const storeNumber = normalizeStoreNumber(changes.storeNumber)
+      if (changes.storeNumber && !storeNumber) throw new Error('That store number is not valid.')
+      set('storeNumber', storeNumber)
+      const contact = storeNumber ? findContactByStoreNumber(orgTenantId, storeNumber) : undefined
+      if (contact) updates.clientName = contact.name
+    }
+    if (changes.branch !== undefined) set('branch', clean(changes.branch, 100))
+    if (changes.location !== undefined) set('location', clean(changes.location, 500))
+    if (changes.vanId !== undefined) {
+      const vanId = clean(changes.vanId, 80)
+      if (vanId) {
+        const van = this.getVan(orgTenantId, vanId)
+        if (!van) throw new Error('That van is not on the register.')
+        if (van.status !== 'active') throw new Error(this.vanWarning(van) || 'That van is not available.')
+        updates.vanId = van.id
+        updates.vehicleReference = van.registration
+      } else {
+        removals.push('vanId', 'vehicleReference')
+      }
+    }
+    const apply = (input: Record<string, any>) => {
+      const next = { ...input, ...updates }
+      for (const key of removals) delete next[key]
+      return next
+    }
+
+    const job = this.listJobs(orgTenantId).find((item) => item.runId === jobId)
+    if (job) {
+      if (['completed', 'reconciled', 'cancelled'].includes(job.category)) {
+        throw new Error('A finished or cancelled job keeps the store, branch and van it was done with.')
+      }
+      const row = this.db
+        .prepare('SELECT input, output FROM workflow_runs WHERE id = ? AND tenant_id = ?')
+        .get(jobId, orgTenantId) as { input?: string; output?: string }
+      const input = apply(parse(row.input) || {})
+      const output = parse(row.output)
+      const nextOutput =
+        output && typeof output === 'object' && output.workflowInput && typeof output.workflowInput === 'object'
+          ? { ...output, workflowInput: apply(output.workflowInput) }
+          : output
+      this.db
+        .prepare('UPDATE workflow_runs SET input = ?, output = ? WHERE id = ? AND tenant_id = ?')
+        .run(JSON.stringify(input), nextOutput === undefined ? row.output ?? null : JSON.stringify(nextOutput), jobId, orgTenantId)
+      return this.listJobs(orgTenantId).find((item) => item.runId === jobId)!
+    }
+
+    const intake = this.db
+      .prepare(`SELECT payload_json AS payload FROM job_intakes WHERE id = ? AND tenant_id = ? AND status = 'pending'`)
+      .get(jobId, orgTenantId) as { payload?: string } | undefined
+    if (!intake) throw new Error('Job not found')
+    const payload = apply(parse(intake.payload) || {})
+    this.db
+      .prepare(
+        `UPDATE job_intakes SET payload_json = ?, dedupe_key = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
+      )
+      .run(JSON.stringify(payload), intakeDedupeKey(payload.storeNumber, payload.poNumber) || null, jobId, orgTenantId)
+    return this.pendingIntakes(orgTenantId).find((item) => item.id === jobId)!
   }
 
   public storeFile(orgTenantId: string, rawStoreNumber: string): StoreFile | undefined {
@@ -1145,15 +1365,29 @@ export function intakeDedupeKey(storeNumber: unknown, poNumber: unknown): string
 }
 
 function storeFromContact(contact: OrgContact): StoreSummary {
+  const address = /^Address:\s*(.+)$/im.exec(contact.notes || '')?.[1]?.trim()
   return {
     storeNumber: contact.storeNumber!,
     contactId: contact.id,
     name: contact.name,
     phone: contact.phone,
     email: contact.email,
+    ...(address ? { address: address.slice(0, 400) } : {}),
+    ...(contact.postcode ? { postcode: contact.postcode } : {}),
     openJobs: 0,
     totalJobs: 0,
   }
+}
+
+/** Where a job at this store happens: its address, with the postcode added when it is not already in it. */
+export function storeSiteLocation(store: Pick<StoreSummary, 'address' | 'postcode'>): string | undefined {
+  const address = String(store.address || '').trim()
+  const postcode = String(store.postcode || '').trim()
+  if (!address) return postcode || undefined
+  if (!postcode || address.toUpperCase().replace(/\s/g, '').includes(postcode.toUpperCase().replace(/\s/g, ''))) {
+    return address
+  }
+  return `${address}, ${postcode}`
 }
 
 function parse(value: unknown): any {

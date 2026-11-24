@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { BRAND } from '@/lib/theme';
-import { PlayIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { Button, Group, Paper, Stack, Text, TextInput, Textarea } from '@mantine/core';
+import { IconPlayerPlay } from '@tabler/icons-react';
 
 interface DynamicFormProps {
     schema: any;
@@ -22,79 +22,57 @@ const DynamicForm: React.FC<DynamicFormProps> = ({ schema, onSubmit, isLoading }
 
     if (!schema || !schema.properties) {
         return (
-            <div className="text-center py-8 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                <p style={{ color: BRAND.text }}>No schema definition found.</p>
-            </div>
+            <Paper withBorder radius="md" py="xl" ta="center">
+                <Text>No form fields are set up for this workflow.</Text>
+            </Paper>
         );
     }
 
     return (
-        <form onSubmit={handleSubmit} className="space-y-6">
-            {Object.entries(schema.properties).map(([key, field]: [string, any]) => {
-                const isRequired = schema.required?.includes(key);
+        <form onSubmit={handleSubmit}>
+            <Stack gap="lg">
+                {Object.entries(schema.properties).map(([key, field]: [string, any]) => {
+                    const isRequired = schema.required?.includes(key);
 
-                return (
-                    <div key={key}>
-                        <label htmlFor={key} className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>
-                            {field.title || key} {isRequired && <span className="text-red-500">*</span>}
-                        </label>
-                        <div className="mt-1">
-                            {field.type === 'array' ? (
-                                // Simple JSON input for arrays for now
-                                <textarea
-                                    id={key}
-                                    rows={3}
-                                    className="shadow-sm block w-full sm:text-sm rounded-lg border-gray-300 focus:ring-2"
-                                    style={{ borderColor: BRAND.viking }}
-                                    placeholder="Enter JSON array..."
-                                    onChange={(e) => {
-                                        try {
-                                            handleChange(key, JSON.parse(e.target.value));
-                                        } catch (err) {
-                                            // Ignore parse errors while typing
-                                        }
-                                    }}
-                                />
-                            ) : (
-                                <input
-                                    type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
-                                    id={key}
-                                    required={isRequired}
-                                    className="shadow-sm block w-full sm:text-sm rounded-lg border-gray-300 focus:ring-2"
-                                    style={{ borderColor: BRAND.viking }}
-                                    onChange={(e) => handleChange(key, field.type === 'number' ? Number(e.target.value) : e.target.value)}
-                                />
-                            )}
-                        </div>
-                        {field.description && (
-                            <p className="mt-1.5 text-sm text-gray-500">{field.description}</p>
-                        )}
-                    </div>
-                );
-            })}
+                    return field.type === 'array' ? (
+                        // Simple JSON input for arrays for now
+                        <Textarea
+                            key={key}
+                            id={key}
+                            rows={3}
+                            label={field.title || key}
+                            withAsterisk={isRequired}
+                            description={field.description}
+                            inputWrapperOrder={['label', 'input', 'description', 'error']}
+                            placeholder="Enter JSON array..."
+                            onChange={(e) => {
+                                try {
+                                    handleChange(key, JSON.parse(e.target.value));
+                                } catch (err) {
+                                    // Ignore parse errors while typing
+                                }
+                            }}
+                        />
+                    ) : (
+                        <TextInput
+                            key={key}
+                            type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
+                            id={key}
+                            required={isRequired}
+                            label={field.title || key}
+                            description={field.description}
+                            inputWrapperOrder={['label', 'input', 'description', 'error']}
+                            onChange={(e) => handleChange(key, field.type === 'number' ? Number(e.target.value) : e.target.value)}
+                        />
+                    );
+                })}
 
-            <div className="pt-5">
-                <div className="flex justify-end">
-                    <button
-                        type="submit"
-                        disabled={isLoading}
-                        className="inline-flex items-center gap-2 rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"
-                        style={{ backgroundColor: BRAND.curious }}
-                    >
-                        {isLoading ? (
-                            <>
-                                <ArrowPathIcon className="h-5 w-5 animate-spin" />
-                                Processing...
-                            </>
-                        ) : (
-                            <>
-                                <PlayIcon className="h-5 w-5" />
-                                Execute Workflow
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
+                <Group justify="flex-end" pt="md">
+                    <Button type="submit" loading={isLoading} leftSection={<IconPlayerPlay size={16} />}>
+                        {isLoading ? 'Processing...' : 'Run Workflow'}
+                    </Button>
+                </Group>
+            </Stack>
         </form>
     );
 };

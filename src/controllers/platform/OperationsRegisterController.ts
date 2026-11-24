@@ -16,6 +16,7 @@ import { jobRegisterService } from '../../services/JobRegisterService'
 import {
   VAN_DAILY_CHECKS,
   operationsRegisterService,
+  type JobLinksInput,
   type VanPhotoInput,
   type VanStatus,
 } from '../../services/OperationsRegisterService'
@@ -62,6 +63,34 @@ export class OperationsRegisterController {
   public stores(@Request() request: ExRequest) {
     const principal = principalOf(request, false)
     return { items: operationsRegisterService.listStores(principal.tenantId) }
+  }
+
+  /** Branches and problem types already in use, for the job forms. */
+  @Get('/job-choices')
+  public jobChoices(@Request() request: ExRequest) {
+    const principal = principalOf(request, false)
+    return operationsRegisterService.jobChoices(principal.tenantId)
+  }
+
+  /**
+   * Link a job (booked, or still waiting in intake) to a store, branch, van and site. An empty
+   * value clears that link; a field left out stays as it is.
+   */
+  @Put('/jobs/{jobId}/links')
+  public linkJob(@Request() request: ExRequest, @Path() jobId: string, @Body() body: JobLinksInput) {
+    const principal = principalOf(request, true)
+    for (const [field, max] of [
+      ['storeNumber', 40],
+      ['branch', 100],
+      ['vanId', 80],
+      ['location', 500],
+    ] as const) {
+      const value = body?.[field]
+      if (value !== undefined && value !== null && (typeof value !== 'string' || value.length > max)) {
+        throw new StatusException(`${field} must be text no longer than ${max} characters`, 400)
+      }
+    }
+    return asBadRequest(() => operationsRegisterService.linkJob(principal.tenantId, jobId, body || {}))
   }
 
   @Get('/stores/{storeNumber}')

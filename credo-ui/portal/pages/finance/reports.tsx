@@ -1,28 +1,87 @@
 import { PRODUCT_NAME } from '@/utils/orgProfile'
 import { useState, useEffect, useContext } from 'react';
 import Head from 'next/head';
+import type { ReactNode } from 'react';
 import Layout from '../../components/Layout';
 import axios from 'axios';
-import { BRAND, formatCurrency } from '@/lib/theme';
+import { formatCurrency } from '@/lib/theme';
 import { EnvContext } from '@/pages/_app';
 import QRCode from 'react-qr-code';
 import {
-  ChartBarIcon,
-  ClipboardDocumentListIcon,
-  BanknotesIcon,
-  ArrowPathIcon,
-  DocumentTextIcon,
-  TicketIcon,
-  ClipboardDocumentIcon,
-  DevicePhoneMobileIcon,
-  CalendarIcon,
-  CurrencyDollarIcon,
-} from '@heroicons/react/24/outline';
+  Badge,
+  Box,
+  Button,
+  Center,
+  Divider,
+  Group,
+  Image,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Tabs,
+  Text,
+  TextInput,
+  Title,
+} from '@mantine/core';
+import {
+  IconCalendar,
+  IconChartBar,
+  IconClipboardList,
+  IconCash,
+  IconCopy,
+  IconDeviceMobile,
+  IconFileText,
+  IconSend,
+} from '@tabler/icons-react';
 
 import { useRequireOrgContext } from '@/lib/portalContext';
 import { getOrgScopedToken } from '@/utils/organizationContext';
 import { getPreferredTenantToken } from '@/utils/portalTenant';
 type StatementType = 'income' | 'balance' | 'cashflow';
+
+const POSITIVE = 'var(--mantine-color-success-7, var(--mantine-color-green-7))';
+const NEGATIVE = 'var(--mantine-color-danger-7, var(--mantine-color-red-7))';
+const SUBTLE_BG = 'var(--mantine-color-default-hover)';
+
+const Line = ({ label, value, valueColor, strong, indent = 0, size }: {
+  label: ReactNode;
+  value: ReactNode;
+  valueColor?: string;
+  strong?: boolean;
+  indent?: number | string;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+}) => (
+  <Group justify="space-between" wrap="nowrap" pl={indent} gap="sm">
+    <Text size={size} fw={strong ? 600 : undefined}>{label}</Text>
+    <Text size={size} fw={strong ? 600 : undefined} c={valueColor} style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</Text>
+  </Group>
+);
+
+const Subtotal = ({ label, value, color, bold }: { label: ReactNode; value: ReactNode; color?: string; bold?: boolean }) => (
+  <Box pt={4} mt={4} style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+    <Group justify="space-between" wrap="nowrap">
+      <Text size="sm" fw={bold ? 700 : 600} c={color}>{label}</Text>
+      <Text size="sm" fw={bold ? 700 : 600} c={color} style={{ fontVariantNumeric: 'tabular-nums' }}>{value}</Text>
+    </Group>
+  </Box>
+);
+
+const Highlight = ({ children }: { children: ReactNode }) => (
+  <Paper p="sm" radius="md" bg={SUBTLE_BG}>{children}</Paper>
+);
+
+const ReportCard = ({ icon, title, reference, children }: { icon: ReactNode; title: string; reference?: string; children: ReactNode }) => (
+  <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+    <Group justify="space-between" px="lg" py="sm" bg={SUBTLE_BG} wrap="wrap" gap="xs" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+      <Group gap="xs">
+        <Box c="dimmed" style={{ display: 'flex' }}>{icon}</Box>
+        <Title order={4}>{title}</Title>
+      </Group>
+      {reference && <Badge variant="default" radius="sm" ff="monospace" tt="none">{reference}</Badge>}
+    </Group>
+    <Box p="lg">{children}</Box>
+  </Paper>
+);
 
 const FinanceReports = () => {
   // Org-only surface: personal sessions are redirected (mirrors mobile /finance → /inbox).
@@ -105,452 +164,289 @@ const FinanceReports = () => {
       }
       setOfferUri(response?.data.uri);
     } catch (err: any) {
-      setError(err.message || 'Failed to issue credential');
+      setError(err.message || 'Failed to create signed copy');
     } finally {
       setLoading(false);
     }
   };
 
   const renderIncomeStatement = () => (
-    <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-      <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
-        <div className="flex items-center gap-3">
-          <ChartBarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Income Statement</h2>
-        </div>
-        <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
-      </div>
-      <div className="p-6">
-        <p className="text-sm text-gray-500 mb-4">
-          Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
-        </p>
+    <ReportCard icon={<IconChartBar size={18} />} title="Income Statement" reference={report.statementId}>
+      <Text size="sm" c="dimmed" mb="md">
+        Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
+      </Text>
 
-        <div className="space-y-4">
-          {/* Revenue Section */}
-          <div className="p-3 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-            <div className="flex justify-between text-lg">
-              <span className="font-medium" style={{ color: BRAND.text }}>Revenue</span>
-              <span className="font-bold text-green-700">{formatCurrency(report.revenue)}</span>
-            </div>
-          </div>
+      <Stack gap="sm">
+        {/* Revenue Section */}
+        <Highlight>
+          <Line size="lg" strong label="Revenue" value={formatCurrency(report.revenue)} valueColor={POSITIVE} />
+        </Highlight>
 
-          {/* Cost of Goods Sold */}
-          <div className="flex justify-between pl-4">
-            <span className="text-gray-600">Less: Cost of Goods Sold</span>
-            <span className="text-red-600">({formatCurrency(report.costOfGoodsSold)})</span>
-          </div>
+        {/* Cost of Goods Sold */}
+        <Line indent="md" label={<Text span c="dimmed">Less: Cost of Goods Sold</Text>} value={`(${formatCurrency(report.costOfGoodsSold)})`} valueColor={NEGATIVE} />
 
-          {/* Gross Profit */}
-          <div className="flex justify-between border-t pt-2">
-            <span className="font-medium" style={{ color: BRAND.text }}>Gross Profit</span>
-            <span className="font-semibold">{formatCurrency(report.grossProfit)}</span>
-          </div>
+        {/* Gross Profit */}
+        <Subtotal label="Gross Profit" value={formatCurrency(report.grossProfit)} />
 
-          {/* Operating Expenses */}
-          <div className="flex justify-between pl-4">
-            <span className="text-gray-600">Less: Operating Expenses</span>
-            <span className="text-red-600">({formatCurrency(report.operatingExpenses)})</span>
-          </div>
+        {/* Operating Expenses */}
+        <Line indent="md" label={<Text span c="dimmed">Less: Operating Expenses</Text>} value={`(${formatCurrency(report.operatingExpenses)})`} valueColor={NEGATIVE} />
 
-          {/* Breakdown */}
-          <div className="pl-8 text-sm text-gray-500 space-y-1">
-            <div className="flex justify-between"><span>• Payroll</span><span>{formatCurrency(report.breakdown?.payroll || 0)}</span></div>
-            <div className="flex justify-between"><span>• Operations</span><span>{formatCurrency(report.breakdown?.operations || 0)}</span></div>
-          </div>
+        {/* Breakdown */}
+        <Stack gap={4} pl="xl">
+          <Line size="sm" label={<Text span size="sm" c="dimmed">• Payroll</Text>} value={formatCurrency(report.breakdown?.payroll || 0)} valueColor="dimmed" />
+          <Line size="sm" label={<Text span size="sm" c="dimmed">• Operations</Text>} value={formatCurrency(report.breakdown?.operations || 0)} valueColor="dimmed" />
+        </Stack>
 
-          {/* Operating Income */}
-          <div className="flex justify-between border-t pt-2">
-            <span className="font-medium" style={{ color: BRAND.text }}>Operating Income</span>
-            <span className="font-semibold">{formatCurrency(report.operatingIncome)}</span>
-          </div>
+        {/* Operating Income */}
+        <Subtotal label="Operating Income" value={formatCurrency(report.operatingIncome)} />
 
-          {/* Net Income */}
-          <div className="p-4 rounded-lg mt-4" style={{ backgroundColor: report.netIncome >= 0 ? '#dcfce7' : '#fee2e2' }}>
-            <div className="flex justify-between text-xl">
-              <span className="font-bold">Net Income</span>
-              <span className={`font-bold ${report.netIncome >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                {formatCurrency(report.netIncome)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+        {/* Net Income */}
+        <Paper p="md" radius="md" mt="sm" bg={SUBTLE_BG}>
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="xl" fw={700}>Net Income</Text>
+            <Text size="xl" fw={700} c={report.netIncome >= 0 ? POSITIVE : NEGATIVE}>{formatCurrency(report.netIncome)}</Text>
+          </Group>
+        </Paper>
+      </Stack>
+    </ReportCard>
+  );
+
+  const sectionHeading = (label: string) => (
+    <Text fw={700} size="lg" pb={6} mb="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>{label}</Text>
   );
 
   const renderBalanceSheet = () => (
-    <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-      <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
-        <div className="flex items-center gap-3">
-          <ClipboardDocumentListIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Balance Sheet</h2>
+    <ReportCard icon={<IconClipboardList size={18} />} title="Balance Sheet" reference={report.statementId}>
+      <Text size="sm" c="dimmed" mb="md">As of: {new Date(report.asOfDate).toLocaleDateString()}</Text>
+
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+        {/* Assets */}
+        <div>
+          {sectionHeading('ASSETS')}
+
+          <Box mb="md">
+            <Text fw={500} c="dimmed" mb={6}>Current Assets</Text>
+            <Stack gap={4} pl="md">
+              <Line size="sm" label="Cash" value={formatCurrency(report.cash)} />
+              <Line size="sm" label="Accounts Receivable" value={formatCurrency(report.accountsReceivable)} />
+              <Line size="sm" label="Inventory" value={formatCurrency(report.inventory)} />
+            </Stack>
+            <Subtotal label="Total Current Assets" value={formatCurrency(report.currentAssets)} />
+          </Box>
+
+          <Box mb="md">
+            <Text fw={500} c="dimmed" mb={6}>Non-Current Assets</Text>
+            <Stack gap={4} pl="md">
+              <Line size="sm" label="Property, Plant & Equipment" value={formatCurrency(report.propertyPlantEquipment)} />
+            </Stack>
+            <Subtotal label="Total Non-Current Assets" value={formatCurrency(report.nonCurrentAssets)} />
+          </Box>
+
+          <Highlight>
+            <Line size="lg" strong label={<Text span fw={700} size="lg">TOTAL ASSETS</Text>} value={<Text span fw={700} size="lg">{formatCurrency(report.totalAssets)}</Text>} />
+          </Highlight>
         </div>
-        <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
-      </div>
-      <div className="p-6">
-        <p className="text-sm text-gray-500 mb-4">As of: {new Date(report.asOfDate).toLocaleDateString()}</p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Assets */}
-          <div>
-            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.text, borderColor: BRAND.viking }}>ASSETS</h3>
+        {/* Liabilities & Equity */}
+        <div>
+          {sectionHeading('LIABILITIES & EQUITY')}
 
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-600 mb-2">Current Assets</h4>
-              <div className="pl-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Cash</span><span>{formatCurrency(report.cash)}</span></div>
-                <div className="flex justify-between"><span>Accounts Receivable</span><span>{formatCurrency(report.accountsReceivable)}</span></div>
-                <div className="flex justify-between"><span>Inventory</span><span>{formatCurrency(report.inventory)}</span></div>
-              </div>
-              <div className="flex justify-between mt-2 pt-1 border-t font-medium">
-                <span>Total Current Assets</span>
-                <span>{formatCurrency(report.currentAssets)}</span>
-              </div>
-            </div>
+          <Box mb="md">
+            <Text fw={500} c="dimmed" mb={6}>Current Liabilities</Text>
+            <Stack gap={4} pl="md">
+              <Line size="sm" label="Accounts Payable" value={formatCurrency(report.accountsPayable)} />
+              <Line size="sm" label="Short-Term Debt" value={formatCurrency(report.shortTermDebt)} />
+            </Stack>
+            <Subtotal label="Total Current Liabilities" value={formatCurrency(report.currentLiabilities)} />
+          </Box>
 
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-600 mb-2">Non-Current Assets</h4>
-              <div className="pl-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Property, Plant & Equipment</span><span>{formatCurrency(report.propertyPlantEquipment)}</span></div>
-              </div>
-              <div className="flex justify-between mt-2 pt-1 border-t font-medium">
-                <span>Total Non-Current Assets</span>
-                <span>{formatCurrency(report.nonCurrentAssets)}</span>
-              </div>
-            </div>
+          <Box mb="md">
+            <Text fw={500} c="dimmed" mb={6}>Non-Current Liabilities</Text>
+            <Stack gap={4} pl="md">
+              <Line size="sm" label="Long-Term Debt" value={formatCurrency(report.longTermDebt)} />
+            </Stack>
+            <Subtotal label="Total Non-Current Liabilities" value={formatCurrency(report.nonCurrentLiabilities)} />
+          </Box>
 
-            <div className="p-3 rounded-lg font-bold text-lg" style={{ backgroundColor: BRAND.linkWater }}>
-              <div className="flex justify-between">
-                <span style={{ color: BRAND.text }}>TOTAL ASSETS</span>
-                <span style={{ color: BRAND.curious }}>{formatCurrency(report.totalAssets)}</span>
-              </div>
-            </div>
-          </div>
+          <Paper withBorder p="sm" radius="md" mb="md">
+            <Text fw={500} mb={6}>Equity</Text>
+            <Stack gap={4} pl="md">
+              <Line size="sm" label="Share Capital" value={formatCurrency(report.shareCapital)} />
+              <Line size="sm" label="Retained Earnings" value={formatCurrency(report.retainedEarnings)} />
+            </Stack>
+            <Subtotal bold label="Total Equity" value={formatCurrency(report.totalEquity)} />
+          </Paper>
 
-          {/* Liabilities & Equity */}
-          <div>
-            <h3 className="font-bold text-lg mb-3 pb-2 border-b" style={{ color: BRAND.text, borderColor: BRAND.viking }}>LIABILITIES & EQUITY</h3>
-
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-600 mb-2">Current Liabilities</h4>
-              <div className="pl-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Accounts Payable</span><span>{formatCurrency(report.accountsPayable)}</span></div>
-                <div className="flex justify-between"><span>Short-Term Debt</span><span>{formatCurrency(report.shortTermDebt)}</span></div>
-              </div>
-              <div className="flex justify-between mt-2 pt-1 border-t font-medium">
-                <span>Total Current Liabilities</span>
-                <span>{formatCurrency(report.currentLiabilities)}</span>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <h4 className="font-medium text-gray-600 mb-2">Non-Current Liabilities</h4>
-              <div className="pl-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Long-Term Debt</span><span>{formatCurrency(report.longTermDebt)}</span></div>
-              </div>
-              <div className="flex justify-between mt-2 pt-1 border-t font-medium">
-                <span>Total Non-Current Liabilities</span>
-                <span>{formatCurrency(report.nonCurrentLiabilities)}</span>
-              </div>
-            </div>
-
-            <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: '#fef3c7' }}>
-              <h4 className="font-medium mb-2">Equity</h4>
-              <div className="pl-4 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Share Capital</span><span>{formatCurrency(report.shareCapital)}</span></div>
-                <div className="flex justify-between"><span>Retained Earnings</span><span>{formatCurrency(report.retainedEarnings)}</span></div>
-              </div>
-              <div className="flex justify-between mt-2 pt-1 border-t font-bold">
-                <span>Total Equity</span>
-                <span>{formatCurrency(report.totalEquity)}</span>
-              </div>
-            </div>
-
-            <div className="p-3 rounded-lg font-bold text-lg" style={{ backgroundColor: BRAND.linkWater }}>
-              <div className="flex justify-between">
-                <span style={{ color: BRAND.text }}>TOTAL L + E</span>
-                <span style={{ color: BRAND.curious }}>{formatCurrency(report.totalLiabilities + report.totalEquity)}</span>
-              </div>
-            </div>
-          </div>
+          <Highlight>
+            <Line size="lg" strong label={<Text span fw={700} size="lg">TOTAL L + E</Text>} value={<Text span fw={700} size="lg">{formatCurrency(report.totalLiabilities + report.totalEquity)}</Text>} />
+          </Highlight>
         </div>
-      </div>
-    </div>
+      </SimpleGrid>
+    </ReportCard>
   );
+
+  const signColor = (value: number) => (value >= 0 ? POSITIVE : NEGATIVE);
 
   const renderCashFlowStatement = () => (
-    <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-      <div className="px-6 py-4 flex justify-between items-center" style={{ backgroundColor: BRAND.linkWater }}>
-        <div className="flex items-center gap-3">
-          <BanknotesIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-          <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>Cash Flow Statement</h2>
+    <ReportCard icon={<IconCash size={18} />} title="Cash Flow Statement" reference={report.statementId}>
+      <Text size="sm" c="dimmed" mb="md">
+        Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
+      </Text>
+
+      <Stack gap="lg">
+        {/* Operating Activities */}
+        <div>
+          <Text fw={700} mb={6}>Operating Activities</Text>
+          <Stack gap={4} pl="md">
+            <Line size="sm" label="Net Income" value={formatCurrency(report.netIncome)} />
+            <Line size="sm" label="Add: Depreciation" value={formatCurrency(report.depreciation)} />
+            <Line size="sm" label="Changes in Working Capital" value={formatCurrency(report.changesInWorkingCapital)} />
+          </Stack>
+          <Box pl="md"><Subtotal label="Cash from Operations" value={formatCurrency(report.cashFromOperations)} color={signColor(report.cashFromOperations)} /></Box>
         </div>
-        <span className="text-xs font-mono px-2 py-1 rounded" style={{ backgroundColor: 'white', color: BRAND.curious }}>{report.statementId}</span>
-      </div>
-      <div className="p-6">
-        <p className="text-sm text-gray-500 mb-4">
-          Period: {new Date(report.periodStart).toLocaleDateString()} - {new Date(report.periodEnd).toLocaleDateString()}
-        </p>
 
-        <div className="space-y-6">
-          {/* Operating Activities */}
-          <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Operating Activities</h3>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between"><span>Net Income</span><span>{formatCurrency(report.netIncome)}</span></div>
-              <div className="flex justify-between"><span>Add: Depreciation</span><span>{formatCurrency(report.depreciation)}</span></div>
-              <div className="flex justify-between"><span>Changes in Working Capital</span><span>{formatCurrency(report.changesInWorkingCapital)}</span></div>
-            </div>
-            <div className="flex justify-between mt-2 pt-1 border-t font-medium pl-4" style={{ color: report.cashFromOperations >= 0 ? 'green' : 'red' }}>
-              <span>Cash from Operations</span>
-              <span>{formatCurrency(report.cashFromOperations)}</span>
-            </div>
-          </div>
-
-          {/* Investing Activities */}
-          <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Investing Activities</h3>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between"><span>Capital Expenditures</span><span className="text-red-600">({formatCurrency(Math.abs(report.capitalExpenditures))})</span></div>
-              <div className="flex justify-between"><span>Asset Sales</span><span>{formatCurrency(report.assetSales)}</span></div>
-            </div>
-            <div className="flex justify-between mt-2 pt-1 border-t font-medium pl-4" style={{ color: report.cashFromInvesting >= 0 ? 'green' : 'red' }}>
-              <span>Cash from Investing</span>
-              <span>{formatCurrency(report.cashFromInvesting)}</span>
-            </div>
-          </div>
-
-          {/* Financing Activities */}
-          <div>
-            <h3 className="font-bold mb-2" style={{ color: BRAND.text }}>Financing Activities</h3>
-            <div className="pl-4 space-y-1 text-sm">
-              <div className="flex justify-between"><span>Debt Proceeds</span><span>{formatCurrency(report.debtProceeds)}</span></div>
-              <div className="flex justify-between"><span>Debt Repayments</span><span className="text-red-600">({formatCurrency(Math.abs(report.debtRepayments))})</span></div>
-              <div className="flex justify-between"><span>Dividends Paid</span><span className="text-red-600">({formatCurrency(Math.abs(report.dividendsPaid))})</span></div>
-            </div>
-            <div className="flex justify-between mt-2 pt-1 border-t font-medium pl-4" style={{ color: report.cashFromFinancing >= 0 ? 'green' : 'red' }}>
-              <span>Cash from Financing</span>
-              <span>{formatCurrency(report.cashFromFinancing)}</span>
-            </div>
-          </div>
-
-          {/* Summary */}
-          <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-            <div className="flex justify-between mb-2">
-              <span className="font-medium" style={{ color: BRAND.text }}>Beginning Cash</span>
-              <span>{formatCurrency(report.beginningCash)}</span>
-            </div>
-            <div className="flex justify-between mb-2 text-lg" style={{ color: report.netCashFlow >= 0 ? 'green' : 'red' }}>
-              <span className="font-bold">Net Cash Flow</span>
-              <span className="font-bold">{formatCurrency(report.netCashFlow)}</span>
-            </div>
-            <div className="flex justify-between text-xl pt-2 border-t" style={{ borderColor: BRAND.curious }}>
-              <span className="font-bold" style={{ color: BRAND.text }}>Ending Cash</span>
-              <span className="font-bold" style={{ color: BRAND.curious }}>{formatCurrency(report.endingCash)}</span>
-            </div>
-          </div>
+        {/* Investing Activities */}
+        <div>
+          <Text fw={700} mb={6}>Investing Activities</Text>
+          <Stack gap={4} pl="md">
+            <Line size="sm" label="Capital Expenditures" value={`(${formatCurrency(Math.abs(report.capitalExpenditures))})`} valueColor={NEGATIVE} />
+            <Line size="sm" label="Asset Sales" value={formatCurrency(report.assetSales)} />
+          </Stack>
+          <Box pl="md"><Subtotal label="Cash from Investing" value={formatCurrency(report.cashFromInvesting)} color={signColor(report.cashFromInvesting)} /></Box>
         </div>
-      </div>
-    </div>
+
+        {/* Financing Activities */}
+        <div>
+          <Text fw={700} mb={6}>Financing Activities</Text>
+          <Stack gap={4} pl="md">
+            <Line size="sm" label="Debt Proceeds" value={formatCurrency(report.debtProceeds)} />
+            <Line size="sm" label="Debt Repayments" value={`(${formatCurrency(Math.abs(report.debtRepayments))})`} valueColor={NEGATIVE} />
+            <Line size="sm" label="Dividends Paid" value={`(${formatCurrency(Math.abs(report.dividendsPaid))})`} valueColor={NEGATIVE} />
+          </Stack>
+          <Box pl="md"><Subtotal label="Cash from Financing" value={formatCurrency(report.cashFromFinancing)} color={signColor(report.cashFromFinancing)} /></Box>
+        </div>
+
+        {/* Summary */}
+        <Paper p="md" radius="md" bg={SUBTLE_BG}>
+          <Stack gap="xs">
+            <Line strong label="Beginning Cash" value={formatCurrency(report.beginningCash)} />
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="lg" fw={700} c={signColor(report.netCashFlow)}>Net Cash Flow</Text>
+              <Text size="lg" fw={700} c={signColor(report.netCashFlow)}>{formatCurrency(report.netCashFlow)}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="xl" fw={700}>Ending Cash</Text>
+              <Text size="xl" fw={700}>{formatCurrency(report.endingCash)}</Text>
+            </Group>
+          </Stack>
+        </Paper>
+      </Stack>
+    </ReportCard>
   );
+
+  const statementName = activeTab === 'income' ? 'income statement' : activeTab === 'balance' ? 'balance sheet' : 'cash flow statement';
 
   return (
     <Layout>
       <Head>
         <title>{`Financial Statements | ${PRODUCT_NAME} Portal`}</title>
       </Head>
-      <div className="px-4 sm:px-6 lg:px-8 py-6">
+      <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
         {/* Header */}
-        <div className="sm:flex sm:items-center sm:justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Financial Statements</h1>
-            <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Generate verifiable financial reports with SSI credentials</p>
-          </div>
+        <div>
+          <Title order={2}>Financial Statements</Title>
+          <Text size="sm" c="dimmed" mt={4}>Generate income statements, balance sheets and cash flow reports, and share signed copies.</Text>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3 mb-8">
-          {[
-            { label: 'Income Statement', desc: 'Revenue & Expenses', icon: <ChartBarIcon className="h-6 w-6" /> },
-            { label: 'Balance Sheet', desc: 'Assets & Liabilities', icon: <ClipboardDocumentListIcon className="h-6 w-6" /> },
-            { label: 'Cash Flow', desc: 'Operating & Financing', icon: <BanknotesIcon className="h-6 w-6" /> },
-          ].map((stat, idx) => (
-            <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
-              <dt>
-                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
-                  <span className="text-white">{stat.icon}</span>
-                </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
-              </dt>
-              <dd className="ml-16 flex items-baseline">
-                <p className="text-sm text-gray-500">{stat.desc}</p>
-              </dd>
-            </div>
-          ))}
-        </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex flex-wrap gap-6">
-            {[
-              { key: 'income' as StatementType, label: 'Income Statement', icon: <ChartBarIcon className="h-5 w-5" /> },
-              { key: 'balance' as StatementType, label: 'Balance Sheet', icon: <ClipboardDocumentListIcon className="h-5 w-5" /> },
-              { key: 'cashflow' as StatementType, label: 'Cash Flow', icon: <BanknotesIcon className="h-5 w-5" /> },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => { setActiveTab(tab.key); setReport(null); setOfferUri(null); }}
-                className="group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors"
-                style={{
-                  borderColor: activeTab === tab.key ? BRAND.curious : 'transparent',
-                  color: activeTab === tab.key ? BRAND.curious : '#6B7280'
-                }}
-              >
-                {tab.icon}<span className="ml-2">{tab.label}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
+        <Tabs
+          value={activeTab}
+          onChange={(value) => {
+            if (!value) return;
+            setActiveTab(value as StatementType);
+            setReport(null);
+            setOfferUri(null);
+          }}
+        >
+          <Tabs.List>
+            <Tabs.Tab value="income" leftSection={<IconChartBar size={16} />}>Income Statement</Tabs.Tab>
+            <Tabs.Tab value="balance" leftSection={<IconClipboardList size={16} />}>Balance Sheet</Tabs.Tab>
+            <Tabs.Tab value="cashflow" leftSection={<IconCash size={16} />}>Cash Flow</Tabs.Tab>
+          </Tabs.List>
+        </Tabs>
 
         {/* Date Selection */}
-        <div className="rounded-xl shadow-sm overflow-hidden mb-6" style={{ backgroundColor: 'white' }}>
-          <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-            <div className="flex items-center gap-3">
-              <CalendarIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-              <h2 className="text-lg font-semibold" style={{ color: BRAND.text }}>
-                {activeTab === 'balance' ? 'Select Date' : 'Select Period'}
-              </h2>
-            </div>
-          </div>
-          <div className="p-6">
-            <div className="flex gap-4 items-end flex-wrap">
-              {activeTab !== 'balance' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Start Date</label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
-                      style={{ borderColor: BRAND.viking }}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>End Date</label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
-                      style={{ borderColor: BRAND.viking }}
-                    />
-                  </div>
-                </>
-              )}
-              {activeTab === 'balance' && (
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>As of Date</label>
-                  <input
-                    type="date"
-                    value={asOfDate}
-                    onChange={(e) => setAsOfDate(e.target.value)}
-                    className="rounded-lg border-gray-300 shadow-sm focus:ring-2"
-                    style={{ borderColor: BRAND.viking }}
-                  />
-                </div>
-              )}
-              <button
-                onClick={fetchReport}
-                disabled={loading}
-                className="inline-flex items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"
-                style={{ backgroundColor: BRAND.curious }}
-              >
-                {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : <DocumentTextIcon className="h-5 w-5" />}
-                {loading ? 'Loading...' : 'Generate Report'}
-              </button>
-            </div>
-            {error && <p className="text-red-500 mt-4 text-sm">{error}</p>}
-          </div>
-        </div>
+        <ReportCard icon={<IconCalendar size={18} />} title={activeTab === 'balance' ? 'Select Date' : 'Select Period'}>
+          <Group align="flex-end" gap="md" wrap="wrap">
+            {activeTab !== 'balance' && (
+              <>
+                <TextInput type="date" label="Start Date" value={startDate} onChange={(e) => setStartDate(e.currentTarget.value)} />
+                <TextInput type="date" label="End Date" value={endDate} onChange={(e) => setEndDate(e.currentTarget.value)} />
+              </>
+            )}
+            {activeTab === 'balance' && (
+              <TextInput type="date" label="As of Date" value={asOfDate} onChange={(e) => setAsOfDate(e.currentTarget.value)} />
+            )}
+            <Button onClick={fetchReport} loading={loading} leftSection={<IconFileText size={16} />}>
+              Generate Report
+            </Button>
+          </Group>
+          {error && <Text c="red" size="sm" mt="md">{error}</Text>}
+        </ReportCard>
 
         {/* Report Display */}
         {report && (
-          <div className="space-y-6">
+          <Stack gap="lg">
             {activeTab === 'income' && renderIncomeStatement()}
             {activeTab === 'balance' && renderBalanceSheet()}
             {activeTab === 'cashflow' && renderCashFlowStatement()}
 
-            {/* VC Issuance */}
-            <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-              <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                <div className="flex items-center gap-3">
-                  <TicketIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Issue Verifiable Credential</h3>
-                </div>
-              </div>
-              <div className="p-6">
-                {!offerUri ? (
-                  <button
-                    onClick={issueCredential}
-                    disabled={loading}
-                    className="inline-flex items-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md disabled:opacity-50"
-                    style={{ backgroundColor: BRAND.dark }}
-                  >
-                    <CurrencyDollarIcon className="h-5 w-5" />
-                    Issue {activeTab === 'income' ? 'IncomeStatementVC' : activeTab === 'balance' ? 'BalanceSheetVC' : 'CashFlowVC'}
-                  </button>
-                ) : (
-                  <div className="flex justify-center">
-                    <div className="shadow-2xl rounded-xl p-8 bg-white max-w-md w-full text-center">
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        Claim Your Credential
-                      </h3>
-                      <p className="text-sm text-gray-600 mb-6">
-                        Scan the QR code or open in your wallet
-                      </p>
-                      <div className="flex justify-center mb-6">
-                        <QRCode
-                          className="h-full max-h-[200px]"
-                          value={offerUri}
-                          viewBox="0 0 256 256"
-                        />
+            {/* Signed copy */}
+            <ReportCard icon={<IconSend size={18} />} title="Share a signed copy">
+              {!offerUri ? (
+                <Button onClick={issueCredential} disabled={loading} variant="default" leftSection={<IconSend size={16} />}>
+                  Create signed {statementName}
+                </Button>
+              ) : (
+                <Center>
+                  <Paper withBorder shadow="sm" radius="md" p="xl" maw={420} w="100%">
+                    <Stack gap="md" align="stretch" ta="center">
+                      <div>
+                        <Title order={4}>Save this {statementName}</Title>
+                        <Text size="sm" c="dimmed" mt={4}>Scan the QR code or open it in the {PRODUCT_NAME} app</Text>
                       </div>
-                      <div className="flex flex-col gap-3">
-                        <a
-                          href={offerUri}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md"
-                          style={{ backgroundColor: BRAND.curious }}
-                        >
-                          <DevicePhoneMobileIcon className="h-5 w-5" />
-                          Open in Wallet
-                        </a>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(offerUri);
-                            alert('Offer link copied!');
-                          }}
-                          className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium border transition-colors hover:bg-gray-50"
-                          style={{ borderColor: BRAND.curious, color: BRAND.curious }}
-                        >
-                          <ClipboardDocumentIcon className="h-5 w-5" />
-                          Copy offer URL
-                        </button>
-                      </div>
-                      <div className="flex flex-col items-center mt-8 pt-6 border-t">
-                        <div className="flex flex-row gap-2 items-center text-sm" style={{ color: '#7B8794' }}>
-                          <p>Secured by {PRODUCT_NAME}</p>
-                          <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+                      <Center p="md" bg="white" style={{ borderRadius: 'var(--mantine-radius-md)' }}>
+                        <QRCode value={offerUri} size={200} viewBox="0 0 256 256" />
+                      </Center>
+                      <Button component="a" href={offerUri} leftSection={<IconDeviceMobile size={16} />}>
+                        Open in app
+                      </Button>
+                      <Button
+                        variant="default"
+                        leftSection={<IconCopy size={16} />}
+                        onClick={() => {
+                          navigator.clipboard.writeText(offerUri);
+                          alert('Offer link copied!');
+                        }}
+                      >
+                        Copy link
+                      </Button>
+                      <Divider />
+                      <Group justify="center" gap="xs">
+                        <Text size="sm" c="dimmed">Secured by {PRODUCT_NAME}</Text>
+                        <Image src="/brand-logo.svg" alt={PRODUCT_NAME} h={15} w="auto" />
+                      </Group>
+                    </Stack>
+                  </Paper>
+                </Center>
+              )}
+            </ReportCard>
+          </Stack>
         )}
-      </div>
+      </Stack>
     </Layout>
   );
 };

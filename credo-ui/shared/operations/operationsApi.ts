@@ -77,8 +77,35 @@ export interface StoreSummary {
   name: string
   phone?: string
   email?: string
+  address?: string
+  postcode?: string
+  /** The branch that usually covers this store. */
+  branch?: string
   openJobs: number
   totalJobs: number
+}
+
+/** Branches and problem types already in use, most used first. */
+export interface JobChoices {
+  branches: string[]
+  problemTypes: string[]
+}
+
+/** The store, branch, van and site a job is linked to. An empty value clears the link. */
+export interface JobLinksInput {
+  storeNumber?: string | null
+  branch?: string | null
+  vanId?: string | null
+  location?: string | null
+}
+
+/** One line for a store's site: address and postcode. */
+export function storeSite(store?: Pick<StoreSummary, 'address' | 'postcode'> | null): string {
+  if (!store) return ''
+  const address = store.address?.trim() || ''
+  const postcode = store.postcode?.trim() || ''
+  if (address && postcode && address.toUpperCase().includes(postcode.toUpperCase())) return address
+  return [address, postcode].filter(Boolean).join(', ')
 }
 
 export interface StoreFile {
@@ -491,6 +518,12 @@ export function operationsApi(backend: string, token: string | null | undefined)
   }
   return {
     stores: () => call<{ items: StoreSummary[] }>(`${base}/stores`).then((data) => data.items),
+    jobChoices: () => call<JobChoices>(`${base}/job-choices`),
+    linkJob: (jobId: string, links: JobLinksInput) =>
+      call<JobSummary | PendingIntakeSummary>(`${base}/jobs/${encodeURIComponent(jobId)}/links`, {
+        method: 'PUT',
+        body: links,
+      }),
     storeFile: (storeNumber: string) => call<StoreFile>(`${base}/stores/${encodeURIComponent(storeNumber)}`),
     saveStore: (input: { contactId?: string; name: string; phone?: string; email?: string; storeNumber: string }) =>
       input.contactId

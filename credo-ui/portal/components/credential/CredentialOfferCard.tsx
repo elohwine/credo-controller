@@ -1,8 +1,20 @@
 import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useState } from 'react';
 import QRCode from 'react-qr-code';
-import { DevicePhoneMobileIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
-import { BRAND } from '@/lib/theme';
+import {
+    Anchor,
+    Box,
+    Button,
+    Collapse,
+    Divider,
+    Group,
+    Paper,
+    Stack,
+    Text,
+    TextInput,
+    Title,
+} from '@mantine/core';
+import { IconClipboard, IconDeviceMobile } from '@tabler/icons-react';
 
 interface CredentialOfferCardProps {
     /** The credential offer URI for QR code */
@@ -26,22 +38,26 @@ interface CredentialOfferCardProps {
     compact?: boolean;
 }
 
-const BUTTON_COPY_TEXT_DEFAULT = 'Copy offer URL';
+const BUTTON_COPY_TEXT_DEFAULT = 'Copy link';
 const BUTTON_COPY_TEXT_COPIED = 'Copied!';
 
+function FinanceRow({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
+    return (
+        <Group justify="space-between" wrap="nowrap">
+            <Text size="sm" c={strong ? undefined : 'dimmed'} fw={strong ? 700 : undefined}>
+                {label}
+            </Text>
+            <Text size="sm" ff="monospace" fw={strong ? 700 : undefined}>
+                {value}
+            </Text>
+        </Group>
+    );
+}
+
 /**
- * Unified Credential Offer Card Component
- * 
- * Displays credential offers consistently across all issuance flows:
- * - GenericVC issuance
- * - Quote/Invoice/Receipt workflows
- * - Any other VC issuance
- * 
- * Features:
- * - QR code display
- * - Copy to clipboard
- * - Open in web wallet
- * - Optional finance calculation display
+ * Unified offer card shown by every issuance flow (generic documents,
+ * quote/invoice/receipt workflows): QR code, copy link, open on this device
+ * and an optional finance calculation summary.
  */
 export default function CredentialOfferCard({
     offerUri,
@@ -54,106 +70,101 @@ export default function CredentialOfferCard({
 }: CredentialOfferCardProps) {
     const [copyText, setCopyText] = useState(BUTTON_COPY_TEXT_DEFAULT);
     const [copyError, setCopyError] = useState<string | null>(null);
+    const [showLink, setShowLink] = useState(false);
+    const link = deepLink || offerUri;
 
     const handleCopy = async () => {
         try {
             setCopyError(null);
-            await navigator.clipboard.writeText(deepLink || offerUri);
+            await navigator.clipboard.writeText(link);
             setCopyText(BUTTON_COPY_TEXT_COPIED);
             setTimeout(() => setCopyText(BUTTON_COPY_TEXT_DEFAULT), 3000);
         } catch (err) {
-            setCopyError('Could not copy the offer URL. Select and copy the link below.');
+            setCopyError('Could not copy the link. Select and copy it below.');
         }
     };
 
     return (
-        <div className={`shadow-2xl rounded-xl p-8 bg-white ${compact ? 'max-w-sm' : 'max-w-md'} mx-auto text-center`}>
-            {/* Header */}
-            <h3 className="text-xl font-bold text-gray-900 mb-2">
+        <Paper shadow="md" radius="lg" p="xl" withBorder maw={compact ? 384 : 448} mx="auto" ta="center">
+            <Title order={3} mb={4}>
                 {credentialType}
-            </h3>
-            <p className="text-sm text-gray-600 mb-6">
-                Scan the QR code or open in your wallet
-            </p>
+            </Title>
+            <Text size="sm" c="dimmed" mb="lg">
+                Scan the QR code with your phone, or open the link on this device
+            </Text>
 
-            {/* QR Code */}
-            <div className="flex justify-center mb-6">
-                <QRCode
-                    className="h-full max-h-[200px]"
-                    value={deepLink || offerUri}
-                    viewBox="0 0 256 256"
-                />
-            </div>
+            {/* White backing keeps the QR code scannable in dark mode. */}
+            <Group justify="center" mb="lg">
+                <Box bg="white" p="sm" style={{ borderRadius: 'var(--mantine-radius-md)', lineHeight: 0 }}>
+                    <QRCode value={link} viewBox="0 0 256 256" style={{ height: 200, width: 200 }} />
+                </Box>
+            </Group>
 
-            {/* Finance Result (for Quote/Invoice/Receipt) */}
             {financeResult && (
-                <div className="rounded-lg p-4 mb-6" style={{ backgroundColor: BRAND.linkWater }}>
-                    <h4 className="text-sm font-semibold mb-2" style={{ color: BRAND.text }}>Calculation</h4>
-                    <dl className="space-y-1 text-sm">
-                        {financeResult.subtotal && (
-                            <div className="flex justify-between">
-                                <dt className="text-gray-600">Subtotal:</dt>
-                                <dd className="font-mono">{financeResult.subtotal}</dd>
-                            </div>
-                        )}
-                        {financeResult.taxAmount && (
-                            <div className="flex justify-between">
-                                <dt className="text-gray-600">Tax:</dt>
-                                <dd className="font-mono">{financeResult.taxAmount}</dd>
-                            </div>
-                        )}
+                <Paper p="md" radius="md" mb="lg" ta="left" bg="var(--mantine-color-default-hover)">
+                    <Text size="sm" fw={600} mb="xs">
+                        Calculation
+                    </Text>
+                    <Stack gap={4}>
+                        {financeResult.subtotal && <FinanceRow label="Subtotal:" value={financeResult.subtotal} />}
+                        {financeResult.taxAmount && <FinanceRow label="Tax:" value={financeResult.taxAmount} />}
                         {financeResult.discountAmount && (
-                            <div className="flex justify-between">
-                                <dt className="text-gray-600">Discount:</dt>
-                                <dd className="font-mono" style={{ color: BRAND.curious }}>-{financeResult.discountAmount}</dd>
-                            </div>
+                            <FinanceRow label="Discount:" value={`-${financeResult.discountAmount}`} />
                         )}
                         {financeResult.grandTotal && (
-                            <div className="flex justify-between font-bold border-t pt-2 mt-2">
-                                <dt style={{ color: BRAND.text }}>Total:</dt>
-                                <dd className="font-mono" style={{ color: BRAND.text }}>{financeResult.grandTotal}</dd>
-                            </div>
+                            <>
+                                <Divider my={4} />
+                                <FinanceRow label="Total:" value={financeResult.grandTotal} strong />
+                            </>
                         )}
-                    </dl>
-                </div>
+                    </Stack>
+                </Paper>
             )}
 
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-3 mb-6">
-                <a
-                    href={deepLink || offerUri}
+            <Stack gap="sm" mb="lg">
+                <Button
+                    component="a"
+                    href={link}
                     onClick={() => onOpenWallet?.()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium text-white transition-all hover:shadow-md"
-                    style={{ backgroundColor: BRAND.curious }}
+                    size="md"
+                    leftSection={<IconDeviceMobile size={20} />}
                 >
-                    <DevicePhoneMobileIcon className="h-5 w-5" />
-                    Open in Wallet
-                </a>
-                <button
-                    onClick={handleCopy}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-medium border transition-colors hover:bg-gray-50"
-                    style={{ borderColor: BRAND.curious, color: BRAND.curious }}
-                >
-                    <ClipboardDocumentIcon className="h-5 w-5" />
+                    Open on this device
+                </Button>
+                <Button variant="default" size="md" onClick={handleCopy} leftSection={<IconClipboard size={20} />}>
                     {copyText}
-                </button>
-            </div>
-            {copyError && <p role="alert" className="text-sm text-red-700 mb-3">{copyError}</p>}
-            <details open={copyError ? true : undefined} className="text-left text-sm text-gray-600 mb-4">
-                <summary className="cursor-pointer">Show offer URL</summary>
-                <label>
-                    Offer URL
-                    <input readOnly value={deepLink || offerUri} className="w-full border rounded-md p-2 mt-1 text-sm" />
-                </label>
-            </details>
+                </Button>
+            </Stack>
 
-            {/* Credentis Footer */}
-            <div className="flex flex-col items-center pt-6 border-t">
-                <div className="flex flex-row gap-2 items-center text-sm" style={{ color: '#7B8794' }}>
-                    <p>Secured by {PRODUCT_NAME}</p>
-                    <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
-                </div>
-            </div>
-        </div>
+            {copyError && (
+                <Text role="alert" size="sm" c="red" mb="sm">
+                    {copyError}
+                </Text>
+            )}
+
+            <Box ta="left" mb="md">
+                <Anchor component="button" type="button" size="sm" c="dimmed" onClick={() => setShowLink((v) => !v)}>
+                    {showLink || copyError ? 'Hide link' : 'Show link'}
+                </Anchor>
+                <Collapse expanded={showLink || !!copyError}>
+                    <TextInput
+                        mt="xs"
+                        size="sm"
+                        label="Link"
+                        readOnly
+                        value={link}
+                        onFocus={(e) => e.currentTarget.select()}
+                    />
+                </Collapse>
+            </Box>
+
+            <Divider mb="md" />
+            <Group justify="center" gap="xs">
+                <Text size="sm" c="dimmed">
+                    Secured by {PRODUCT_NAME}
+                </Text>
+                <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
+            </Group>
+        </Paper>
     );
 }

@@ -28,9 +28,9 @@
 import { randomUUID } from 'crypto'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
-import { contactRepository, listContacts } from '../../persistence/ContactRepository'
+import { operationsRegisterService, storeSiteLocation } from '../OperationsRegisterService'
 import { jobIntakeRepository, type JobIntakeAttachmentInput } from '../../persistence/JobIntakeRepository'
-import { parseJobEmail } from './jobEmailParser'
+import { emailBodyText, parseJobEmail } from './jobEmailParser'
 
 const GRAPH = 'https://graph.microsoft.com/v1.0'
 const ALLOWED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/plain'])
@@ -306,13 +306,13 @@ export class MicrosoftGraphMailIntakeService {
       const subject = String(message.subject || '').slice(0, 500)
       const sender = String(message.from?.emailAddress?.address || '').slice(0, 320)
       const parsed = parseJobEmail(subject, String(message.body?.content || ''), message.body?.contentType)
-      const senderStore = sender
-        ? listContacts(config.orgTenantId).find(
-            (contact) => contact.storeNumber && contact.email?.toLowerCase() === sender.toLowerCase(),
-          )
-        : undefined
-      const storeNumber = parsed.storeNumber || senderStore?.storeNumber
-      const store = storeNumber ? contactRepository.findByStoreNumber(config.orgTenantId, storeNumber) : undefined
+      const store = operationsRegisterService.matchStore(config.orgTenantId, {
+        storeNumber: parsed.storeNumber,
+        subject,
+        text: emailBodyText(String(message.body?.content || ''), message.body?.contentType),
+        senderEmail: sender,
+      })
+      const storeNumber = store?.storeNumber || parsed.storeNumber
       const { attachments, left } = message.hasAttachments
         ? await this.attachments(config, message.id)
         : { attachments: [], left: 0 }
@@ -325,7 +325,8 @@ export class MicrosoftGraphMailIntakeService {
         description: `${parsed.description}${note}`.slice(0, 4000),
         clientName: store?.name || message.from?.emailAddress?.name || undefined,
         clientPhone: parsed.clientPhone || store?.phone,
-        location: parsed.location,
+        location: parsed.location || (store ? storeSiteLocation(store) : undefined),
+        ...(store?.branch ? { branch: store.branch } : {}),
         scheduledDate: parsed.scheduledDate,
         amount: parsed.amount || 0,
         currency: parsed.currency || 'USD',

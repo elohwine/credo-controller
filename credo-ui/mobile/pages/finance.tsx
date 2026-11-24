@@ -224,13 +224,20 @@ import {
 } from '@/lib/uxCopy'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/JobPaymentPlanFields'
 import { usePhoneOperations } from '@/lib/operations'
-import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
-import { FIELD_BRANCH_OPTIONS, FIELD_PRIORITY_OPTIONS } from '../../shared/operations/jobOptions'
+import { JobScheduleFields, useJobChoices, withCurrent } from '../../shared/operations/JobScheduleFields'
+import { JobLinksEditor } from '../../shared/operations/JobLinksEditor'
+import { FIELD_BRANCH_OPTIONS, FIELD_PRIORITY_OPTIONS, FIELD_PROBLEM_TYPES } from '../../shared/operations/jobOptions'
 import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
 import { JobBoard } from '../../shared/operations/JobBoard'
 import { ImportedJobDetails } from '../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../shared/operations/JobOnSite'
-import { ATTENTION_WORDS, JOB_CATEGORY_WORDS, operationsApi, type AttentionItem } from '../../shared/operations/operationsApi'
+import {
+  ATTENTION_WORDS,
+  JOB_CATEGORY_WORDS,
+  operationsApi,
+  storeSite,
+  type AttentionItem,
+} from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
@@ -1844,6 +1851,7 @@ export default function FinancePage() {
   const [fieldView, setFieldView] = useState<'jobs' | 'calendar' | 'reports'>('jobs')
   const [fieldRunsLimit, setFieldRunsLimit] = useState(50)
   const { api: phoneOperations, notify: phoneNotify } = usePhoneOperations()
+  const jobChoices = useJobChoices(phoneOperations, { branches: FIELD_BRANCH_OPTIONS, problemTypes: FIELD_PROBLEM_TYPES })
   // A worker acts on their own job with whichever profile they are in, so not only the org token.
   const fieldJobApi = useMemo(() => {
     const token = getPreferredToken()
@@ -7771,7 +7779,7 @@ export default function FinancePage() {
             <Autocomplete
               label="Branch"
               placeholder="Choose or enter a branch"
-              data={FIELD_BRANCH_OPTIONS}
+              data={jobChoices.branches}
               value={fieldRunForm.branch}
               onChange={(branch) => setFieldRunForm({ ...fieldRunForm, branch })}
             />
@@ -7790,8 +7798,9 @@ export default function FinancePage() {
             label="Problem type"
             placeholder="Select a type"
             clearable
-            data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'General maintenance', 'Other']}
-            value={fieldRunForm.problemType}
+            searchable
+            data={withCurrent(jobChoices.problemTypes, fieldRunForm.problemType)}
+            value={fieldRunForm.problemType || null}
             onChange={(value) => setFieldRunForm({ ...fieldRunForm, problemType: value || '' })}
           />
 
@@ -7921,11 +7930,18 @@ export default function FinancePage() {
                 storeNumber: store.storeNumber,
                 clientName: prev.clientName || store.name,
                 clientPhone: prev.clientPhone || store.phone || '',
+                location: prev.location || storeSite(store),
+                branch: prev.branch || store.branch || '',
               }))
             }
             vanId={fieldRunForm.vanId || null}
             onVan={(van) =>
-              setFieldRunForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))
+              setFieldRunForm((prev) => ({
+                ...prev,
+                vanId: van?.id || '',
+                vehicleReference: van?.registration || '',
+                branch: prev.branch || van?.branch || '',
+              }))
             }
             callOut={fieldRunForm.callOut}
             onCallOut={(callOut) => setFieldRunForm((prev) => ({ ...prev, callOut }))}
@@ -8801,15 +8817,6 @@ export default function FinancePage() {
                             )}
                             <Box>
                               <Text size="sm" c="dimmed">
-                                Location
-                              </Text>
-                              <Group gap={6} wrap="nowrap">
-                                <IconMapPin size={16} />
-                                <Text size="sm">{input.location || 'N/A'}</Text>
-                              </Group>
-                            </Box>
-                            <Box>
-                              <Text size="sm" c="dimmed">
                                 What needs doing
                               </Text>
                               <Text size="sm">{input.description || 'N/A'}</Text>
@@ -8834,32 +8841,31 @@ export default function FinancePage() {
                                 <Text size="sm">{input.scheduledDate || 'N/A'}</Text>
                               </Group>
                             </Box>
-                            {input.storeNumber && (
-                              <Box>
-                                <Text size="sm" c="dimmed">
-                                  Store number
-                                </Text>
-                                <Anchor
-                                  size="sm"
-                                  onClick={() =>
-                                    void router.push(
-                                      `/registers?store=${encodeURIComponent(String(input.storeNumber))}`,
-                                    )
-                                  }
-                                >
-                                  {String(input.storeNumber)}
-                                  {input.callOut ? ' · Call-out' : ''}
-                                </Anchor>
-                              </Box>
-                            )}
-                            {input.vehicleReference && (
-                              <Box>
-                                <Text size="sm" c="dimmed">
-                                  Van
-                                </Text>
-                                <Text size="sm">{String(input.vehicleReference)}</Text>
-                              </Box>
-                            )}
+                            <JobLinksEditor
+                              api={phoneOperations}
+                              surface="phone"
+                              jobId={String(run.id || '')}
+                              links={input}
+                              canEdit={
+                                !isTerminal &&
+                                !['completed', 'cancelled', 'failed'].includes(String(run.status || '').toLowerCase()) &&
+                                ['owner', 'admin', 'dispatcher', 'manager'].includes(myRole)
+                              }
+                              assigneeId={assigneeId || null}
+                              date={input.scheduledDate}
+                              names={Object.fromEntries(
+                                orgMembers.map((m) => [m.userId, m.displayName || m.phone || 'Team member']),
+                              )}
+                              onOpenStore={(storeNumber) =>
+                                void router.push(`/registers?store=${encodeURIComponent(storeNumber)}`)
+                              }
+                              onSaved={async () => {
+                                phoneNotify('The store, branch and van are saved on this job.', 'success')
+                                const fresh = await api.get(`/workflows/runs/${encodeURIComponent(String(run.id))}`)
+                                setSelectedFieldRun(fresh.data)
+                                await fetchFieldRuns()
+                              }}
+                            />
                             {runRef && runRef !== String(run.id || '') && (
                               <Box>
                                 <Text size="sm" c="dimmed">

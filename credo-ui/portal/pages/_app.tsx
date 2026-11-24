@@ -7,7 +7,7 @@ import '@mantine/dates/styles.css';
 import 'mantine-datatable/styles.css';
 import type { AppProps } from "next/app";
 import { AvailableCredential } from "@/types/credentials";
-import { MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core';
+import { Loader, MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import { MilestoneHost } from '@/components/feedback/Milestone';
 import { credentisTheme } from '@/lib/theme/credentis-theme';
@@ -234,7 +234,7 @@ export default function App({ Component, pageProps }: AppProps) {
                 position: 'fixed',
                 top: '20px',
                 right: '20px',
-                backgroundColor: '#3b82f6',
+                backgroundColor: 'var(--mantine-color-credentis-6)',
                 color: 'white',
                 padding: '12px 20px',
                 borderRadius: '8px',
@@ -245,7 +245,7 @@ export default function App({ Component, pageProps }: AppProps) {
                 gap: '10px'
               }}
             >
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+              <Loader size="xs" color="white" />
               <span>Connecting to backend...</span>
             </div>
           )}

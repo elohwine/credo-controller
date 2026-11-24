@@ -46,12 +46,6 @@ interface Credential {
     };
 }
 
-const BRAND = {
-    curious: '#2188CA',
-    dark: '#0A3D5C',
-    text: 'var(--brand-text)',
-};
-
 const getCredentialIcon = (type: string) => {
     if (type.toLowerCase().includes('receipt')) return IconReceipt;
     if (type.toLowerCase().includes('invoice')) return IconFileInvoice;
@@ -182,7 +176,7 @@ export default function MyReceiptsPage() {
                 <Stack gap="xs">
                     {subject.amount && (
                         <Group gap="xs">
-                            <IconCurrencyDollar size={16} color={BRAND.curious} />
+                            <IconCurrencyDollar size={16} color="var(--mantine-color-dimmed)" />
                             <Text size="sm">
                                 <strong>Amount:</strong> {subject.currency || '$'}{subject.amount}
                             </Text>
@@ -191,7 +185,7 @@ export default function MyReceiptsPage() {
 
                     {subject.transactionId && (
                         <Group gap="xs">
-                            <IconReceipt size={16} color={BRAND.curious} />
+                            <IconReceipt size={16} color="var(--mantine-color-dimmed)" />
                             <Text size="sm">
                                 <strong>Transaction:</strong> {subject.transactionId}
                             </Text>
@@ -200,7 +194,7 @@ export default function MyReceiptsPage() {
 
                     {subject.merchant && (
                         <Group gap="xs">
-                            <IconUser size={16} color={BRAND.curious} />
+                            <IconUser size={16} color="var(--mantine-color-dimmed)" />
                             <Text size="sm">
                                 <strong>Merchant:</strong> {subject.merchant}
                             </Text>
@@ -209,7 +203,7 @@ export default function MyReceiptsPage() {
 
                     {cred.parsedDocument?.issuanceDate && (
                         <Group gap="xs">
-                            <IconCalendar size={16} color={BRAND.curious} />
+                            <IconCalendar size={16} color="var(--mantine-color-dimmed)" />
                             <Text size="sm">
                                 <strong>Issued:</strong> {dayjs(cred.parsedDocument.issuanceDate).format('MMM D, YYYY')}
                             </Text>
@@ -223,7 +217,7 @@ export default function MyReceiptsPage() {
                         <Accordion.Panel>
                             <Box
                                 style={{
-                                    backgroundColor: '#f8f9fa',
+                                    backgroundColor: 'light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6))',
                                     padding: '12px',
                                     borderRadius: '8px',
                                     fontSize: '12px',
@@ -249,7 +243,7 @@ export default function MyReceiptsPage() {
             <Container size="md" py="xl">
                 <Group justify="space-between" mb="xl">
                     <div>
-                        <Title order={2} style={{ color: BRAND.text }}>
+                        <Title order={2}>
                             <IconReceipt size={28} style={{ marginRight: 8, verticalAlign: 'middle' }} />
                             My Receipts &amp; Credentials
                         </Title>
@@ -282,7 +276,7 @@ export default function MyReceiptsPage() {
 
                 {!loading && !error && credentials.length === 0 && (
                     <Paper p="xl" ta="center" withBorder>
-                        <IconReceipt size={48} color="#adb5bd" />
+                        <IconReceipt size={48} color="var(--mantine-color-dimmed)" />
                         <Text mt="md" c="dimmed">No credentials yet</Text>
                         <Text size="sm" c="dimmed" mb="lg">
                             Receipts you are given will appear here
