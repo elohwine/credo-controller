@@ -10015,6 +10015,39 @@
         "type": "object",
         "additionalProperties": {}
       },
+      "SecurityStatus": {
+        "description": "What is still open to secure an account. Both apps nudge until each is done.",
+        "properties": {
+          "mustChangePin": {
+            "type": "boolean",
+            "description": "A temporary PIN from an organisation that must be replaced before anything else."
+          },
+          "hasPin": {
+            "type": "boolean"
+          },
+          "phoneSignIn": {
+            "type": "boolean",
+            "description": "A phone signs this person in with fingerprint, face or screen lock."
+          },
+          "moneyConfirm": {
+            "type": "boolean",
+            "description": "A phone asks for fingerprint or face before a money step."
+          },
+          "handlesMoney": {
+            "type": "boolean",
+            "description": "This person releases, pays out or records money in an organisation."
+          }
+        },
+        "required": [
+          "mustChangePin",
+          "hasPin",
+          "phoneSignIn",
+          "moneyConfirm",
+          "handlesMoney"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "InviteSummary": {
         "properties": {
           "orgName": {
@@ -34759,23 +34792,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "phoneSignIn": {
-                      "type": "boolean"
-                    },
-                    "hasPin": {
-                      "type": "boolean"
-                    },
-                    "mustChangePin": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "phoneSignIn",
-                    "hasPin",
-                    "mustChangePin"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityStatus"
                 }
               }
             },
@@ -34789,7 +34806,7 @@
             }
           }
         },
-        "description": "What is still open to secure this account: a temporary PIN to replace, sign-in with the phone.",
+        "description": "What is still open to secure this account: a temporary PIN to replace, phone sign-in, fingerprint for money.",
         "tags": [
           "Wallet-Auth"
         ],

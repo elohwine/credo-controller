@@ -15,6 +15,22 @@ function logToTransport(logObject: ILogObject) {
   } catch {}
 }
 
+const SECRET_FIELD = /^(key|seed|pin|password|pass|secret|secretKey|privateKey|apiKey|jwtSecret|.*token)$/i
+
+/** Credo logs its whole agent config, wallet key included, so secret-looking fields are masked. */
+export function redactSecrets(value: unknown, depth = 0): unknown {
+  if (depth > 6 || value === null || typeof value !== 'object' || value instanceof Error) return value
+  if (Array.isArray(value)) return value.map((item) => redactSecrets(item, depth + 1))
+  const out: Record<string, unknown> = {}
+  for (const [field, inner] of Object.entries(value as Record<string, unknown>)) {
+    out[field] =
+      SECRET_FIELD.test(field) && (typeof inner === 'string' || typeof inner === 'number')
+        ? 'REDACTED'
+        : redactSecrets(inner, depth + 1)
+  }
+  return out
+}
+
 export class TsLogger extends BaseLogger {
   private logger: Logger
 
@@ -57,9 +73,10 @@ export class TsLogger extends BaseLogger {
   private log(
     level: Exclude<LogLevel, LogLevel.Off>,
     message: string | { message: string },
-    data?: Record<string, any>,
+    rawData?: Record<string, any>,
   ): void {
     const tsLogLevel = this.tsLogLevelMap[level]
+    const data = rawData ? (redactSecrets(rawData) as Record<string, any>) : rawData
 
     if (data) {
       this.logger[tsLogLevel](message, data)

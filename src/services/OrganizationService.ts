@@ -626,7 +626,7 @@ function templateOfferedByAnswers(orgTenantId: string, workflowType: string): Wo
 
 /** How an invite link reached the person. `link` is returned only when nothing could be sent. */
 export interface InviteDelivery {
-  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'temporary_pin' | 'none'
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
   link?: string
 }
 
@@ -1702,9 +1702,14 @@ export class OrganizationService {
     return { userId: user.id, inTeam: Boolean(membership), role: membership?.role }
   }
 
+  /**
+   * Invite someone by phone, email or both. Nobody types a PIN for them: they get a one-time link,
+   * valid for 7 days, and choose their own PIN when they open it. An email-only invite asks for
+   * their phone number on the join page.
+   */
   async inviteMemberByPhone(
     orgTenantId: string,
-    phone: string,
+    phone: string | undefined,
     role: string,
     invitedBy: string,
     /** allowUnnamed: phones typed into a job carry no name; the person gives it when they open the link. */
@@ -1713,8 +1718,6 @@ export class OrganizationService {
       email?: string
       whatsappConsent?: boolean
       allowUnnamed?: boolean
-      /** For someone with no email or WhatsApp: they sign in with it once, then must choose their own. */
-      temporaryPin?: string
     } = {},
   ): Promise<{
     membershipId: string
@@ -1724,26 +1727,24 @@ export class OrganizationService {
     alerted: boolean
     invite: InviteDelivery
   }> {
-    const normalizedPhone = this.normalizePhone(phone)
+    const normalizedPhone = phone?.trim() ? this.normalizePhone(phone) : undefined
     const email = OrganizationService.cleanEmail(options.email)
     if (options.email?.trim() && !email) throw new Error('Enter a valid email address, or leave it empty')
+    if (!normalizedPhone && !email) throw new Error('Enter a phone number or an email address for the invite')
     const givenName = OrganizationService.cleanPersonName(options.name)
-    const proposedName = givenName || this.contactNameForPhone(orgTenantId, normalizedPhone)
-    const known = this.lookupUserByPhone(orgTenantId, normalizedPhone).userId
+    const proposedName = givenName || (normalizedPhone ? this.contactNameForPhone(orgTenantId, normalizedPhone) : undefined)
+    const known = normalizedPhone ? this.lookupUserByPhone(orgTenantId, normalizedPhone).userId : undefined
     if (!proposedName && !known && !options.allowUnnamed)
       throw new Error("Enter the person's name so the team knows who they are")
     const holder = await container
       .resolve(SSIAuthService)
-      .provisionInvitedHolder(normalizedPhone, proposedName || 'Team member')
+      .provisionInvitedHolder({ phone: normalizedPhone, email }, proposedName || 'Team member')
     const membershipRole = OrganizationService.normalizeMembershipRole(role)
     const result = await this.inviteMember(orgTenantId, holder.userId, membershipRole, invitedBy)
     this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone, givenName, email)
     const needsPin = this.userNeedsPin(holder.userId)
     let invite: InviteDelivery = { channel: 'none' }
-    if (needsPin && options.temporaryPin) {
-      container.resolve(SSIAuthService).setTemporaryPin(holder.userId, options.temporaryPin)
-      invite = { channel: 'temporary_pin' }
-    } else if (needsPin) {
+    if (needsPin) {
       invite = await this.sendMemberInvite(orgTenantId, holder.userId, normalizedPhone, invitedBy, {
         proposedName,
         email,
@@ -1751,13 +1752,11 @@ export class OrganizationService {
       })
     }
     const alerted =
-      invite.channel === 'temporary_pin'
-        ? false
-        : invite.channel === 'whatsapp' || invite.channel === 'sms' || invite.channel === 'email'
-          ? true
-          : result.alreadyMember
-            ? false
-            : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole)
+      invite.channel === 'whatsapp' || invite.channel === 'sms' || invite.channel === 'email'
+        ? true
+        : result.alreadyMember || !normalizedPhone
+          ? false
+          : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole)
     return {
       ...result,
       targetUserId: holder.userId,
@@ -1791,10 +1790,11 @@ export class OrganizationService {
   }
 
   private userNeedsPin(userId: string): boolean {
-    const row = DatabaseManager.getDatabase().prepare('SELECT pin_hash FROM ssi_users WHERE id = ?').get(userId) as
-      | { pin_hash?: string | null }
-      | undefined
-    return Boolean(row && !row.pin_hash)
+    // A temporary PIN someone else set does not count: they still have to choose their own.
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT pin_hash, pin_change_required FROM ssi_users WHERE id = ?')
+      .get(userId) as { pin_hash?: string | null; pin_change_required?: number } | undefined
+    return Boolean(row && (!row.pin_hash || Number(row.pin_change_required || 0) === 1))
   }
 
   /**
@@ -1807,7 +1807,7 @@ export class OrganizationService {
   private async sendMemberInvite(
     orgTenantId: string,
     userId: string,
-    phone: string,
+    phone: string | undefined,
     invitedBy: string,
     options: { proposedName?: string; email?: string; whatsappConsent?: boolean },
   ): Promise<InviteDelivery> {
@@ -1815,7 +1815,7 @@ export class OrganizationService {
     const inviteId = memberInviteService.create({ userId, orgTenantId, invitedBy, proposedName: options.proposedName })
     if (options.email && (await notificationService.sendInviteEmail(inviteId, options.email)))
       return { channel: 'email' }
-    if (options.whatsappConsent) {
+    if (phone && options.whatsappConsent) {
       try {
         notificationService.recordInviteConsent(orgTenantId, userId, phone)
         const senderReady = whatsAppSenderService.selection(orgTenantId)?.enabled === true
@@ -1833,7 +1833,7 @@ export class OrganizationService {
         logger.warn({ error: err?.message, orgTenantId }, 'Invite WhatsApp could not be queued; trying SMS')
       }
     }
-    if (await notificationService.sendInviteFallbackSms(inviteId, phone)) return { channel: 'sms' }
+    if (phone && (await notificationService.sendInviteFallbackSms(inviteId, phone))) return { channel: 'sms' }
     const code = memberInviteService.issueCode(inviteId)
     const link = code ? memberInviteLink(code) : undefined
     return link ? { channel: 'link', link } : { channel: 'none' }
@@ -1844,7 +1844,7 @@ export class OrganizationService {
     orgTenantId: string,
     targetUserId: string,
     requestedBy: string,
-    options: { email?: string; whatsappConsent?: boolean; temporaryPin?: string } = {},
+    options: { email?: string; whatsappConsent?: boolean } = {},
   ): Promise<InviteDelivery> {
     const db = DatabaseManager.getDatabase()
     const requester = this.getUserOrgRole(requestedBy, orgTenantId)
@@ -1856,21 +1856,19 @@ export class OrganizationService {
       .get(targetUserId, orgTenantId)
     if (!member) throw new Error('That person is not on this team')
     if (!this.userNeedsPin(targetUserId)) throw new Error('They have already signed in and chosen a PIN')
-    if (options.temporaryPin) {
-      container.resolve(SSIAuthService).setTemporaryPin(targetUserId, options.temporaryPin)
-      return { channel: 'temporary_pin' }
-    }
     const contact = getContactById(`${orgTenantId}:member:${targetUserId}`, orgTenantId)
-    if (!contact?.phone) throw new Error('No phone number saved for this person')
+    const phone = contact?.phone ? this.normalizePhone(contact.phone) : undefined
     const email = OrganizationService.cleanEmail(options.email)
     if (options.email?.trim() && !email) throw new Error('Enter a valid email address, or leave it empty')
-    if (email) this.rememberMemberPhone(orgTenantId, targetUserId, this.normalizePhone(contact.phone), undefined, email)
+    const sendTo = email || OrganizationService.cleanEmail(contact?.email)
+    if (!phone && !sendTo) throw new Error('No phone number or email saved for this person')
+    if (email) this.rememberMemberPhone(orgTenantId, targetUserId, phone, undefined, email)
     const { memberInviteService } = await import('./MemberInviteService')
     const previous = memberInviteService.openForMember(targetUserId, orgTenantId)
     const consented = Boolean(notificationService.consentedRecipient(orgTenantId, 'invite', { userId: targetUserId }))
-    return this.sendMemberInvite(orgTenantId, targetUserId, this.normalizePhone(contact.phone), requestedBy, {
-      proposedName: OrganizationService.cleanPersonName(contact.name) || previous?.proposed_name || undefined,
-      email: email || OrganizationService.cleanEmail(contact.email),
+    return this.sendMemberInvite(orgTenantId, targetUserId, phone, requestedBy, {
+      proposedName: OrganizationService.cleanPersonName(contact?.name) || previous?.proposed_name || undefined,
+      email: sendTo,
       whatsappConsent: options.whatsappConsent || consented,
     })
   }
@@ -1880,14 +1878,18 @@ export class OrganizationService {
     const rows = DatabaseManager.getDatabase()
       .prepare(
         `SELECT m.user_id FROM org_memberships m JOIN ssi_users u ON u.id = m.user_id
-        WHERE m.org_tenant_id = ? AND m.status IN ('active', 'invited') AND u.pin_hash IS NULL`,
+        WHERE m.org_tenant_id = ? AND m.status IN ('active', 'invited')
+          AND (u.pin_hash IS NULL OR u.pin_change_required = 1)`,
       )
       .all(orgTenantId) as Array<{ user_id: string }>
     return new Set(rows.map((row) => row.user_id))
   }
 
-  /** The person confirmed their name: every team they are on shows it from now on. */
-  async applyConfirmedMemberName(userId: string, name: string): Promise<void> {
+  /**
+   * The person confirmed their name: every team they are on shows it from now on. A phone they
+   * gave on the join page fills in a contact that was invited by email only.
+   */
+  async applyConfirmedMemberName(userId: string, name: string, phone?: string): Promise<void> {
     const rows = DatabaseManager.getDatabase()
       .prepare(`SELECT org_tenant_id, role FROM org_memberships WHERE user_id = ? AND status IN ('active', 'invited')`)
       .all(userId) as Array<{ org_tenant_id: string; role: string }>
@@ -1901,7 +1903,7 @@ export class OrganizationService {
           orgTenantId: row.org_tenant_id,
           contactScope: 'internal',
           name,
-          phone: existing.phone,
+          phone: existing.phone || phone,
           email: existing.email,
           did: existing.did,
           notes: existing.notes,
@@ -1930,7 +1932,7 @@ export class OrganizationService {
   private rememberMemberPhone(
     orgTenantId: string,
     userId: string,
-    phone: string,
+    phone: string | undefined,
     givenName?: string,
     email?: string,
   ): void {
@@ -1942,7 +1944,7 @@ export class OrganizationService {
       orgTenantId,
       contactScope: 'internal',
       name: givenName && generic ? givenName : existing.name,
-      phone,
+      phone: phone || existing.phone,
       email: email || existing.email,
       did: existing.did,
       notes: existing.notes,

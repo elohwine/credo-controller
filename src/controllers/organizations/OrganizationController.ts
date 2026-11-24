@@ -254,19 +254,15 @@ interface GrantAuthorityRequest {
 }
 
 interface InviteMemberByPhoneRequest {
-  phone: string
+  /** Their phone number. Give this, an email, or both. */
+  phone?: string
   role?: string
   /** The person's name. They confirm or correct it when they open their invite link. */
   name?: string
-  /** Optional. When given, the invite link is emailed here instead of sent to the phone. */
+  /** When given, the invite link is emailed here. On its own, they add their phone when they join. */
   email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
-  /**
-   * Optional, for someone with no email or WhatsApp: 4 to 6 digits the inviter tells them in
-   * person. No link is sent. Their first sign-in only opens the screen to choose their own PIN.
-   */
-  temporaryPin?: string
 }
 
 interface ResendInviteRequest {
@@ -274,16 +270,11 @@ interface ResendInviteRequest {
   email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
-  /** Instead of a new link: a temporary PIN they must replace at their first sign-in. */
-  temporaryPin?: string
 }
 
 interface InviteDeliveryResult {
-  /**
-   * How the invite link reached them. `link` means nothing could be sent: pass the link on in
-   * person. `temporary_pin` means no link: they sign in with the temporary PIN and choose their own.
-   */
-  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'temporary_pin' | 'none'
+  /** How the invite link reached them. `link` means nothing could be sent: pass the link on in person. */
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
   link?: string
 }
 
@@ -1979,9 +1970,9 @@ export class OrganizationController extends Controller {
       throw new StatusException('Token scope does not match organization', 403)
     }
 
-    if (!body.phone) {
+    if (!body.phone?.trim() && !body.email?.trim()) {
       this.setStatus(400)
-      throw new StatusException('phone is required', 400)
+      throw new StatusException('Enter a phone number or an email address for the invite', 400)
     }
 
     try {
@@ -1994,7 +1985,6 @@ export class OrganizationController extends Controller {
           name: body.name,
           email: body.email,
           whatsappConsent: body.whatsappConsent === true,
-          temporaryPin: body.temporaryPin ? String(body.temporaryPin) : undefined,
         },
       )
       this.setStatus(201)
@@ -2003,8 +1993,7 @@ export class OrganizationController extends Controller {
       if (
         error.message.includes('Enter the person') ||
         error.message.includes('valid email') ||
-        error.message.includes('temporary PIN') ||
-        error.message.includes('too easy')
+        error.message.includes('phone number or an email')
       ) {
         throw new StatusException(error.message, 400)
       } else if (error.message.includes('Only org owners')) {
@@ -2022,13 +2011,11 @@ export class OrganizationController extends Controller {
 
   private static inviteMessage(invite: InviteDeliveryResult, accountCreated: boolean): string {
     if (invite.channel === 'email')
-      return 'Invite sent by email. They open the link, confirm their name and choose their own PIN.'
+      return 'Invite sent by email. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'whatsapp')
-      return 'Invite sent on WhatsApp. They open the link, confirm their name and choose their own PIN.'
+      return 'Invite sent on WhatsApp. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'sms')
-      return 'Invite sent by text message. They open the link, confirm their name and choose their own PIN.'
-    if (invite.channel === 'temporary_pin')
-      return 'Tell them the temporary PIN in person. They sign in with their phone number and it, then choose their own PIN.'
+      return 'Invite sent by text message. They open the link within 7 days, confirm their name and choose their own PIN.'
     if (invite.channel === 'link')
       return 'No message could be sent. Give them this link yourself; it works once and expires in 7 days.'
     return accountCreated
@@ -2052,14 +2039,13 @@ export class OrganizationController extends Controller {
       const invite = await this.orgService.resendMemberInvite(orgTenantId, targetUserId, user.id, {
         email: body?.email,
         whatsappConsent: body?.whatsappConsent === true,
-        temporaryPin: body?.temporaryPin ? String(body.temporaryPin) : undefined,
       })
       return { ...invite, message: OrganizationController.inviteMessage(invite, true) }
     } catch (error: any) {
       const message = String(error?.message || 'Could not resend the invite')
       if (message.includes('Only org owners')) throw new StatusException(message, 403)
       if (message.includes('not on this team')) throw new StatusException(message, 404)
-      if (/valid email|temporary PIN|too easy/.test(message)) throw new StatusException(message, 400)
+      if (/valid email/.test(message)) throw new StatusException(message, 400)
       if (/already signed in|No phone|already chosen/.test(message)) throw new StatusException(message, 409)
       throw error
     }

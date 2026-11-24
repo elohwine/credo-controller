@@ -201,6 +201,53 @@ describe('member invite links', () => {
     expect(() => auth.setTemporaryPin(userId, '5172')).toThrow('already chosen')
   })
 
+  test('someone left with an organisation-set temporary PIN can still be sent a link and choose their own', async () => {
+    const { org, userId } = invitedPerson('Clive')
+    const auth = new SSIAuthService({} as any)
+    jest.spyOn(auth, 'reissuePlatformIdentityOffer').mockResolvedValue(undefined)
+    auth.setTemporaryPin(userId, '4826')
+    const organizations = container.resolve(OrganizationService)
+    expect(organizations.pendingInviteUserIds(org.orgTenantId).has(userId)).toBe(true)
+
+    DatabaseManager.getDatabase().prepare('UPDATE ssi_users SET phone_hash = NULL WHERE id != ?').run(userId)
+    const fresh = memberInviteService.create({ userId, orgTenantId: org.orgTenantId, invitedBy: 'owner', proposedName: 'Clive' })
+    const code = memberInviteService.issueCode(fresh)!
+    await auth.acceptInvite({ code, name: 'Clive Madande', phone: PHONE, pin: '7391' })
+
+    expect(auth.securityStatus(userId)).toMatchObject({ mustChangePin: false, hasPin: true })
+    expect(organizations.pendingInviteUserIds(org.orgTenantId).has(userId)).toBe(false)
+    await expect(auth.loginWithPin({ phone: PHONE, pin: '4826' })).rejects.toThrow('Invalid credentials')
+  })
+
+  test('security status reports phone sign-in and fingerprint for money only once verified', () => {
+    const { userId } = invitedPerson()
+    const db = DatabaseManager.getDatabase()
+    db.prepare("UPDATE ssi_users SET pin_hash = 'set', pin_change_required = 0 WHERE id = ?").run(userId)
+    const auth = new SSIAuthService({} as any)
+    expect(auth.securityStatus(userId)).toEqual({
+      mustChangePin: false,
+      hasPin: true,
+      phoneSignIn: false,
+      moneyConfirm: false,
+      handlesMoney: false,
+    })
+
+    const { tenant_id: tenantId } = db.prepare('SELECT tenant_id FROM ssi_users WHERE id = ?').get(userId) as {
+      tenant_id: string
+    }
+    const addKey = (usage: string, verified: boolean) =>
+      db
+        .prepare(
+          `INSERT INTO device_keys (id, wallet_tenant_id, public_jwk, thumbprint, platform, created_at, verified_at, key_usage)
+           VALUES (?, ?, '{}', ?, 'android', ?, ?, ?)`,
+        )
+        .run(`key-${usage}-${userId}`, tenantId, `thumb-${usage}-${userId}`, new Date().toISOString(), verified ? new Date().toISOString() : null, usage)
+    addKey('login', true)
+    addKey('payment', false)
+    db.prepare("UPDATE org_memberships SET role = 'admin' WHERE user_id = ?").run(userId)
+    expect(auth.securityStatus(userId)).toMatchObject({ phoneSignIn: true, moneyConfirm: false, handlesMoney: true })
+  })
+
   test('typed names are cleaned and placeholders refused', () => {
     expect(OrganizationService.cleanPersonName('  Tendai   Moyo ')).toBe('Tendai Moyo')
     expect(OrganizationService.cleanPersonName('Team member')).toBeUndefined()

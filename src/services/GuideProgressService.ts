@@ -191,7 +191,7 @@ export interface GettingStartedStatus {
 }
 
 /** Roles that reach the money steps a phone can confirm with fingerprint or face (see DeviceTrustSettingsCard). */
-const MONEY_STEP_ROLES = Array.from(
+export const MONEY_STEP_ROLES = Array.from(
   new Set([
     'owner',
     'admin',

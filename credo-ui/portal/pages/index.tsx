@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
 import Layout from '@/components/Layout'
 import { getOrgScopedToken, getPersonalToken, readActiveOrganization } from '@/utils/organizationContext'
@@ -53,6 +53,8 @@ import { jobHeading } from '@/components/finance/jobAuditTrail'
 import RequestSheet from '@/components/requests/RequestSheet'
 import RecordCheckPanel from '@/components/records/RecordCheckPanel'
 import JobsOverview from '@/components/home/JobsOverview'
+import { getPersonalWalletTenantId } from '@/utils/portalTenant'
+import { SecurityReminder, type SecurityStatus } from '../../shared/security/AccountSecurity'
 import { isRequestFlowRun } from '../../shared/requestDecision'
 import {
     REQUEST_GROUP_WORDS,
@@ -227,6 +229,15 @@ export default function DashboardPage() {
     const [today, setToday] = useState('')
 
     const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+
+    const [accountKey, setAccountKey] = useState<string | null>(null)
+    useEffect(() => setAccountKey(getPersonalWalletTenantId() || null), [contextVersion])
+    const loadSecurity = useCallback(async (): Promise<SecurityStatus> => {
+        const res = await axios.get(`${backendUrl}/api/wallet/auth/security-status`, {
+            headers: { Authorization: `Bearer ${getPersonalToken() || ''}` },
+        })
+        return res.data
+    }, [backendUrl])
 
     const openRequest = (kindId?: string) => {
         setRequestKindId(kindId)
@@ -528,6 +539,15 @@ export default function DashboardPage() {
               </Anchor>
                         </Group>
                     )}
+
+          {accountKey && (
+            <SecurityReminder
+              load={loadSecurity}
+              surface="web"
+              accountKey={accountKey}
+              onOpen={() => void router.push('/account-security')}
+            />
+          )}
 
           {orgName && jobsToken && (
             <JobsOverview

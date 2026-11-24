@@ -34,7 +34,7 @@ import {
   identityVerificationRequestService,
   type RegistryRequestState,
 } from '../../services/IdentityVerificationRequestService'
-import { InviteRequiredError, PinLockedError, SSIAuthService } from '../../services/SSIAuthService'
+import { InviteRequiredError, PinLockedError, SSIAuthService, type SecurityStatus } from '../../services/SSIAuthService'
 import { WalletLoginService } from '../../services/WalletLoginService'
 // import type { VerifyPresentationRequestBody } from '../../types/api'
 
@@ -79,6 +79,8 @@ interface InviteSummary {
   proposedName?: string
   /** Last digits of the invited phone number */
   phoneHint?: string
+  /** Invited by email only: they give the phone number they will sign in with. */
+  needsPhone?: boolean
 }
 
 interface AcceptInviteRequest {
@@ -369,14 +371,10 @@ export class WalletAuthController extends Controller {
     }
   }
 
-  /** What is still open to secure this account: a temporary PIN to replace, sign-in with the phone. */
+  /** What is still open to secure this account: a temporary PIN to replace, phone sign-in, fingerprint for money. */
   @Get('/security-status')
   @Security('jwt')
-  public securityStatus(@Request() request: ExRequest): {
-    mustChangePin: boolean
-    hasPin: boolean
-    phoneSignIn: boolean
-  } {
+  public securityStatus(@Request() request: ExRequest): SecurityStatus {
     const user = (request as ExRequest & { user?: { id?: string } }).user
     if (!user?.id) throw new StatusException('Sign in required', 401)
     return this.ssiAuthService.securityStatus(user.id)

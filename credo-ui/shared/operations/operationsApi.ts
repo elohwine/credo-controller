@@ -662,19 +662,18 @@ export function operationsApi(backend: string, token: string | null | undefined)
     inviteMember: (
       org: string,
       input: {
-        phone: string
+        phone?: string
         name: string
         role: string
         email?: string
         whatsappConsent: boolean
-        temporaryPin?: string
       },
     ) =>
       call<{ targetUserId: string; message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/invite`,
         { method: 'POST', body: input },
       ),
-    resendInvite: (org: string, userId: string, input: { temporaryPin?: string } = {}) =>
+    resendInvite: (org: string, userId: string, input: { email?: string } = {}) =>
       call<{ message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/${encodeURIComponent(userId)}/resend-invite`,
         { method: 'POST', body: input },

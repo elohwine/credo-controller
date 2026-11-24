@@ -41,9 +41,12 @@ import {
   getWalletToken,
   getOrgToken,
   getPersonalWalletTenantId,
+  getPersonalWalletToken,
   isAuthenticated,
 } from '@/lib/auth'
 import api, { API_BASE_URL } from '@/lib/api'
+import { supportsDeviceLogin } from '@/lib/deviceTrust'
+import { SecurityReminder, type SecurityStatus, type SecurityStep } from '../../shared/security/AccountSecurity'
 import { operationsApi } from '../../shared/operations/operationsApi'
 import { JobsDashboard, type JobsDashboardTarget } from '../../shared/operations/JobsDashboard'
 import { friendlyRequestError } from '@/lib/requestError'
@@ -783,7 +786,31 @@ export default function HomePage() {
     },
     [router],
   )
-
+  const loadSecurity = useCallback(async (): Promise<SecurityStatus> => {
+    const res = await api.get('/api/wallet/auth/security-status', {
+      headers: { Authorization: `Bearer ${getPersonalWalletToken() || ''}` },
+    })
+    return res.data
+  }, [])
+  const openSecurity = useCallback(
+    (step: SecurityStep) =>
+      void router.push(
+        step === 'phoneSignIn'
+          ? '/settings/security/?turnOn=signin'
+          : step === 'moneyConfirm'
+            ? '/settings/security/?turnOn=money'
+            : '/settings/security/',
+      ),
+    [router],
+  )
+  const securityReminder = mounted ? (
+    <SecurityReminder
+      load={loadSecurity}
+      surface={supportsDeviceLogin() ? 'phone' : 'web'}
+      accountKey={getPersonalWalletTenantId()}
+      onOpen={openSecurity}
+    />
+  ) : null
 
   const inboxCard = (
     <>
@@ -1031,6 +1058,7 @@ export default function HomePage() {
           userAccountId={userAccountId}
           expiringCount={expiringCount}
         />
+        {securityReminder}
         {jobsApi && (
           <Box>
             <Group justify="space-between" mb={8} align="center">
@@ -1080,6 +1108,7 @@ export default function HomePage() {
           userAccountId={userAccountId}
           expiringCount={expiringCount}
         />
+        {securityReminder}
         {jobsApi && (
           <Box>
             <Group justify="space-between" mb={8} align="center">

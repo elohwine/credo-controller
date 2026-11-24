@@ -24,7 +24,6 @@ import { IconCircleCheck, IconClock, IconSearch, IconSend, IconTrash, IconUserPl
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
 import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
-import { pinProblem } from '../security/AccountSecurity'
 import {
   CARD_STATE_COLOR,
   CARD_STATE_LABEL,
@@ -462,48 +461,6 @@ function inviteNotice(
   notify(result?.message || fallback, result?.invite?.channel === 'none' ? 'info' : 'success')
 }
 
-/**
- * For someone with no email or WhatsApp: the admin sets a PIN and tells them in person. The app
- * makes them replace it at their first sign-in, so the admin never keeps a working PIN.
- */
-function useTemporaryPin() {
-  const [on, setOn] = useState(false)
-  const [pin, setPin] = useState('')
-  const error = on && pin ? pinProblem(pin) : undefined
-  return {
-    on,
-    valid: !on || (Boolean(pin) && !error),
-    value: on ? pin : undefined,
-    reset: () => {
-      setOn(false)
-      setPin('')
-    },
-    field: (size: 'sm' | 'md') => (
-      <Stack gap="xs">
-        <Checkbox
-          size={size}
-          checked={on}
-          onChange={(event) => setOn(event.currentTarget.checked)}
-          label="Give them a temporary PIN instead"
-          description="For someone with no email or WhatsApp. Tell them the PIN in person; they must choose their own when they first sign in."
-        />
-        {on && (
-          <TextInput
-            size={size}
-            label="Temporary PIN"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={6}
-            value={pin}
-            error={error}
-            onChange={(event) => setPin(event.currentTarget.value.replace(/\D/g, ''))}
-          />
-        )}
-      </Stack>
-    ),
-  }
-}
-
 /** One form for a new person: their details, and optionally the app. */
 function AddPerson({
   api,
@@ -535,15 +492,11 @@ function AddPerson({
   const [giveApp, setGiveApp] = useState(true)
   const [whatsapp, setWhatsapp] = useState(false)
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
-  const temporaryPin = useTemporaryPin()
   const [saving, setSaving] = useState(false)
-  const needsPhone = giveApp
   const emailError = form.email.trim() && !looksLikeEmail(form.email) ? 'Check the email address' : null
-  const ready =
-    form.name.trim().length >= 2 &&
-    (!needsPhone || form.phone.trim().length > 4) &&
-    !emailError &&
-    (!giveApp || temporaryPin.valid)
+  const hasPhone = form.phone.trim().length > 4
+  const reachable = hasPhone || Boolean(form.email.trim())
+  const ready = form.name.trim().length >= 2 && !emailError && (!giveApp || reachable)
 
   const save = async () => {
     if (!api || !ready) return
@@ -552,12 +505,11 @@ function AddPerson({
       let userId: string | undefined
       if (giveApp) {
         const invited = await api.inviteMember(orgTenantId, {
-          phone: form.phone.trim(),
+          phone: hasPhone ? form.phone.trim() : undefined,
           name: form.name.trim(),
           role: inviteRole,
           email: form.email.trim() || undefined,
-          whatsappConsent: whatsapp,
-          temporaryPin: temporaryPin.value,
+          whatsappConsent: whatsapp && hasPhone,
         })
         userId = invited.targetUserId
         inviteNotice(invited, notify, 'They are on the team.')
@@ -596,22 +548,19 @@ function AddPerson({
       <PhoneField
         surface={surface}
         label="Phone number"
-        description={
-          !giveApp
-            ? 'Optional.'
-            : temporaryPin.on
-              ? 'They sign in with this number and the temporary PIN below.'
-              : 'We send a one-time link here. They choose their own PIN.'
-        }
+        description={giveApp ? 'A phone number or an email is enough for the invite.' : 'Optional.'}
         value={form.phone}
         onChange={(value) => setForm({ ...form, phone: value })}
-        required={giveApp}
       />
       <TextInput
         size={size}
         type="email"
         label="Email"
-        description={giveApp ? 'Optional. When given, the invite link is emailed here instead.' : 'Optional.'}
+        description={
+          giveApp
+            ? 'When given, the invite link is emailed here. Without a phone, they add it when they join.'
+            : 'Optional.'
+        }
         placeholder="tendai@example.com"
         value={form.email}
         error={emailError}
@@ -635,14 +584,19 @@ function AddPerson({
             onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
             allowDeselect={false}
           />
-          <Checkbox
-            size={size}
-            checked={whatsapp}
-            onChange={(event) => setWhatsapp(event.currentTarget.checked)}
-            label="They agreed to get the invite on WhatsApp"
-            description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
-          />
-          {temporaryPin.field(size)}
+          {hasPhone && (
+            <Checkbox
+              size={size}
+              checked={whatsapp}
+              onChange={(event) => setWhatsapp(event.currentTarget.checked)}
+              label="They agreed to get the invite on WhatsApp"
+              description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
+            />
+          )}
+          <Text size="xs" c="dimmed">
+            Nobody types a password for them. They get a one-time link that works for 7 days, confirm their name and
+            choose their own PIN, then can turn on fingerprint sign-in on their phone.
+          </Text>
         </>
       )}
       <TextInput
@@ -744,11 +698,11 @@ function PersonPanel({
   const [inviteEmail, setInviteEmail] = useState(employee?.email || '')
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
   const [whatsapp, setWhatsapp] = useState(false)
-  const temporaryPin = useTemporaryPin()
-  const resendPin = useTemporaryPin()
-  // Pay and details.
+  const invitePhone = phone.trim().length > 4
+  // Details and pay.
   const [pay, setPay] = useState({
     name: `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim(),
+    phone: employee?.phone || '',
     email: employee?.email || '',
     salary: employee?.baseSalary || 0,
     currency: employee?.currency || 'USD',
@@ -765,21 +719,19 @@ function PersonPanel({
       if (!api) return
       const email = inviteEmail.trim() || undefined
       const invited = await api.inviteMember(orgTenantId, {
-        phone: phone.trim(),
+        phone: invitePhone ? phone.trim() : undefined,
         name: row.name,
         role: inviteRole,
         email,
-        whatsappConsent: whatsapp,
-        temporaryPin: temporaryPin.value,
+        whatsappConsent: whatsapp && invitePhone,
       })
-      temporaryPin.reset()
       if (employee) {
         const { firstName, lastName } = splitName(pay.name || row.name)
         await api.saveEmployee({
           ...employee,
           firstName,
           lastName,
-          phone: phone.trim(),
+          phone: invitePhone ? phone.trim() : employee.phone,
           email: email || employee.email,
           userId: invited.targetUserId,
         })
@@ -788,6 +740,7 @@ function PersonPanel({
       await onChanged()
     })
 
+  const payEmailError = pay.email.trim() && !looksLikeEmail(pay.email) ? 'Check the email address' : null
   const savePay = () =>
     run('pay', async () => {
       if (!api || !employee) return
@@ -796,11 +749,16 @@ function PersonPanel({
         ...employee,
         firstName,
         lastName,
-        email: pay.email || undefined,
-        baseSalary: Number(pay.salary) || 0,
-        currency: pay.currency,
-        nssaNumber: pay.nssa || undefined,
-        tin: pay.tin || undefined,
+        phone: employee.userId ? employee.phone : pay.phone.trim() || undefined,
+        email: pay.email.trim() || undefined,
+        ...(showPay
+          ? {
+              baseSalary: Number(pay.salary) || 0,
+              currency: pay.currency,
+              nssaNumber: pay.nssa || undefined,
+              tin: pay.tin || undefined,
+            }
+          : {}),
         status: pay.status,
         ...(employee.userId ? {} : { staffNumber: pay.staffNumber.trim() || undefined, skills: pay.skills }),
       })
@@ -893,22 +851,24 @@ function PersonPanel({
                       radius="xl"
                       leftSection={<IconSend size={16} />}
                       loading={busy === 'resend'}
-                      disabled={!resendPin.valid}
                       onClick={() =>
                         void run('resend', async () => {
-                          const result = await api?.resendInvite(orgTenantId, member.userId, {
-                            temporaryPin: resendPin.value,
-                          })
-                          resendPin.reset()
+                          const result = await api?.resendInvite(
+                            orgTenantId,
+                            member.userId,
+                            employee?.email ? { email: employee.email } : {},
+                          )
                           inviteNotice(result, notify, 'Invite sent again.')
                           await onChanged()
                         })
                       }
                     >
-                      {resendPin.on ? 'Set temporary PIN' : 'Send invite again'}
+                      Send invite again
                     </Button>
                   </Group>
-                  {resendPin.field(size)}
+                  <Text size="xs" c="dimmed">
+                    A new link replaces the old one and works for 7 days.
+                  </Text>
                 </Stack>
               )}
               {onboarding && (
@@ -1007,16 +967,15 @@ function PersonPanel({
               <PhoneField
                 surface={surface}
                 label="Phone number"
-                description="Their sign-in number. They choose their own PIN."
+                description="Their sign-in number. A phone number or an email is enough for the invite."
                 value={phone}
                 onChange={setPhone}
-                required
               />
               <TextInput
                 size={size}
                 type="email"
                 label="Email"
-                description="Optional. When given, the invite link is emailed here."
+                description="When given, the invite link is emailed here. Without a phone, they add it when they join."
                 value={inviteEmail}
                 error={inviteEmail.trim() && !looksLikeEmail(inviteEmail) ? 'Check the email address' : null}
                 onChange={(event) => setInviteEmail(event.currentTarget.value)}
@@ -1029,14 +988,19 @@ function PersonPanel({
                 onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
                 allowDeselect={false}
               />
-              <Checkbox
-                size={size}
-                checked={whatsapp}
-                onChange={(event) => setWhatsapp(event.currentTarget.checked)}
-                label="They agreed to get the invite on WhatsApp"
-                description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
-              />
-              {temporaryPin.field(size)}
+              {invitePhone && (
+                <Checkbox
+                  size={size}
+                  checked={whatsapp}
+                  onChange={(event) => setWhatsapp(event.currentTarget.checked)}
+                  label="They agreed to get the invite on WhatsApp"
+                  description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
+                />
+              )}
+              <Text size="xs" c="dimmed">
+                They get a one-time link that works for 7 days and choose their own PIN. Nobody types a password for
+                them.
+              </Text>
               <Group justify="flex-end">
                 <Button
                   size={size}
@@ -1044,9 +1008,7 @@ function PersonPanel({
                   leftSection={<IconUserPlus size={18} />}
                   loading={busy === 'invite'}
                   disabled={
-                    phone.trim().length < 5 ||
-                    Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail)) ||
-                    !temporaryPin.valid
+                    (!invitePhone && !inviteEmail.trim()) || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))
                   }
                   onClick={() => void invite()}
                 >
@@ -1062,9 +1024,9 @@ function PersonPanel({
         )}
       </Stack>
 
-      {employee && showPay && (
+      {employee && (canManage || showPay) && (
         <Stack gap="xs">
-          <Text fw={500}>Pay and details</Text>
+          <Text fw={500}>{showPay ? 'Details and pay' : 'Details'}</Text>
           <Paper withBorder radius="md" p="md">
             <Stack gap="sm">
               <TextInput
@@ -1073,44 +1035,66 @@ function PersonPanel({
                 value={pay.name}
                 onChange={(event) => setPay({ ...pay, name: event.currentTarget.value })}
               />
+              {employee.userId ? (
+                <TextInput
+                  size={size}
+                  label="Phone number"
+                  description="Their sign-in number. Only they can change it, from their app."
+                  value={pay.phone}
+                  readOnly
+                />
+              ) : (
+                <PhoneField
+                  surface={surface}
+                  label="Phone number"
+                  value={pay.phone}
+                  onChange={(value) => setPay({ ...pay, phone: value })}
+                />
+              )}
               <TextInput
                 size={size}
+                type="email"
                 label="Email"
                 value={pay.email}
+                error={payEmailError}
                 onChange={(event) => setPay({ ...pay, email: event.currentTarget.value })}
               />
-              <Group grow align="flex-end">
-                <NumberInput
-                  size={size}
-                  label="Base salary"
-                  min={0}
-                  decimalScale={2}
-                  value={pay.salary}
-                  onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })}
-                />
-                <Select
-                  size={size}
-                  label="Currency"
-                  data={['USD', 'ZWL', 'ZAR']}
-                  value={pay.currency}
-                  onChange={(value) => setPay({ ...pay, currency: value || 'USD' })}
-                  allowDeselect={false}
-                />
-              </Group>
-              <Group grow>
-                <TextInput
-                  size={size}
-                  label="NSSA number"
-                  value={pay.nssa}
-                  onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })}
-                />
-                <TextInput
-                  size={size}
-                  label="TIN"
-                  value={pay.tin}
-                  onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })}
-                />
-              </Group>
+              {showPay && (
+                <>
+                  <Group grow align="flex-end">
+                    <NumberInput
+                      size={size}
+                      label="Base salary"
+                      min={0}
+                      decimalScale={2}
+                      value={pay.salary}
+                      onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })}
+                    />
+                    <Select
+                      size={size}
+                      label="Currency"
+                      data={['USD', 'ZWL', 'ZAR']}
+                      value={pay.currency}
+                      onChange={(value) => setPay({ ...pay, currency: value || 'USD' })}
+                      allowDeselect={false}
+                    />
+                  </Group>
+                  <Group grow>
+                    <TextInput
+                      size={size}
+                      label="NSSA number"
+                      value={pay.nssa}
+                      onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })}
+                    />
+                    <TextInput
+                      size={size}
+                      label="TIN"
+                      value={pay.tin}
+                      onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })}
+                    />
+                  </Group>
+                </>
+              )}
               <Select
                 size={size}
                 label="Status"
@@ -1140,7 +1124,7 @@ function PersonPanel({
                   />
                 </>
               )}
-              {employee.baseSalary <= 0 && (
+              {showPay && employee.baseSalary <= 0 && (
                 <Alert color="blue" variant="light">
                   No salary yet, so payroll skips this person until you add one.
                 </Alert>
@@ -1150,7 +1134,7 @@ function PersonPanel({
                   size={size}
                   radius="xl"
                   loading={busy === 'pay'}
-                  disabled={pay.name.trim().length < 2}
+                  disabled={pay.name.trim().length < 2 || Boolean(payEmailError)}
                   onClick={() => void savePay()}
                 >
                   Save

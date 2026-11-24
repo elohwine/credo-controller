@@ -13,6 +13,8 @@ interface InviteSummary {
   role: string;
   proposedName?: string;
   phoneHint?: string;
+  /** Invited by email only: they give the number they will sign in with. */
+  needsPhone?: boolean;
 }
 
 /**
@@ -117,7 +119,7 @@ export default function JoinPage() {
             <PhoneField
               surface="phone"
               label="Your phone number"
-              description={invite.phoneHint ? `The number this invite was sent to (ends ${invite.phoneHint.replace(/\D/g, '')})` : 'The number this invite was sent to'}
+              description={invite.needsPhone ? 'You sign in with this number from now on.' : invite.phoneHint ? `The number this invite was sent to (ends ${invite.phoneHint.replace(/\D/g, '')})` : 'The number this invite was sent to'}
               value={phone}
               onChange={setPhone}
               required

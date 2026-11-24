@@ -3491,6 +3491,18 @@ const models: TsoaRoute.Models = {
         "additionalProperties": {"dataType":"any"},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "SecurityStatus": {
+        "dataType": "refObject",
+        "properties": {
+            "mustChangePin": {"dataType":"boolean","required":true},
+            "hasPin": {"dataType":"boolean","required":true},
+            "phoneSignIn": {"dataType":"boolean","required":true},
+            "moneyConfirm": {"dataType":"boolean","required":true},
+            "handlesMoney": {"dataType":"boolean","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "InviteSummary": {
         "dataType": "refObject",
         "properties": {

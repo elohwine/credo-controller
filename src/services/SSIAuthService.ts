@@ -40,6 +40,7 @@ import { getIssuerApiKey } from '../utils/serviceApiKey'
 
 import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
 import { billDocumentClaims, documentClaims } from './documentFacts'
+import { MONEY_STEP_ROLES } from './GuideProgressService'
 import { memberInviteService } from './MemberInviteService'
 import { personalSessionVersion, requireDeviceLoginApproval } from './PersonalSessionPolicy'
 import { contactHash, contactHashCandidates, normalizeContactEmail, phoneHashCandidates } from './ssi/contactHash'
@@ -101,6 +102,19 @@ export function loginAudience(): string {
   return audience
 }
 
+/** What is still open to secure an account. Both apps nudge until each is done. */
+export interface SecurityStatus {
+  /** A temporary PIN from an organisation that must be replaced before anything else. */
+  mustChangePin: boolean
+  hasPin: boolean
+  /** A phone signs this person in with fingerprint, face or screen lock. */
+  phoneSignIn: boolean
+  /** A phone asks for fingerprint or face before a money step. */
+  moneyConfirm: boolean
+  /** This person releases, pays out or records money in an organisation. */
+  handlesMoney: boolean
+}
+
 @injectable()
 export class SSIAuthService {
   private agent: Agent<RestMultiTenantAgentModules>
@@ -125,17 +139,22 @@ export class SSIAuthService {
    * hand the inviter a session. The person sets their PIN the first time they sign in.
    */
   async provisionInvitedHolder(
-    phone: string,
+    contact: { phone?: string; email?: string },
     displayName: string,
   ): Promise<{ userId: string; tenantId: string; created: boolean }> {
-    const existing = this.findUserByContact(phone) as { id: string; tenant_id: string } | undefined
+    const phone = contact.phone?.trim() || undefined
+    // With a phone the account is keyed on it; the email only sends the link. Email alone keys on the email.
+    const email = phone ? undefined : contact.email?.trim().toLowerCase() || undefined
+    if (!phone && !email) throw new Error('Enter a phone number or an email address for the invite')
+    const lookup = () => this.findUserByContact(phone, email) as { id: string; tenant_id: string } | undefined
+    const existing = lookup()
     if (existing?.id && existing.tenant_id) {
       return { userId: existing.id, tenantId: existing.tenant_id, created: false }
     }
-    await this.register({ username: displayName.trim() || 'Team member', phone }, { quiet: true })
-    const created = this.findUserByContact(phone) as { id: string; tenant_id: string } | undefined
+    await this.register({ username: displayName.trim() || 'Team member', phone, email }, { quiet: true })
+    const created = lookup()
     if (!created?.id || !created.tenant_id) {
-      throw new Error('Could not open an account for that phone number')
+      throw new Error(phone ? 'Could not open an account for that phone number' : 'Could not open an account for that email')
     }
     return { userId: created.id, tenantId: created.tenant_id, created: true }
   }
@@ -715,33 +734,56 @@ export class SSIAuthService {
   }
 
   /** What the person still has to do to secure their account. */
-  securityStatus(userId: string): { mustChangePin: boolean; hasPin: boolean; phoneSignIn: boolean } {
+  securityStatus(userId: string): SecurityStatus {
     const db = DatabaseManager.getDatabase()
     const user = db
       .prepare('SELECT tenant_id, pin_hash, pin_change_required FROM ssi_users WHERE id = ?')
       .get(userId) as { tenant_id: string; pin_hash?: string | null; pin_change_required?: number } | undefined
     if (!user) throw new Error('This account is unavailable')
-    const phone = db
-      .prepare(
-        `SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND key_usage = 'login'
-            AND revoked_at IS NULL AND verified_at IS NOT NULL LIMIT 1`,
+    const phoneKey = (usage: 'login' | 'payment') =>
+      Boolean(
+        db
+          .prepare(
+            `SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND key_usage = ?
+                AND revoked_at IS NULL AND verified_at IS NOT NULL LIMIT 1`,
+          )
+          .get(user.tenant_id, usage),
       )
-      .get(user.tenant_id)
+    const handlesMoney = Boolean(
+      db
+        .prepare(
+          `SELECT 1 FROM org_memberships WHERE user_id = ? AND status = 'active'
+              AND role IN (${MONEY_STEP_ROLES.map(() => '?').join(', ')}) LIMIT 1`,
+        )
+        .get(userId, ...MONEY_STEP_ROLES),
+    )
     return {
       mustChangePin: Number(user.pin_change_required || 0) === 1,
       hasPin: Boolean(user.pin_hash),
-      phoneSignIn: Boolean(phone),
+      phoneSignIn: phoneKey('login'),
+      moneyConfirm: phoneKey('payment'),
+      handlesMoney,
     }
   }
 
   /** What the invite link shows before the person accepts: organisation, role, proposed name. */
-  describeInvite(code: string): { orgName: string; role: string; proposedName?: string; phoneHint?: string } {
+  describeInvite(code: string): {
+    orgName: string
+    role: string
+    proposedName?: string
+    phoneHint?: string
+    /** Invited by email only: the join page asks for the phone number they will sign in with. */
+    needsPhone: boolean
+  } {
     const invite = memberInviteService.findOpenByCode(code)
     if (!invite) throw new Error('This invite link has expired or was replaced by a newer one')
     const db = DatabaseManager.getDatabase()
     const membership = db
       .prepare('SELECT role FROM org_memberships WHERE user_id = ? AND org_tenant_id = ?')
       .get(invite.user_id, invite.org_tenant_id) as { role: string } | undefined
+    const account = db.prepare('SELECT phone_hash FROM ssi_users WHERE id = ?').get(invite.user_id) as
+      | { phone_hash?: string | null }
+      | undefined
     const contact = db
       .prepare(`SELECT phone FROM org_contacts WHERE org_tenant_id = ? AND id IN (?, ?) AND phone IS NOT NULL LIMIT 1`)
       .get(
@@ -755,6 +797,7 @@ export class SSIAuthService {
       role: membership?.role || 'member',
       proposedName: invite.proposed_name || undefined,
       phoneHint: digits.length >= 4 ? `•••• ${digits.slice(-4)}` : undefined,
+      needsPhone: !account?.phone_hash,
     }
   }
 
@@ -784,16 +827,28 @@ export class SSIAuthService {
       | undefined
     if (!user) throw new Error('This invite link has expired or was replaced by a newer one')
     const phone = this.normalizePhone(String(input.phone || ''))
-    if (!phone || !this.contactMatches(user.phone_hash, phone)) {
-      throw new Error('That is not the phone number this invite was sent to')
+    if (!phone) throw new Error('Enter your phone number')
+    if (user.phone_hash) {
+      if (!this.contactMatches(user.phone_hash, phone)) {
+        throw new Error('That is not the phone number this invite was sent to')
+      }
+    } else {
+      // Invited by email: the number they give becomes their sign-in number, unless it is someone else's.
+      const owner = this.findUserByContact(phone) as { id: string } | undefined
+      if (owner && owner.id !== user.id) {
+        throw new Error(
+          'That phone number already has an account. Sign in with it, or ask whoever invited you to invite that number instead',
+        )
+      }
     }
     const now = new Date().toISOString()
     const claimed = db.transaction(() => {
       const set = db
         .prepare(
           `UPDATE ssi_users
-              SET pin_hash = ?, phone_hash = ?, contact_hash_version = ?, updated_at = ?, last_login_at = ?
-            WHERE id = ? AND pin_hash IS NULL`,
+              SET pin_hash = ?, pin_change_required = 0, phone_hash = ?, contact_hash_version = ?, updated_at = ?,
+                  last_login_at = ?
+            WHERE id = ? AND (pin_hash IS NULL OR pin_change_required = 1)`,
         )
         .run(hashPin(input.pin), contactHash(phone), CONTACT_HASH_VERSION, now, now, user.id)
       if (!set.changes) return false
@@ -803,7 +858,7 @@ export class SSIAuthService {
     if (!claimed) throw new Error('A PIN was already chosen for this account. Sign in with it instead')
 
     const organizations = container.resolve(OrganizationService)
-    await organizations.applyConfirmedMemberName(user.id, name)
+    await organizations.applyConfirmedMemberName(user.id, name, phone)
     if (name !== invite.proposed_name) {
       await this.reissuePlatformIdentityOffer(user.tenant_id, name, phone).catch((error: any) =>
         logger.warn({ error: error?.message }, 'Could not reissue identity card after invite'),

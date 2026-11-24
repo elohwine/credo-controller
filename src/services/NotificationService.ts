@@ -671,9 +671,15 @@ export class NotificationService {
 
   /** The invite link by email. Each send replaces the code, so only the newest message works. */
   public async sendInviteEmail(inviteId: string, email: string): Promise<boolean> {
-    if (!this.emailReady()) return false
+    if (!this.emailReady()) {
+      logger.warn({ inviteId }, 'Invite email skipped: no RESEND_API_KEY or SMTP settings')
+      return false
+    }
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
-    if (!memberInviteLink('ready')) return false
+    if (!memberInviteLink('ready')) {
+      logger.warn({ inviteId }, 'Invite email skipped: set INVITE_JOIN_URL or WALLET_PUBLIC_URL for the join link')
+      return false
+    }
     const invite = memberInviteService.get(inviteId)
     if (!invite || invite.used_at) return false
     const code = memberInviteService.issueCode(inviteId)
