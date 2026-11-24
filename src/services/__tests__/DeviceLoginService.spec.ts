@@ -60,6 +60,7 @@ describe('Verified device protocol', () => {
       '122_partner_clients',
       '128_device_trust',
       '139_verified_device_enrollment',
+      '161_pin_change_required',
     ]) {
       db.exec(readFileSync(`migrations/${migration}.sql`, 'utf8'))
     }
@@ -195,9 +196,9 @@ describe('Verified device protocol', () => {
     expect(present).not.toHaveBeenCalled()
   })
   it('requires fresh proof for the selected new PIN and invalidates previous sessions', async () => {
-    const challenge = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '4321' })
-    expect(challenge.payload).not.toContain('4321')
-    const other = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '6789' })
+    const challenge = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '4729' })
+    expect(challenge.payload).not.toContain('4729')
+    const other = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '6158' })
     await expect(
       service.finish(request, { challengeId: other.challengeId, signature: signature(challenge) }),
     ).rejects.toMatchObject({ status: 401 })
@@ -205,7 +206,7 @@ describe('Verified device protocol', () => {
       service.finish(request, { challengeId: challenge.challengeId, signature: signature(challenge) }),
     ).resolves.toHaveProperty('token', 'renewed-session')
     expect(db.prepare('SELECT pin_hash, session_version FROM ssi_users').get()).toEqual({
-      pin_hash: 'digest:4321',
+      pin_hash: 'digest:4729',
       session_version: 1,
     })
     expect(() => assertPersonalSessionActive({ id: 'user-a', sessionVersion: 0 })).toThrow('security changed')
@@ -213,7 +214,7 @@ describe('Verified device protocol', () => {
   })
   it('leaves the PIN unchanged when platform credential verification fails', async () => {
     present.mockRejectedValueOnce(new Error('Identity card revoked'))
-    const challenge = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '4321' })
+    const challenge = service.start({ deviceKeyId: 'verified-key', purpose: 'change_pin', newPin: '4729' })
     await expect(
       service.finish(request, { challengeId: challenge.challengeId, signature: signature(challenge) }),
     ).rejects.toThrow('revoked')

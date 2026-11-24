@@ -24,6 +24,7 @@ import { IconCircleCheck, IconClock, IconSearch, IconSend, IconTrash, IconUserPl
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
 import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
+import { pinProblem } from '../security/AccountSecurity'
 import {
   CARD_STATE_COLOR,
   CARD_STATE_LABEL,
@@ -98,7 +99,11 @@ function accessGroup(row: PersonRow): Exclude<AccessFilter, 'all'> {
 }
 
 function initials(name: string): string {
-  const parts = name.replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean)
+  const parts = name
+    .replace(/[^\p{L}\s]/gu, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
   return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?'
 }
 
@@ -233,7 +238,13 @@ export function PeopleDirectory({
     return rows.filter((row) => {
       if (filter !== 'all' && accessGroup(row) !== filter) return false
       if (!needle) return true
-      return [row.name, row.employee?.staffNumber, row.employee?.phone, row.member?.phone, row.member ? roleLabel(row.member.role) : '']
+      return [
+        row.name,
+        row.employee?.staffNumber,
+        row.employee?.phone,
+        row.member?.phone,
+        row.member ? roleLabel(row.member.role) : '',
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(needle))
     })
@@ -291,7 +302,9 @@ export function PeopleDirectory({
           {canManage ? 'No one yet. Add the first person.' : 'No one else is on the team yet.'}
         </Text>
       ) : visible.length === 0 ? (
-        <Text size="sm" c="dimmed">No one matches.</Text>
+        <Text size="sm" c="dimmed">
+          No one matches.
+        </Text>
       ) : (
         <SimpleGrid cols={surface === 'phone' ? 1 : { base: 1, md: 2, xl: 3 }} spacing="xs">
           {visible.map((row) => {
@@ -347,38 +360,40 @@ export function PeopleDirectory({
         <Accordion variant="contained" radius="md">
           <Accordion.Item value="card-rule">
             <Accordion.Control>
-              <Text size="sm" fw={500}>When a role changes</Text>
+              <Text size="sm" fw={500}>
+                When a role changes
+              </Text>
             </Accordion.Control>
             <Accordion.Panel>
-          <Stack gap="xs">
-            <Text size="sm" c="dimmed">
-              The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
-            </Text>
-            <Radio.Group
-              value={cardRule}
-              onChange={(value) => {
-                const rule = value as StaffCardChangeRule
-                const previous = cardRule
-                setCardRule(rule)
-                api
-                  ?.saveStaffCardChange(orgTenantId, rule)
-                  .then(() => notify('Saved. Applies the next time a role changes.', 'success'))
-                  .catch((error) => {
-                    setCardRule(previous)
-                    notify(message(error), 'error')
-                  })
-              }}
-            >
-              <Stack gap="sm">
-                {STAFF_CARD_CHANGE_OPTIONS.map((option) => (
-                  <Radio key={option.value} value={option.value} label={option.label} description={option.hint} />
-                ))}
+              <Stack gap="xs">
+                <Text size="sm" c="dimmed">
+                  The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
+                </Text>
+                <Radio.Group
+                  value={cardRule}
+                  onChange={(value) => {
+                    const rule = value as StaffCardChangeRule
+                    const previous = cardRule
+                    setCardRule(rule)
+                    api
+                      ?.saveStaffCardChange(orgTenantId, rule)
+                      .then(() => notify('Saved. Applies the next time a role changes.', 'success'))
+                      .catch((error) => {
+                        setCardRule(previous)
+                        notify(message(error), 'error')
+                      })
+                  }}
+                >
+                  <Stack gap="sm">
+                    {STAFF_CARD_CHANGE_OPTIONS.map((option) => (
+                      <Radio key={option.value} value={option.value} label={option.label} description={option.hint} />
+                    ))}
+                  </Stack>
+                </Radio.Group>
+                <Text size="xs" c="dimmed">
+                  When someone leaves, their staff card stops working straight away.
+                </Text>
               </Stack>
-            </Radio.Group>
-            <Text size="xs" c="dimmed">
-              When someone leaves, their staff card stops working straight away.
-            </Text>
-          </Stack>
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>
@@ -447,6 +462,48 @@ function inviteNotice(
   notify(result?.message || fallback, result?.invite?.channel === 'none' ? 'info' : 'success')
 }
 
+/**
+ * For someone with no email or WhatsApp: the admin sets a PIN and tells them in person. The app
+ * makes them replace it at their first sign-in, so the admin never keeps a working PIN.
+ */
+function useTemporaryPin() {
+  const [on, setOn] = useState(false)
+  const [pin, setPin] = useState('')
+  const error = on && pin ? pinProblem(pin) : undefined
+  return {
+    on,
+    valid: !on || (Boolean(pin) && !error),
+    value: on ? pin : undefined,
+    reset: () => {
+      setOn(false)
+      setPin('')
+    },
+    field: (size: 'sm' | 'md') => (
+      <Stack gap="xs">
+        <Checkbox
+          size={size}
+          checked={on}
+          onChange={(event) => setOn(event.currentTarget.checked)}
+          label="Give them a temporary PIN instead"
+          description="For someone with no email or WhatsApp. Tell them the PIN in person; they must choose their own when they first sign in."
+        />
+        {on && (
+          <TextInput
+            size={size}
+            label="Temporary PIN"
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={6}
+            value={pin}
+            error={error}
+            onChange={(event) => setPin(event.currentTarget.value.replace(/\D/g, ''))}
+          />
+        )}
+      </Stack>
+    ),
+  }
+}
+
 /** One form for a new person: their details, and optionally the app. */
 function AddPerson({
   api,
@@ -478,10 +535,15 @@ function AddPerson({
   const [giveApp, setGiveApp] = useState(true)
   const [whatsapp, setWhatsapp] = useState(false)
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
+  const temporaryPin = useTemporaryPin()
   const [saving, setSaving] = useState(false)
   const needsPhone = giveApp
   const emailError = form.email.trim() && !looksLikeEmail(form.email) ? 'Check the email address' : null
-  const ready = form.name.trim().length >= 2 && (!needsPhone || form.phone.trim().length > 4) && !emailError
+  const ready =
+    form.name.trim().length >= 2 &&
+    (!needsPhone || form.phone.trim().length > 4) &&
+    !emailError &&
+    (!giveApp || temporaryPin.valid)
 
   const save = async () => {
     if (!api || !ready) return
@@ -495,6 +557,7 @@ function AddPerson({
           role: inviteRole,
           email: form.email.trim() || undefined,
           whatsappConsent: whatsapp,
+          temporaryPin: temporaryPin.value,
         })
         userId = invited.targetUserId
         inviteNotice(invited, notify, 'They are on the team.')
@@ -533,7 +596,13 @@ function AddPerson({
       <PhoneField
         surface={surface}
         label="Phone number"
-        description={giveApp ? 'We send a one-time link here. They choose their own PIN.' : 'Optional.'}
+        description={
+          !giveApp
+            ? 'Optional.'
+            : temporaryPin.on
+              ? 'They sign in with this number and the temporary PIN below.'
+              : 'We send a one-time link here. They choose their own PIN.'
+        }
         value={form.phone}
         onChange={(value) => setForm({ ...form, phone: value })}
         required={giveApp}
@@ -573,6 +642,7 @@ function AddPerson({
             label="They agreed to get the invite on WhatsApp"
             description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
           />
+          {temporaryPin.field(size)}
         </>
       )}
       <TextInput
@@ -674,6 +744,8 @@ function PersonPanel({
   const [inviteEmail, setInviteEmail] = useState(employee?.email || '')
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
   const [whatsapp, setWhatsapp] = useState(false)
+  const temporaryPin = useTemporaryPin()
+  const resendPin = useTemporaryPin()
   // Pay and details.
   const [pay, setPay] = useState({
     name: `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim(),
@@ -698,7 +770,9 @@ function PersonPanel({
         role: inviteRole,
         email,
         whatsappConsent: whatsapp,
+        temporaryPin: temporaryPin.value,
       })
+      temporaryPin.reset()
       if (employee) {
         const { firstName, lastName } = splitName(pay.name || row.name)
         await api.saveEmployee({
@@ -808,27 +882,34 @@ function PersonPanel({
                 />
               )}
               {member.invitePending && canManage && (
-                <Group justify="space-between" wrap="nowrap">
-                  <Text size="sm" c="dimmed">
-                    They have not opened their invite yet.
-                  </Text>
-                  <Button
-                    size={size}
-                    variant="light"
-                    radius="xl"
-                    leftSection={<IconSend size={16} />}
-                    loading={busy === 'resend'}
-                    onClick={() =>
-                      void run('resend', async () => {
-                        const result = await api?.resendInvite(orgTenantId, member.userId)
-                        inviteNotice(result, notify, 'Invite sent again.')
-                        await onChanged()
-                      })
-                    }
-                  >
-                    Send invite again
-                  </Button>
-                </Group>
+                <Stack gap="xs">
+                  <Group justify="space-between" wrap="nowrap">
+                    <Text size="sm" c="dimmed">
+                      They have not opened their invite yet.
+                    </Text>
+                    <Button
+                      size={size}
+                      variant="light"
+                      radius="xl"
+                      leftSection={<IconSend size={16} />}
+                      loading={busy === 'resend'}
+                      disabled={!resendPin.valid}
+                      onClick={() =>
+                        void run('resend', async () => {
+                          const result = await api?.resendInvite(orgTenantId, member.userId, {
+                            temporaryPin: resendPin.value,
+                          })
+                          resendPin.reset()
+                          inviteNotice(result, notify, 'Invite sent again.')
+                          await onChanged()
+                        })
+                      }
+                    >
+                      {resendPin.on ? 'Set temporary PIN' : 'Send invite again'}
+                    </Button>
+                  </Group>
+                  {resendPin.field(size)}
+                </Stack>
               )}
               {onboarding && (
                 <Stack gap="xs">
@@ -955,13 +1036,18 @@ function PersonPanel({
                 label="They agreed to get the invite on WhatsApp"
                 description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
               />
+              {temporaryPin.field(size)}
               <Group justify="flex-end">
                 <Button
                   size={size}
                   radius="xl"
                   leftSection={<IconUserPlus size={18} />}
                   loading={busy === 'invite'}
-                  disabled={phone.trim().length < 5 || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))}
+                  disabled={
+                    phone.trim().length < 5 ||
+                    Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail)) ||
+                    !temporaryPin.valid
+                  }
                   onClick={() => void invite()}
                 >
                   Invite to the app

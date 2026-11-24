@@ -2427,7 +2427,7 @@ const models: TsoaRoute.Models = {
     "InviteDeliveryResult": {
         "dataType": "refObject",
         "properties": {
-            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["none"]}],"required":true},
+            "channel": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["whatsapp"]},{"dataType":"enum","enums":["sms"]},{"dataType":"enum","enums":["link"]},{"dataType":"enum","enums":["temporary_pin"]},{"dataType":"enum","enums":["none"]}],"required":true},
             "link": {"dataType":"string"},
         },
         "additionalProperties": false,
@@ -2441,6 +2441,7 @@ const models: TsoaRoute.Models = {
             "name": {"dataType":"string"},
             "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
+            "temporaryPin": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -2450,6 +2451,7 @@ const models: TsoaRoute.Models = {
         "properties": {
             "email": {"dataType":"string"},
             "whatsappConsent": {"dataType":"boolean"},
+            "temporaryPin": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -3152,6 +3154,7 @@ const models: TsoaRoute.Models = {
             "token": {"dataType":"string","required":true},
             "tenantId": {"dataType":"string","required":true},
             "displayName": {"dataType":"string"},
+            "mustChangePin": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },
@@ -6457,6 +6460,7 @@ const models: TsoaRoute.Models = {
             "priority": {"ref":"ResponsePriority"},
             "latitude": {"dataType":"double"},
             "longitude": {"dataType":"double"},
+            "approximate": {"dataType":"boolean"},
         },
         "additionalProperties": false,
     },
@@ -6468,6 +6472,7 @@ const models: TsoaRoute.Models = {
             "jobs": {"dataType":"array","array":{"dataType":"refObject","ref":"TodayMapJob"},"required":true},
             "pendingLocations": {"dataType":"double","required":true},
             "notFoundLocations": {"dataType":"double","required":true},
+            "notice": {"dataType":"string"},
         },
         "additionalProperties": false,
     },
@@ -16689,6 +16694,79 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'login',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_changePin: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"newPin":{"dataType":"string","required":true},"currentPin":{"dataType":"string","required":true}}},
+        };
+        app.post('/api/wallet/auth/pin/change',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.changePin)),
+
+            async function WalletAuthController_changePin(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_changePin, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'changePin',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_securityStatus: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/wallet/auth/security-status',
+            authenticateMiddleware([{"jwt":[]}]),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.securityStatus)),
+
+            async function WalletAuthController_securityStatus(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_securityStatus, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'securityStatus',
                 controller,
                 response,
                 next,

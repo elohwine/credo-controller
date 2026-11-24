@@ -14,6 +14,7 @@ import {
 import { isCapacitorNativeRuntime, resolveMobileApiBaseUrl } from './baseUrl'
 import { appHref, appRoute } from './appPath'
 import { useSyncStore } from './state/sync'
+import { PIN_CHANGE_FLAG } from '../../shared/security/AccountSecurity'
 
 const API_BASE = resolveMobileApiBaseUrl()
 
@@ -265,7 +266,8 @@ api.interceptors.request.use((config) => {
 
 function bearerOf(config: any): string | null {
   const headers = config?.headers || {}
-  const raw = typeof headers.get === 'function' ? headers.get('Authorization') : headers.Authorization || headers.authorization
+  const raw =
+    typeof headers.get === 'function' ? headers.get('Authorization') : headers.Authorization || headers.authorization
   const match = /^Bearer\s+(.+)$/i.exec(String(raw || ''))
   return match ? match[1].trim() : null
 }
@@ -282,6 +284,13 @@ api.interceptors.response.use(
       const code = String(err?.response?.data?.code || '')
       const sent = bearerOf(err?.config)
       const org = getOrgToken()
+      if (code === 'pin_change_required') {
+        // Signed in with a temporary PIN from an organisation: only the change-PIN screen opens.
+        localStorage.setItem(PIN_CHANGE_FLAG, '1')
+        if (!appRoute(window.location.pathname).startsWith('/login/change-pin')) {
+          window.location.replace(appHref('/login/change-pin'))
+        }
+      }
       if (code === 'org_context_revoked' && sent && sent === org) {
         // The organisation can no longer be opened by this person (role changed or removed).
         console.warn('[auth] organisation access ended; back to personal wallet', requestUrl)

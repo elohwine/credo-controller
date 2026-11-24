@@ -7199,9 +7199,10 @@
               "whatsapp",
               "sms",
               "link",
+              "temporary_pin",
               "none"
             ],
-            "description": "How the invite link reached them. `link` means nothing could be sent: pass the link on in person."
+            "description": "How the invite link reached them. `link` means nothing could be sent: pass the link on in\nperson. `temporary_pin` means no link: they sign in with the temporary PIN and choose their own."
           },
           "link": {
             "type": "string"
@@ -7232,6 +7233,10 @@
           "whatsappConsent": {
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
+          },
+          "temporaryPin": {
+            "type": "string",
+            "description": "Optional, for someone with no email or WhatsApp: 4 to 6 digits the inviter tells them in\nperson. No link is sent. Their first sign-in only opens the screen to choose their own PIN."
           }
         },
         "required": [
@@ -7249,6 +7254,10 @@
           "whatsappConsent": {
             "type": "boolean",
             "description": "The inviter confirms the person agreed to get the invite link on WhatsApp."
+          },
+          "temporaryPin": {
+            "type": "string",
+            "description": "Instead of a new link: a temporary PIN they must replace at their first sign-in."
           }
         },
         "type": "object",
@@ -9163,6 +9172,10 @@
           "displayName": {
             "type": "string",
             "description": "Display name from VC (only for VC login)"
+          },
+          "mustChangePin": {
+            "type": "boolean",
+            "description": "A temporary PIN was used: only the change-PIN screen opens until the person picks their own"
           }
         },
         "required": [
@@ -19250,6 +19263,10 @@
           "longitude": {
             "type": "number",
             "format": "double"
+          },
+          "approximate": {
+            "type": "boolean",
+            "description": "Placed at the centre of the postcode district because the exact address was not found."
           }
         },
         "required": [
@@ -19279,6 +19296,10 @@
           "notFoundLocations": {
             "type": "number",
             "format": "double"
+          },
+          "notice": {
+            "type": "string",
+            "description": "Set when OpenStreetMap stopped answering part-way; the rest can be tried again shortly."
           }
         },
         "required": [
@@ -34616,6 +34637,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "mustChangePin": {
+                      "type": "boolean"
+                    },
                     "hasGenericId": {
                       "type": "boolean"
                     },
@@ -34655,6 +34679,126 @@
             }
           }
         }
+      }
+    },
+    "/api/wallet/auth/pin/change": {
+      "post": {
+        "operationId": "ChangePin",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tenantId",
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "The signed-in person replaces their PIN; the current one proves it is them. Also the way out\nof a temporary PIN an owner or admin gave. Other sign-ins end; this one gets a fresh session.",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "newPin": {
+                    "type": "string"
+                  },
+                  "currentPin": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "newPin",
+                  "currentPin"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/security-status": {
+      "get": {
+        "operationId": "SecurityStatus",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "phoneSignIn": {
+                      "type": "boolean"
+                    },
+                    "hasPin": {
+                      "type": "boolean"
+                    },
+                    "mustChangePin": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "phoneSignIn",
+                    "hasPin",
+                    "mustChangePin"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "What is still open to secure this account: a temporary PIN to replace, sign-in with the phone.",
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [
+          {
+            "jwt": []
+          }
+        ],
+        "parameters": []
       }
     },
     "/api/wallet/auth/invite/{code}": {

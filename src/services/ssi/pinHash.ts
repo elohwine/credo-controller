@@ -29,6 +29,17 @@ const SALT_BYTES = 16
 /** The PIN format every screen accepts: four to six digits. */
 export const PIN_PATTERN = /^\d{4,6}$/
 
+/** Why a newly chosen PIN is refused, or undefined when it is fine: repeated or running digits are too easy. */
+export function pinProblem(pin: string): string | undefined {
+  if (!PIN_PATTERN.test(pin)) return 'Choose a PIN of 4 to 6 digits'
+  const digits = pin.split('').map(Number)
+  const same = digits.every((digit) => digit === digits[0])
+  const up = digits.every((digit, index) => index === 0 || digit === (digits[index - 1] + 1) % 10)
+  const down = digits.every((digit, index) => index === 0 || digit === (digits[index - 1] + 9) % 10)
+  if (same || up || down) return 'That PIN is too easy to guess. Avoid repeated or running digits'
+  return undefined
+}
+
 /** The stored form of a PIN. Never reversible to the PIN without the work scrypt demands. */
 export function hashPin(pin: string): string {
   const salt = randomBytes(SALT_BYTES)

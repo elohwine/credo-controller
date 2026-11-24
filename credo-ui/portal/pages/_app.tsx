@@ -1,22 +1,23 @@
-import React from "react";
-import axios from "axios";
-import "@/styles/globals.css";
-import '@mantine/core/styles.css';
-import '@mantine/notifications/styles.css';
-import '@mantine/dates/styles.css';
-import 'mantine-datatable/styles.css';
-import type { AppProps } from "next/app";
-import { AvailableCredential } from "@/types/credentials";
-import { Loader, MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core';
-import { Notifications } from '@mantine/notifications';
-import { MilestoneHost } from '@/components/feedback/Milestone';
-import { credentisTheme } from '@/lib/theme/credentis-theme';
-import { useActiveTabInView } from '@/lib/tabs';
+import React from 'react'
+import axios from 'axios'
+import '@/styles/globals.css'
+import '@mantine/core/styles.css'
+import '@mantine/notifications/styles.css'
+import '@mantine/dates/styles.css'
+import 'mantine-datatable/styles.css'
+import type { AppProps } from 'next/app'
+import { AvailableCredential } from '@/types/credentials'
+import { Loader, MantineProvider, localStorageColorSchemeManager, v8CssVariablesResolver } from '@mantine/core'
+import { Notifications } from '@mantine/notifications'
+import { MilestoneHost } from '@/components/feedback/Milestone'
+import { credentisTheme } from '@/lib/theme/credentis-theme'
+import { useActiveTabInView } from '@/lib/tabs'
 
-import Layout from "@/components/Layout";
-import { clearCurrentSession } from "@/lib/savedAccounts";
-import { clearStoredOrganizationContext, hasSignedInSession } from "@/utils/organizationContext";
-import { CONTEXT_UPDATED_EVENT } from "@/lib/portalContext";
+import Layout from '@/components/Layout'
+import { clearCurrentSession } from '@/lib/savedAccounts'
+import { clearStoredOrganizationContext, hasSignedInSession } from '@/utils/organizationContext'
+import { CONTEXT_UPDATED_EVENT } from '@/lib/portalContext'
+import { PIN_CHANGE_FLAG } from '../../shared/security/AccountSecurity'
 
 // A missing connection should fail at once and leave the last screen in place.
 // Waiting for the browser to time out is what makes the app feel stuck.
@@ -29,73 +30,82 @@ if (typeof window !== 'undefined' && !portalAxios.__offlineFastFail) {
     }
     return config
   })
+  // A temporary PIN from an organisation opens nothing but the change-PIN screen.
+  axios.interceptors.response.use(undefined, (error) => {
+    if (error?.response?.status === 403 && error?.response?.data?.code === 'pin_change_required') {
+      localStorage.setItem(PIN_CHANGE_FLAG, '1')
+      if (!window.location.pathname.startsWith('/auth/change-pin')) {
+        const back = `${window.location.pathname}${window.location.search}`
+        window.location.replace(`/auth/change-pin?returnUrl=${encodeURIComponent(back)}`)
+      }
+    }
+    return Promise.reject(error)
+  })
 }
 
-export const EnvContext = React.createContext({} as { [key: string]: string });
-export const CredentialsContext = React.createContext([
-  [],
-  (credentials: AvailableCredential[]) => { },
-] as [AvailableCredential[], (credentials: AvailableCredential[]) => void]);
+export const EnvContext = React.createContext({} as { [key: string]: string })
+export const CredentialsContext = React.createContext([[], (credentials: AvailableCredential[]) => {}] as [
+  AvailableCredential[],
+  (credentials: AvailableCredential[]) => void,
+])
 
 export default function App({ Component, pageProps }: AppProps) {
-  useActiveTabInView();
-  const [AvailableCredentials, setAvailableCredentials] = React.useState<
-    AvailableCredential[]
-  >([]);
-  const [env, setEnv] = React.useState({} as { [key: string]: string });
-  const [error, setError] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  useActiveTabInView()
+  const [AvailableCredentials, setAvailableCredentials] = React.useState<AvailableCredential[]>([])
+  const [env, setEnv] = React.useState({} as { [key: string]: string })
+  const [error, setError] = React.useState<string | null>(null)
+  const [loading, setLoading] = React.useState(true)
 
   // Consolidated initialization - only runs once on mount
   React.useEffect(() => {
-    let isMounted = true;
+    let isMounted = true
 
     const initializeApp = async () => {
-      setLoading(true);
+      setLoading(true)
 
       try {
         // 1. Get env config
-        const envRes = await axios.get('/api/env');
+        const envRes = await axios.get('/api/env')
         if (!envRes.data.hasOwnProperty('NEXT_PUBLIC_VC_REPO')) {
-          setError('Environment configuration is incomplete. Please check .env.local file.');
-          return;
+          setError('Environment configuration is incomplete. Please check .env.local file.')
+          return
         }
 
-        if (!isMounted) return;
-        setEnv(envRes.data);
+        if (!isMounted) return
+        setEnv(envRes.data)
 
-        const apiBaseUrl = envRes.data.NEXT_PUBLIC_VC_REPO;
+        const apiBaseUrl = envRes.data.NEXT_PUBLIC_VC_REPO
 
         // 2. Check for cached tenant
-        let tenantId = localStorage.getItem('credoTenantId');
-        let tenantToken = localStorage.getItem('credoTenantToken');
+        let tenantId = localStorage.getItem('credoTenantId')
+        let tenantToken = localStorage.getItem('credoTenantToken')
 
         // Cleanup invalid storage
         if (tenantId === 'undefined' || tenantId === 'null') {
-          localStorage.removeItem('credoTenantId');
-          tenantId = null;
+          localStorage.removeItem('credoTenantId')
+          tenantId = null
         }
         if (tenantToken === 'undefined' || tenantToken === 'null') {
-          localStorage.removeItem('credoTenantToken');
-          tenantToken = null;
+          localStorage.removeItem('credoTenantToken')
+          tenantToken = null
         }
 
         // If the stored context is an org context, keep the personal wallet token
         // separately so the org session isn't overwritten.
-        const isOrgContext = localStorage.getItem('credoContextMode') === 'org';
-        const walletToken = localStorage.getItem('walletToken');
+        const isOrgContext = localStorage.getItem('credoContextMode') === 'org'
+        const walletToken = localStorage.getItem('walletToken')
 
         // Only a real sign-in leaves a wallet, auth or organisation token. A guest tenant token
         // (shop checkout, or the old anonymous start-up) is kept for register to claim, but is not a session.
-        const signedIn = hasSignedInSession();
+        const signedIn = hasSignedInSession()
         if (!signedIn) {
-          tenantId = null;
-          tenantToken = null;
+          tenantId = null
+          tenantToken = null
         }
         if (isOrgContext && walletToken && walletToken !== tenantToken) {
           // Use the personal wallet token for app-level validation, but don't overwrite org token.
-          tenantToken = walletToken;
-          tenantId = null; // Let validation proceed with wallet token
+          tenantToken = walletToken
+          tenantId = null // Let validation proceed with wallet token
         }
 
         // 3. Validate the signed-in session (single check). Signed-out visitors get no session;
@@ -103,32 +113,36 @@ export default function App({ Component, pageProps }: AppProps) {
         if (tenantToken) {
           try {
             await axios.get(`${apiBaseUrl}/agent`, {
-              headers: { Authorization: `Bearer ${tenantToken}` }
-            });
+              headers: { Authorization: `Bearer ${tenantToken}` },
+            })
             // Only normalize keys when NOT in org context so we don't clobber org session.
             if (!isOrgContext) {
-              localStorage.setItem('credoTenantId', tenantId || '');
-              localStorage.setItem('tenantId', tenantId || '');
-              localStorage.setItem('credoTenantToken', tenantToken);
-              localStorage.setItem('tenantToken', tenantToken);
+              localStorage.setItem('credoTenantId', tenantId || '')
+              localStorage.setItem('tenantId', tenantId || '')
+              localStorage.setItem('credoTenantToken', tenantToken)
+              localStorage.setItem('tenantToken', tenantToken)
             }
-            console.log('[App] Using cached portal tenant:', tenantId);
+            console.log('[App] Using cached portal tenant:', tenantId)
           } catch (e: any) {
-            const responseStatus = Number(e?.response?.status || 0);
-            const sessionRejected = responseStatus === 401 || responseStatus === 403;
-            if (isOrgContext && !sessionRejected) {
+            const responseStatus = Number(e?.response?.status || 0)
+            const pinChangePending = responseStatus === 403 && e?.response?.data?.code === 'pin_change_required'
+            const sessionRejected = !pinChangePending && (responseStatus === 401 || responseStatus === 403)
+            if (pinChangePending) {
+              // Signed in with a temporary PIN: keep the session, the change-PIN screen opens next.
+              localStorage.setItem(PIN_CHANGE_FLAG, '1')
+            } else if (isOrgContext && !sessionRejected) {
               // The API was unreachable or had a hiccup (for example a restart). Keep the
               // organization session; dropping it here would silently log the operator out.
-              console.warn('[App] Could not validate session right now; keeping organization context');
+              console.warn('[App] Could not validate session right now; keeping organization context')
             } else if (sessionRejected) {
               // The session expired or was revoked: sign out fully so Layout sends the person to sign in.
-              console.warn('[App] Session rejected; signing out');
-              clearCurrentSession();
-              clearStoredOrganizationContext();
-              tenantToken = null;
-              window.dispatchEvent(new Event(CONTEXT_UPDATED_EVENT));
+              console.warn('[App] Session rejected; signing out')
+              clearCurrentSession()
+              clearStoredOrganizationContext()
+              tenantToken = null
+              window.dispatchEvent(new Event(CONTEXT_UPDATED_EVENT))
             } else {
-              console.warn('[App] Could not validate session right now; keeping it');
+              console.warn('[App] Could not validate session right now; keeping it')
             }
           }
         }
@@ -138,9 +152,9 @@ export default function App({ Component, pageProps }: AppProps) {
           try {
             const defsRes = await axios.get(`${apiBaseUrl}/oidc/credential-definitions`, {
               headers: { Authorization: `Bearer ${tenantToken}` },
-            });
+            })
 
-            const defs: any[] = Array.isArray(defsRes.data) ? defsRes.data : [];
+            const defs: any[] = Array.isArray(defsRes.data) ? defsRes.data : []
             const credentials = defs.map((def) => ({
               id: def.name || def.credentialDefinitionId,
               title: def.name || def.credentialDefinitionId,
@@ -148,31 +162,32 @@ export default function App({ Component, pageProps }: AppProps) {
                 credentialType: def.credentialType || [],
                 claimsTemplate: def.claimsTemplate || {},
               },
-            }));
+            }))
 
-            if (isMounted) setAvailableCredentials(credentials);
+            if (isMounted) setAvailableCredentials(credentials)
           } catch (err: any) {
-            console.warn('Failed to load credentials:', err.message);
+            console.warn('Failed to load credentials:', err.message)
           }
         }
-
       } catch (err: any) {
-        const isNetworkError = err.code === 'ERR_NETWORK' || err.message?.includes('Network Error');
+        const isNetworkError = err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')
         const errorMessage = isNetworkError
           ? '⚠️ Backend not reachable. Please start the Credo controller at localhost:3000'
-          : `Configuration error: ${err.message}`;
+          : `Configuration error: ${err.message}`
 
-        console.error('App initialization error:', errorMessage);
-        if (isMounted) setError(errorMessage);
+        console.error('App initialization error:', errorMessage)
+        if (isMounted) setError(errorMessage)
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) setLoading(false)
       }
-    };
+    }
 
-    initializeApp();
+    initializeApp()
 
-    return () => { isMounted = false; };
-  }, []);
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   return (
     <MantineProvider
@@ -185,9 +200,7 @@ export default function App({ Component, pageProps }: AppProps) {
       <Notifications position="top-right" limit={3} pauseResetOnHover="notification" />
       <MilestoneHost />
       <EnvContext.Provider value={env}>
-        <CredentialsContext.Provider
-          value={[AvailableCredentials, setAvailableCredentials]}
-        >
+        <CredentialsContext.Provider value={[AvailableCredentials, setAvailableCredentials]}>
           {error && (
             <div
               style={{
@@ -203,7 +216,7 @@ export default function App({ Component, pageProps }: AppProps) {
                 maxWidth: '400px',
                 display: 'flex',
                 alignItems: 'start',
-                gap: '12px'
+                gap: '12px',
               }}
             >
               <span style={{ fontSize: '20px' }}>⚠️</span>
@@ -220,7 +233,7 @@ export default function App({ Component, pageProps }: AppProps) {
                   cursor: 'pointer',
                   fontSize: '20px',
                   padding: '0',
-                  lineHeight: '1'
+                  lineHeight: '1',
                 }}
               >
                 ×
@@ -242,7 +255,7 @@ export default function App({ Component, pageProps }: AppProps) {
                 zIndex: 9999,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px'
+                gap: '10px',
               }}
             >
               <Loader size="xs" color="white" />
@@ -256,5 +269,5 @@ export default function App({ Component, pageProps }: AppProps) {
         </CredentialsContext.Provider>
       </EnvContext.Provider>
     </MantineProvider>
-  );
+  )
 }

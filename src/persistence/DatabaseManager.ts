@@ -222,6 +222,8 @@ export class DatabaseManager {
       { version: 158, file: '158_job_history_runs.sql', name: 'job_history_runs' },
       { version: 159, file: '159_job_dashboard_settings.sql', name: 'job_dashboard_settings' },
       { version: 160, file: '160_employee_qualifications.sql', name: 'employee_qualifications' },
+      { version: 161, file: '161_pin_change_required.sql', name: 'pin_change_required' },
+      { version: 162, file: '162_regeocode_job_locations.sql', name: 'regeocode_job_locations' },
     ]
 
     for (const migration of migrationFiles) {

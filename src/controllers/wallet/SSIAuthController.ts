@@ -24,7 +24,7 @@ import { container } from 'tsyringe'
 
 import { SCOPES } from '../../enums'
 import { StatusException } from '../../errors'
-import { PinLockedError, SSIAuthService } from '../../services/SSIAuthService'
+import { InviteRequiredError, PinLockedError, SSIAuthService } from '../../services/SSIAuthService'
 
 // Request/Response interfaces
 
@@ -102,6 +102,8 @@ interface LoginResponse {
   tenantId: string
   /** Display name from VC (only for VC login) */
   displayName?: string
+  /** A temporary PIN was used: only the change-PIN screen opens until the person picks their own */
+  mustChangePin?: boolean
 }
 
 interface SessionInfo {
@@ -330,10 +332,12 @@ export class SSIAuthController extends Controller {
       return {
         token: result.token,
         tenantId: result.tenantId,
+        mustChangePin: result.mustChangePin,
       }
     } catch (error: any) {
       request.logger?.error({ error: error.message }, 'PIN Login failed')
       if (error instanceof PinLockedError) throw new StatusException(error.message, 429)
+      if (error instanceof InviteRequiredError) throw new StatusException(error.message, 403)
       throw new StatusException('Invalid credentials', 401)
     }
   }

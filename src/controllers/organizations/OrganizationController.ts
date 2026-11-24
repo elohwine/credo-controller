@@ -262,6 +262,11 @@ interface InviteMemberByPhoneRequest {
   email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
+  /**
+   * Optional, for someone with no email or WhatsApp: 4 to 6 digits the inviter tells them in
+   * person. No link is sent. Their first sign-in only opens the screen to choose their own PIN.
+   */
+  temporaryPin?: string
 }
 
 interface ResendInviteRequest {
@@ -269,11 +274,16 @@ interface ResendInviteRequest {
   email?: string
   /** The inviter confirms the person agreed to get the invite link on WhatsApp. */
   whatsappConsent?: boolean
+  /** Instead of a new link: a temporary PIN they must replace at their first sign-in. */
+  temporaryPin?: string
 }
 
 interface InviteDeliveryResult {
-  /** How the invite link reached them. `link` means nothing could be sent: pass the link on in person. */
-  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
+  /**
+   * How the invite link reached them. `link` means nothing could be sent: pass the link on in
+   * person. `temporary_pin` means no link: they sign in with the temporary PIN and choose their own.
+   */
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'temporary_pin' | 'none'
   link?: string
 }
 
@@ -1975,15 +1985,27 @@ export class OrganizationController extends Controller {
     }
 
     try {
-      const result = await this.orgService.inviteMemberByPhone(orgTenantId, body.phone, body.role || 'member', user.id, {
-        name: body.name,
-        email: body.email,
-        whatsappConsent: body.whatsappConsent === true,
-      })
+      const result = await this.orgService.inviteMemberByPhone(
+        orgTenantId,
+        body.phone,
+        body.role || 'member',
+        user.id,
+        {
+          name: body.name,
+          email: body.email,
+          whatsappConsent: body.whatsappConsent === true,
+          temporaryPin: body.temporaryPin ? String(body.temporaryPin) : undefined,
+        },
+      )
       this.setStatus(201)
       return { ...result, message: OrganizationController.inviteMessage(result.invite, result.accountCreated) }
     } catch (error: any) {
-      if (error.message.includes('Enter the person') || error.message.includes('valid email')) {
+      if (
+        error.message.includes('Enter the person') ||
+        error.message.includes('valid email') ||
+        error.message.includes('temporary PIN') ||
+        error.message.includes('too easy')
+      ) {
         throw new StatusException(error.message, 400)
       } else if (error.message.includes('Only org owners')) {
         this.setStatus(403)
@@ -2005,6 +2027,8 @@ export class OrganizationController extends Controller {
       return 'Invite sent on WhatsApp. They open the link, confirm their name and choose their own PIN.'
     if (invite.channel === 'sms')
       return 'Invite sent by text message. They open the link, confirm their name and choose their own PIN.'
+    if (invite.channel === 'temporary_pin')
+      return 'Tell them the temporary PIN in person. They sign in with their phone number and it, then choose their own PIN.'
     if (invite.channel === 'link')
       return 'No message could be sent. Give them this link yourself; it works once and expires in 7 days.'
     return accountCreated
@@ -2028,14 +2052,15 @@ export class OrganizationController extends Controller {
       const invite = await this.orgService.resendMemberInvite(orgTenantId, targetUserId, user.id, {
         email: body?.email,
         whatsappConsent: body?.whatsappConsent === true,
+        temporaryPin: body?.temporaryPin ? String(body.temporaryPin) : undefined,
       })
       return { ...invite, message: OrganizationController.inviteMessage(invite, true) }
     } catch (error: any) {
       const message = String(error?.message || 'Could not resend the invite')
       if (message.includes('Only org owners')) throw new StatusException(message, 403)
       if (message.includes('not on this team')) throw new StatusException(message, 404)
-      if (message.includes('valid email')) throw new StatusException(message, 400)
-      if (/already signed in|No phone/.test(message)) throw new StatusException(message, 409)
+      if (/valid email|temporary PIN|too easy/.test(message)) throw new StatusException(message, 400)
+      if (/already signed in|No phone|already chosen/.test(message)) throw new StatusException(message, 409)
       throw error
     }
   }

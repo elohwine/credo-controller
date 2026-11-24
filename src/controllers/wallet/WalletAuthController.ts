@@ -190,7 +190,13 @@ export class WalletAuthController extends Controller {
       throw new StatusException('Enter a date of birth as YYYY-MM-DD', 400)
     }
     const offerUri = await this.ssiAuthService
-      .reissuePlatformIdentityWithDateOfBirth(user.tenantId, dateOfBirth, 'self_attested', body?.displayName, body?.phone)
+      .reissuePlatformIdentityWithDateOfBirth(
+        user.tenantId,
+        dateOfBirth,
+        'self_attested',
+        body?.displayName,
+        body?.phone,
+      )
       .catch((error: any) => {
         request.logger?.warn({ err: error?.message }, 'Self-attested date of birth reissue failed')
         return undefined
@@ -309,7 +315,7 @@ export class WalletAuthController extends Controller {
   public async login(
     @Request() request: ExRequest,
     @Body() body: LoginRequest,
-  ): Promise<{ token: string; hasGenericId?: boolean }> {
+  ): Promise<{ token: string; hasGenericId?: boolean; mustChangePin?: boolean }> {
     console.log('[LOGIN] ===== START LOGIN FLOW (SSI) =====')
 
     try {
@@ -329,6 +335,7 @@ export class WalletAuthController extends Controller {
       return {
         token: result.token,
         hasGenericId: true,
+        mustChangePin: result.mustChangePin,
       }
     } catch (e: any) {
       console.log('[LOGIN] Authentication failed:', e.message)
@@ -336,6 +343,43 @@ export class WalletAuthController extends Controller {
       if (e instanceof PinLockedError) throw new StatusException(e.message, 429)
       throw new StatusException('Invalid credentials', 401)
     }
+  }
+
+  /**
+   * The signed-in person replaces their PIN; the current one proves it is them. Also the way out
+   * of a temporary PIN an owner or admin gave. Other sign-ins end; this one gets a fresh session.
+   */
+  @Post('/pin/change')
+  @Security('jwt')
+  public async changePin(
+    @Request() request: ExRequest,
+    @Body() body: { currentPin: string; newPin: string },
+  ): Promise<{ token: string; tenantId: string }> {
+    const user = (request as ExRequest & { user?: { id?: string; orgRole?: string } }).user
+    if (!user?.id) throw new StatusException('Sign in required', 401)
+    if (user.orgRole) throw new StatusException('Switch to your personal account to change your PIN.', 403)
+    try {
+      return await this.ssiAuthService.changePin(user.id, body?.currentPin, body?.newPin)
+    } catch (e: any) {
+      if (e instanceof PinLockedError) throw new StatusException(e.message, 429)
+      const message = String(e?.message || 'Could not change your PIN')
+      if (/current PIN/.test(message)) throw new StatusException(message, 401)
+      if (/PIN|digits/.test(message)) throw new StatusException(message, 400)
+      throw e
+    }
+  }
+
+  /** What is still open to secure this account: a temporary PIN to replace, sign-in with the phone. */
+  @Get('/security-status')
+  @Security('jwt')
+  public securityStatus(@Request() request: ExRequest): {
+    mustChangePin: boolean
+    hasPin: boolean
+    phoneSignIn: boolean
+  } {
+    const user = (request as ExRequest & { user?: { id?: string } }).user
+    if (!user?.id) throw new StatusException('Sign in required', 401)
+    return this.ssiAuthService.securityStatus(user.id)
   }
 
   /** What an invite link is for, before the person accepts it. */
@@ -359,7 +403,7 @@ export class WalletAuthController extends Controller {
       const message = String(e?.message || 'Could not accept the invite')
       if (/expired|replaced/.test(message)) throw new StatusException(message, 404)
       if (/already chosen/.test(message)) throw new StatusException(message, 409)
-      if (/Enter your name|PIN of|not the phone/.test(message)) throw new StatusException(message, 400)
+      if (/Enter your name|PIN of|too easy|not the phone/.test(message)) throw new StatusException(message, 400)
       throw e
     }
   }
@@ -396,7 +440,10 @@ export class WalletAuthController extends Controller {
     @Request() request: ExRequest,
     @Body() body: SameDeviceLoginBody,
   ): Promise<{ presented: true }> {
-    throw new StatusException('Use the updated Android app and turn on sign-in with this phone in Settings, Sign-in and security.', 403)
+    throw new StatusException(
+      'Use the updated Android app and turn on sign-in with this phone in Settings, Sign-in and security.',
+      403,
+    )
   }
 
   @Get('/session')

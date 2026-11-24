@@ -18,7 +18,11 @@
  * - PlatformIdentityVC issued → temp record deleted
  */
 
-import type { SSIUserRecord, PlatformIdentityClaims, IdentityVerificationSource } from '../config/credentials/PlatformIdentityVC'
+import type {
+  SSIUserRecord,
+  PlatformIdentityClaims,
+  IdentityVerificationSource,
+} from '../config/credentials/PlatformIdentityVC'
 
 import { Agent, W3cCredentialService, W3cJwtVerifiableCredential, W3cJwtVerifiablePresentation } from '@credo-ts/core'
 import crypto from 'crypto'
@@ -38,13 +42,8 @@ import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
 import { billDocumentClaims, documentClaims } from './documentFacts'
 import { memberInviteService } from './MemberInviteService'
 import { personalSessionVersion, requireDeviceLoginApproval } from './PersonalSessionPolicy'
-import {
-  contactHash,
-  contactHashCandidates,
-  normalizeContactEmail,
-  phoneHashCandidates,
-} from './ssi/contactHash'
-import { hashPin, needsRehash, verifyPin } from './ssi/pinHash'
+import { contactHash, contactHashCandidates, normalizeContactEmail, phoneHashCandidates } from './ssi/contactHash'
+import { hashPin, needsRehash, pinProblem, verifyPin } from './ssi/pinHash'
 import { PRODUCT_NAME } from '../config/productEdition'
 
 const logger = rootLogger.child({ module: 'SSIAuthService' })
@@ -599,7 +598,7 @@ export class SSIAuthService {
     phone?: string
     email?: string
     pin: string
-  }): Promise<{ token: string; tenantId: string }> {
+  }): Promise<{ token: string; tenantId: string; mustChangePin: boolean }> {
     const db = DatabaseManager.getDatabase()
 
     if (!credentials.phone?.trim() && !credentials.email?.trim()) throw new Error('Phone or Email required')
@@ -652,7 +651,87 @@ export class SSIAuthService {
 
     const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
 
+    return { token, tenantId: user.tenant_id, mustChangePin: Number(user.pin_change_required || 0) === 1 }
+  }
+
+  /**
+   * The person replaces their PIN while signed in: the current one proves it is them. Ends every
+   * other sign-in (session version moves on) and returns a fresh session for this one.
+   */
+  async changePin(userId: string, currentPin: string, newPin: string): Promise<{ token: string; tenantId: string }> {
+    const db = DatabaseManager.getDatabase()
+    const user = db
+      .prepare('SELECT id, tenant_id, did, pin_hash, pin_attempts, pin_locked_until FROM ssi_users WHERE id = ?')
+      .get(userId) as
+      | {
+          id: string
+          tenant_id: string
+          did?: string
+          pin_hash?: string | null
+          pin_attempts?: number
+          pin_locked_until?: string | null
+        }
+      | undefined
+    if (!user) throw new Error('This account is unavailable')
+    this.assertPinNotLocked(user)
+    if (!user.pin_hash || !verifyPin(String(currentPin || ''), user.pin_hash)) {
+      this.notePinFailure(user.id, Number(user.pin_attempts || 0))
+      throw new Error('Your current PIN is not right')
+    }
+    const problem = pinProblem(String(newPin || ''))
+    if (problem) throw new Error(problem)
+    if (verifyPin(newPin, user.pin_hash)) throw new Error('Choose a PIN different from the one you have now')
+    db.prepare(
+      `UPDATE ssi_users
+          SET pin_hash = ?, pin_change_required = 0, pin_attempts = 0, pin_locked_until = NULL,
+              session_version = session_version + 1, updated_at = ?
+        WHERE id = ?`,
+    ).run(hashPin(newPin), new Date().toISOString(), user.id)
+    const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
     return { token, tenantId: user.tenant_id }
+  }
+
+  /**
+   * An owner or admin gives someone who has never chosen a PIN a temporary one, for a person
+   * with no email or WhatsApp. Their first sign-in only opens the change-PIN screen, and any
+   * open invite link stops working. Never replaces a PIN the person chose themselves.
+   */
+  setTemporaryPin(userId: string, pin: string): void {
+    const problem = pinProblem(String(pin || ''))
+    if (problem) throw new Error(problem.replace('Choose a PIN', 'Give a temporary PIN'))
+    const db = DatabaseManager.getDatabase()
+    const set = db.transaction(() => {
+      const result = db
+        .prepare(
+          `UPDATE ssi_users SET pin_hash = ?, pin_change_required = 1, pin_attempts = 0, pin_locked_until = NULL,
+                  updated_at = ?
+            WHERE id = ? AND pin_hash IS NULL`,
+        )
+        .run(hashPin(pin), new Date().toISOString(), userId)
+      if (result.changes) memberInviteService.markUsed(userId)
+      return result.changes > 0
+    })()
+    if (!set) throw new Error('They have already chosen their own PIN')
+  }
+
+  /** What the person still has to do to secure their account. */
+  securityStatus(userId: string): { mustChangePin: boolean; hasPin: boolean; phoneSignIn: boolean } {
+    const db = DatabaseManager.getDatabase()
+    const user = db
+      .prepare('SELECT tenant_id, pin_hash, pin_change_required FROM ssi_users WHERE id = ?')
+      .get(userId) as { tenant_id: string; pin_hash?: string | null; pin_change_required?: number } | undefined
+    if (!user) throw new Error('This account is unavailable')
+    const phone = db
+      .prepare(
+        `SELECT 1 FROM device_keys WHERE wallet_tenant_id = ? AND key_usage = 'login'
+            AND revoked_at IS NULL AND verified_at IS NOT NULL LIMIT 1`,
+      )
+      .get(user.tenant_id)
+    return {
+      mustChangePin: Number(user.pin_change_required || 0) === 1,
+      hasPin: Boolean(user.pin_hash),
+      phoneSignIn: Boolean(phone),
+    }
   }
 
   /** What the invite link shows before the person accepts: organisation, role, proposed name. */
@@ -695,7 +774,8 @@ export class SSIAuthService {
     if (!invite) throw new Error('This invite link has expired or was replaced by a newer one')
     const name = OrganizationService.cleanPersonName(input.name)
     if (!name) throw new Error('Enter your name')
-    if (!/^\d{4,6}$/.test(String(input.pin || ''))) throw new Error('Choose a PIN of 4 to 6 digits')
+    const weakPin = pinProblem(String(input.pin || ''))
+    if (weakPin) throw new Error(weakPin)
     const db = DatabaseManager.getDatabase()
     const user = db
       .prepare('SELECT id, tenant_id, did, phone_hash, pin_hash FROM ssi_users WHERE id = ?')
@@ -891,7 +971,8 @@ export class SSIAuthService {
   private noteRegistryOptIn(walletTenantId: string, optedIn: boolean | undefined): void {
     if (!optedIn) return
     try {
-      const { identityVerificationRequestService } = require('./IdentityVerificationRequestService') as typeof import('./IdentityVerificationRequestService')
+      const { identityVerificationRequestService } =
+        require('./IdentityVerificationRequestService') as typeof import('./IdentityVerificationRequestService')
       identityVerificationRequestService.requestRegistryVerification(walletTenantId)
     } catch (error: any) {
       logger.warn({ error: error?.message }, 'Could not record the registry verification request')
@@ -1386,8 +1467,7 @@ export class SSIAuthService {
   private notePinFailure(userId: string, attempts: number): void {
     const db = DatabaseManager.getDatabase()
     const next = attempts + 1
-    const lockedUntil =
-      next >= PIN_ATTEMPT_LIMIT ? new Date(Date.now() + PIN_LOCK_MINUTES * 60000).toISOString() : null
+    const lockedUntil = next >= PIN_ATTEMPT_LIMIT ? new Date(Date.now() + PIN_LOCK_MINUTES * 60000).toISOString() : null
     db.prepare('UPDATE ssi_users SET pin_attempts = ?, pin_locked_until = ? WHERE id = ?').run(
       next >= PIN_ATTEMPT_LIMIT ? 0 : next,
       lockedUntil,

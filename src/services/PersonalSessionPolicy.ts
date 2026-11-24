@@ -33,6 +33,29 @@ export function assertPersonalSessionActive(claims: JwtPayload): void {
   }
 }
 
+export const PIN_CHANGE_REQUIRED = 'pin_change_required'
+
+/** The only routes a session may use while its temporary PIN still has to be replaced. */
+const PIN_CHANGE_ROUTES = ['/api/wallet/auth/pin/change', '/api/wallet/auth/security-status']
+
+/**
+ * Someone else chose this account's PIN (a temporary PIN from an owner or admin). Until the
+ * person picks their own, every route except changing it answers 403 `pin_change_required`.
+ */
+export function assertPinChangeNotPending(claims: JwtPayload, path: string): void {
+  const id = typeof claims.id === 'string' ? claims.id : undefined
+  if (!id) return
+  const row = DatabaseManager.getDatabase()
+    .prepare('SELECT pin_change_required FROM ssi_users WHERE id = ?')
+    .get(id) as { pin_change_required?: number } | undefined
+  if (Number(row?.pin_change_required || 0) !== 1) return
+  const route = String(path || '')
+    .split('?')[0]
+    .replace(/\/+$/, '')
+  if (PIN_CHANGE_ROUTES.includes(route)) return
+  throw new StatusException('Choose your own PIN to continue.', 403, PIN_CHANGE_REQUIRED)
+}
+
 export function devicePolicyHash(policy: { releaseClaims: string[]; audience: string }): string {
   return createHash('sha256')
     .update(JSON.stringify({ releaseClaims: policy.releaseClaims, audience: policy.audience }))

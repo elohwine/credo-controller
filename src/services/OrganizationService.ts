@@ -41,7 +41,11 @@ import {
   type OrgTaskPurpose,
 } from './OrgContextPolicy'
 import { orgOfferingsService } from './OrgOfferingsService'
-import { applyOrgSetupBootstrap, type OrgSetupBootstrapRequest, type OrgSetupBootstrapResult } from './OrgSetupBootstrap'
+import {
+  applyOrgSetupBootstrap,
+  type OrgSetupBootstrapRequest,
+  type OrgSetupBootstrapResult,
+} from './OrgSetupBootstrap'
 import { ensureDefaultDepartment } from './OrgStarterDepartments'
 import { ensureStarterRoles } from './OrgStarterRoles'
 import { SSIAuthService } from './SSIAuthService'
@@ -622,7 +626,7 @@ function templateOfferedByAnswers(orgTenantId: string, workflowType: string): Wo
 
 /** How an invite link reached the person. `link` is returned only when nothing could be sent. */
 export interface InviteDelivery {
-  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'none'
+  channel: 'email' | 'whatsapp' | 'sms' | 'link' | 'temporary_pin' | 'none'
   link?: string
 }
 
@@ -1704,7 +1708,14 @@ export class OrganizationService {
     role: string,
     invitedBy: string,
     /** allowUnnamed: phones typed into a job carry no name; the person gives it when they open the link. */
-    options: { name?: string; email?: string; whatsappConsent?: boolean; allowUnnamed?: boolean } = {},
+    options: {
+      name?: string
+      email?: string
+      whatsappConsent?: boolean
+      allowUnnamed?: boolean
+      /** For someone with no email or WhatsApp: they sign in with it once, then must choose their own. */
+      temporaryPin?: string
+    } = {},
   ): Promise<{
     membershipId: string
     targetUserId: string
@@ -1719,7 +1730,8 @@ export class OrganizationService {
     const givenName = OrganizationService.cleanPersonName(options.name)
     const proposedName = givenName || this.contactNameForPhone(orgTenantId, normalizedPhone)
     const known = this.lookupUserByPhone(orgTenantId, normalizedPhone).userId
-    if (!proposedName && !known && !options.allowUnnamed) throw new Error("Enter the person's name so the team knows who they are")
+    if (!proposedName && !known && !options.allowUnnamed)
+      throw new Error("Enter the person's name so the team knows who they are")
     const holder = await container
       .resolve(SSIAuthService)
       .provisionInvitedHolder(normalizedPhone, proposedName || 'Team member')
@@ -1728,7 +1740,10 @@ export class OrganizationService {
     this.rememberMemberPhone(orgTenantId, holder.userId, normalizedPhone, givenName, email)
     const needsPin = this.userNeedsPin(holder.userId)
     let invite: InviteDelivery = { channel: 'none' }
-    if (needsPin) {
+    if (needsPin && options.temporaryPin) {
+      container.resolve(SSIAuthService).setTemporaryPin(holder.userId, options.temporaryPin)
+      invite = { channel: 'temporary_pin' }
+    } else if (needsPin) {
       invite = await this.sendMemberInvite(orgTenantId, holder.userId, normalizedPhone, invitedBy, {
         proposedName,
         email,
@@ -1736,11 +1751,13 @@ export class OrganizationService {
       })
     }
     const alerted =
-      invite.channel === 'whatsapp' || invite.channel === 'sms' || invite.channel === 'email'
-        ? true
-        : result.alreadyMember
-          ? false
-          : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole)
+      invite.channel === 'temporary_pin'
+        ? false
+        : invite.channel === 'whatsapp' || invite.channel === 'sms' || invite.channel === 'email'
+          ? true
+          : result.alreadyMember
+            ? false
+            : await this.alertInvitedMember(orgTenantId, normalizedPhone, membershipRole)
     return {
       ...result,
       targetUserId: holder.userId,
@@ -1796,7 +1813,8 @@ export class OrganizationService {
   ): Promise<InviteDelivery> {
     const { memberInviteService, memberInviteLink } = await import('./MemberInviteService')
     const inviteId = memberInviteService.create({ userId, orgTenantId, invitedBy, proposedName: options.proposedName })
-    if (options.email && (await notificationService.sendInviteEmail(inviteId, options.email))) return { channel: 'email' }
+    if (options.email && (await notificationService.sendInviteEmail(inviteId, options.email)))
+      return { channel: 'email' }
     if (options.whatsappConsent) {
       try {
         notificationService.recordInviteConsent(orgTenantId, userId, phone)
@@ -1826,16 +1844,22 @@ export class OrganizationService {
     orgTenantId: string,
     targetUserId: string,
     requestedBy: string,
-    options: { email?: string; whatsappConsent?: boolean } = {},
+    options: { email?: string; whatsappConsent?: boolean; temporaryPin?: string } = {},
   ): Promise<InviteDelivery> {
     const db = DatabaseManager.getDatabase()
     const requester = this.getUserOrgRole(requestedBy, orgTenantId)
     if (requester !== 'owner' && requester !== 'admin') throw new Error('Only org owners/admins can resend invites')
     const member = db
-      .prepare(`SELECT 1 FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status IN ('active', 'invited')`)
+      .prepare(
+        `SELECT 1 FROM org_memberships WHERE user_id = ? AND org_tenant_id = ? AND status IN ('active', 'invited')`,
+      )
       .get(targetUserId, orgTenantId)
     if (!member) throw new Error('That person is not on this team')
     if (!this.userNeedsPin(targetUserId)) throw new Error('They have already signed in and chosen a PIN')
+    if (options.temporaryPin) {
+      container.resolve(SSIAuthService).setTemporaryPin(targetUserId, options.temporaryPin)
+      return { channel: 'temporary_pin' }
+    }
     const contact = getContactById(`${orgTenantId}:member:${targetUserId}`, orgTenantId)
     if (!contact?.phone) throw new Error('No phone number saved for this person')
     const email = OrganizationService.cleanEmail(options.email)
@@ -1903,7 +1927,13 @@ export class OrganizationService {
   }
 
   /** Keep the phone (and email, when given) on the team contact so the list can tell they have an account. */
-  private rememberMemberPhone(orgTenantId: string, userId: string, phone: string, givenName?: string, email?: string): void {
+  private rememberMemberPhone(
+    orgTenantId: string,
+    userId: string,
+    phone: string,
+    givenName?: string,
+    email?: string,
+  ): void {
     const existing = getContactById(`${orgTenantId}:member:${userId}`, orgTenantId)
     if (!existing) return
     const generic = !existing.name || /^(team member|organization owner)$/i.test(existing.name.trim())
@@ -2276,12 +2306,13 @@ export class OrganizationService {
             builtInRoles: roleFallbackFor(workflow.workflowType, stageAction),
             stageChain: policy.stageChains[stageAction] || [],
             credential: this.describeStageActorCredential(orgTenantId, workflow.workflowType, actor, needsAssignment),
-            access: unnamedRole || !saved
-              ? undefined
-              : this.stageApprovalAccess(orgTenantId, workflow.workflowType, stageAction, [
-                  saved.defaultUserId,
-                  ...saved.additionalUserIds,
-                ]),
+            access:
+              unnamedRole || !saved
+                ? undefined
+                : this.stageApprovalAccess(orgTenantId, workflow.workflowType, stageAction, [
+                    saved.defaultUserId,
+                    ...saved.additionalUserIds,
+                  ]),
           }
         })
 
@@ -2541,7 +2572,9 @@ export class OrganizationService {
     for (const org of orgs) {
       if (!org.ownerUserId) continue
       const ever = db
-        .prepare(`SELECT d.scope_json AS scopeJson, p.subject_ref AS userId FROM delegations d JOIN people p ON p.id = d.delegate_person_id WHERE d.organization_id = ?`)
+        .prepare(
+          `SELECT d.scope_json AS scopeJson, p.subject_ref AS userId FROM delegations d JOIN people p ON p.id = d.delegate_person_id WHERE d.organization_id = ?`,
+        )
         .all(org.organizationId) as Array<{ scopeJson: string; userId: string }>
       const hadAccess = (userId: string, workflowType: string, stageAction: string) =>
         ever.some((row) => {
@@ -2560,7 +2593,16 @@ export class OrganizationService {
           if (memberUserId === org.ownerUserId) continue
           if (hadAccess(memberUserId, saved.workflowType, saved.stageAction)) continue
           if (!orgWorkflowActorService.listOrgMembers(org.orgTenantId).some((m) => m.userId === memberUserId)) continue
-          if (this.ownApprovalAuthority(org.orgTenantId, org.organizationId, memberUserId, saved.workflowType, saved.stageAction)) continue
+          if (
+            this.ownApprovalAuthority(
+              org.orgTenantId,
+              org.organizationId,
+              memberUserId,
+              saved.workflowType,
+              saved.stageAction,
+            )
+          )
+            continue
           const now = Date.now()
           this.createDelegation(org.orgTenantId, org.ownerUserId, {
             delegatorUserId: org.ownerUserId,
@@ -2585,7 +2627,8 @@ export class OrganizationService {
   private stageTitleFor(workflowType: string, stageAction: string): string | undefined {
     try {
       const prerequisites = getDeclaredPrerequisites({ id: workflowType, workflowType }, [workflowType])
-      return prerequisites.find((item) => String(item.stageAction || '').toLowerCase() === stageAction.toLowerCase())?.title
+      return prerequisites.find((item) => String(item.stageAction || '').toLowerCase() === stageAction.toLowerCase())
+        ?.title
     } catch {
       return undefined
     }
@@ -2669,8 +2712,9 @@ export class OrganizationService {
     let additionalUserIds: string[] | undefined
     if (Array.isArray(input.additionalUserIds)) {
       const members = orgWorkflowActorService.listOrgMembers(orgTenantId)
-      additionalUserIds = Array.from(new Set(input.additionalUserIds.map((id) => String(id || '').trim()).filter(Boolean)))
-        .filter((id) => id !== defaultUserId)
+      additionalUserIds = Array.from(
+        new Set(input.additionalUserIds.map((id) => String(id || '').trim()).filter(Boolean)),
+      ).filter((id) => id !== defaultUserId)
       const unknown = additionalUserIds.find((id) => !members.some((row) => row.userId === id))
       if (unknown) throw new Error('Everyone chosen for this step must be an active member of this organization')
     }
@@ -2946,10 +2990,13 @@ export class OrganizationService {
     }
 
     if (canSeeUnassignedInbound(role)) {
-      const requests = workflowRequestRepository.listInbound(orgTenantId, { status: 'pending', limit: 50 })
+      const requests = workflowRequestRepository
+        .listInbound(orgTenantId, { status: 'pending', limit: 50 })
         .filter(isWorkflowRequestActionable)
       for (const request of requests) {
-        const title = String(request.payload?.title || request.payload?.description || request.payload?.summary || '').trim()
+        const title = String(
+          request.payload?.title || request.payload?.description || request.payload?.summary || '',
+        ).trim()
         inbox.push({
           id: request.id,
           kind: 'inbox',
@@ -3445,7 +3492,14 @@ export class OrganizationService {
     orgTenantId: string,
     purpose: unknown,
     refs: unknown,
-  ): Promise<{ token: string; orgRole: string; taskPass: boolean; purpose: OrgTaskPurpose; refs: string[]; expiresAt?: string }> {
+  ): Promise<{
+    token: string
+    orgRole: string
+    taskPass: boolean
+    purpose: OrgTaskPurpose
+    refs: string[]
+    expiresAt?: string
+  }> {
     if (!isOrgTaskPurpose(purpose)) {
       throw new StatusException('Unknown task type.', 400)
     }
@@ -3535,7 +3589,6 @@ export class OrganizationService {
     }
     return digits
   }
-
 }
 
 function safeJsonParse(value: string): Record<string, unknown> {

@@ -13,6 +13,7 @@ import { DatabaseManager } from '../src/persistence/DatabaseManager'
 import { memberInviteLink, memberInviteService } from '../src/services/MemberInviteService'
 import { notificationService } from '../src/services/NotificationService'
 import { OrganizationService } from '../src/services/OrganizationService'
+import { assertPinChangeNotPending } from '../src/services/PersonalSessionPolicy'
 import { InviteRequiredError, SSIAuthService } from '../src/services/SSIAuthService'
 
 import { addMember, initTestDatabases, seedOrganization, type TestDatabases } from './utils/orgReadinessFixture'
@@ -92,10 +93,15 @@ describe('member invite links', () => {
     const auth = new SSIAuthService({} as any)
     jest.spyOn(auth, 'reissuePlatformIdentityOffer').mockResolvedValue(undefined)
 
-    expect(auth.describeInvite(code)).toMatchObject({ role: 'field_worker', proposedName: 'Rudo', phoneHint: '•••• 4567' })
-    await expect(auth.acceptInvite({ code, name: 'Rudo Moyo', phone: '0779999999', pin: '1234' })).rejects.toThrow(
+    expect(auth.describeInvite(code)).toMatchObject({
+      role: 'field_worker',
+      proposedName: 'Rudo',
+      phoneHint: '•••• 4567',
+    })
+    await expect(auth.acceptInvite({ code, name: 'Rudo Moyo', phone: '0779999999', pin: '2580' })).rejects.toThrow(
       'not the phone number',
     )
+    await expect(auth.acceptInvite({ code, name: 'Rudo Moyo', phone: PHONE, pin: '1234' })).rejects.toThrow('too easy')
     await expect(auth.acceptInvite({ code, name: 'Team member', phone: PHONE, pin: '1234' })).rejects.toThrow(
       'Enter your name',
     )
@@ -116,7 +122,10 @@ describe('member invite links', () => {
     const auth = new SSIAuthService({} as any)
     await auth.acceptInvite({ code, name: 'Rudo Moyo', phone: '0771234567', pin: '1357', whatsappAlerts: true })
     for (const eventType of ['task', 'vc_offer', 'proof_request', 'payment_link', 'remittance']) {
-      expect(notificationService.consentedRecipient(org.orgTenantId, eventType, { userId })).toEqual({ userId, phone: PHONE })
+      expect(notificationService.consentedRecipient(org.orgTenantId, eventType, { userId })).toEqual({
+        userId,
+        phone: PHONE,
+      })
     }
   })
 
@@ -164,6 +173,32 @@ describe('member invite links', () => {
     expect(text).toContain('https://wallet.example/login/join?code=')
     expect(memberInviteService.findOpenByCode(code)?.id).toBe(inviteId)
     sms.mockRestore()
+  })
+
+  test('a temporary PIN from the organisation opens only the change-PIN screen until replaced', async () => {
+    const { userId, inviteId } = invitedPerson()
+    const code = memberInviteService.issueCode(inviteId)!
+    const auth = new SSIAuthService({} as any)
+    expect(() => auth.setTemporaryPin(userId, '0000')).toThrow('too easy')
+    auth.setTemporaryPin(userId, '4826')
+    expect(memberInviteService.findOpenByCode(code)).toBeUndefined()
+
+    // Earlier tests leave the same phone on accepted accounts in its keyed form.
+    DatabaseManager.getDatabase().prepare('UPDATE ssi_users SET phone_hash = NULL WHERE id != ?').run(userId)
+    const first = await auth.loginWithPin({ phone: PHONE, pin: '4826' })
+    expect(first.mustChangePin).toBe(true)
+    expect(auth.securityStatus(userId)).toMatchObject({ mustChangePin: true, hasPin: true })
+    const claims = { id: userId }
+    expect(() => assertPinChangeNotPending(claims, '/api/organizations/x/members')).toThrow('Choose your own PIN')
+    expect(() => assertPinChangeNotPending(claims, '/api/wallet/auth/pin/change')).not.toThrow()
+
+    await expect(auth.changePin(userId, '9999', '7391')).rejects.toThrow('current PIN')
+    await expect(auth.changePin(userId, '4826', '4826')).rejects.toThrow('different')
+    await expect(auth.changePin(userId, '4826', '7391')).resolves.toHaveProperty('token')
+    expect(() => assertPinChangeNotPending(claims, '/api/organizations/x/members')).not.toThrow()
+    await expect(auth.loginWithPin({ phone: PHONE, pin: '7391' })).resolves.toMatchObject({ mustChangePin: false })
+    // The organisation can never overwrite a PIN the person chose.
+    expect(() => auth.setTemporaryPin(userId, '5172')).toThrow('already chosen')
   })
 
   test('typed names are cleaned and placeholders refused', () => {

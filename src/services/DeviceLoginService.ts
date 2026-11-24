@@ -1,4 +1,3 @@
-import type { SSIAuthService } from './SSIAuthService'
 import type { Agent } from '@credo-ts/core'
 import type { Request } from 'express'
 
@@ -9,7 +8,9 @@ import { DatabaseManager } from '../persistence/DatabaseManager'
 
 import { deviceTrustService } from './DeviceTrustService'
 import { devicePolicyHash, requireDeviceLoginApproval } from './PersonalSessionPolicy'
+import type { SSIAuthService } from './SSIAuthService'
 import { loginAudience } from './SSIAuthService'
+import { pinProblem } from './ssi/pinHash'
 import { WalletLoginService } from './WalletLoginService'
 import { stageProofService } from './ssi/StageProofService'
 import { PRODUCT_NAME } from '../config/productEdition'
@@ -128,8 +129,8 @@ export class DeviceLoginService {
       }
     }
     if (input.purpose === 'change_pin') {
-      if (!/^\d{4,6}$/.test(input.newPin || ''))
-        throw new StatusException('Choose an account PIN of 4 to 6 digits.', 400)
+      const problem = pinProblem(input.newPin || '')
+      if (problem) throw new StatusException(`${problem}.`, 400)
       operation.newPinHash = this.auth.pinDigest(input.newPin!)
     }
     const challengeId = randomBytes(32).toString('base64url')
@@ -189,7 +190,7 @@ export class DeviceLoginService {
       db.transaction(() => {
         deviceTrustService.getVerifiedDevice(row.device_key_id)
         db.prepare(
-          'UPDATE ssi_users SET pin_hash = ?, session_version = session_version + 1, updated_at = ? WHERE tenant_id = ?',
+          'UPDATE ssi_users SET pin_hash = ?, pin_change_required = 0, session_version = session_version + 1, updated_at = ? WHERE tenant_id = ?',
         ).run(saved.operation.newPinHash, new Date().toISOString(), row.wallet_tenant_id)
       })()
       return this.auth.sessionForTrustedDevice(row.wallet_tenant_id, row.device_key_id)

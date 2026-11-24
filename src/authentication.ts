@@ -19,7 +19,7 @@ import {
   ORG_TASK_SCOPE_MESSAGE,
   taskRouteAllowed,
 } from './services/OrgContextPolicy'
-import { assertPersonalSessionActive } from './services/PersonalSessionPolicy'
+import { assertPersonalSessionActive, assertPinChangeNotPending } from './services/PersonalSessionPolicy'
 import { TsLogger } from './utils/logger'
 
 let dynamicApiKey: string =
@@ -122,6 +122,12 @@ export async function expressAuthentication(request: Request, securityName: stri
     } catch {
       agent.config.logger.error('Error decoding authentication token')
       return Promise.reject(new StatusException(`${ErrorMessages.Unauthorized}: Invalid token`, 401))
+    }
+
+    try {
+      assertPinChangeNotPending(decodedToken, request.originalUrl || request.url)
+    } catch (error) {
+      return Promise.reject(error)
     }
 
     const role: AgentRole = decodedToken.role
