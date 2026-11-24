@@ -766,6 +766,7 @@ const models: TsoaRoute.Models = {
             "userId": {"dataType":"string"},
             "branch": {"dataType":"string"},
             "legacyUsername": {"dataType":"string"},
+            "intendedRole": {"dataType":"string"},
             "status": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["terminated"]},{"dataType":"enum","enums":["on_leave"]}],"required":true},
             "createdAt": {"dataType":"string","required":true},
         },

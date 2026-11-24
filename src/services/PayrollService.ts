@@ -16,6 +16,59 @@ import { NSSACalculator, PAYECalculator } from './payroll/plugins/StatutoryPlugi
 
 const logger = rootLogger.child({ module: 'PayrollService' })
 
+/** "SGK Construction" gives SGK, "Acme Facilities Ltd" gives AF. */
+function staffNumberPrefix(orgTenantId: string): string {
+  const db = DatabaseManager.getDatabase()
+  let name = ''
+  for (const sql of [
+    'SELECT name FROM organizations WHERE tenant_id = ? LIMIT 1',
+    'SELECT label AS name FROM tenants WHERE id = ? LIMIT 1',
+  ]) {
+    try {
+      name = String((db.prepare(sql).get(orgTenantId) as { name?: string } | undefined)?.name || '').trim()
+      if (name) break
+    } catch {
+      continue
+    }
+  }
+  const words = name.split(/[^A-Za-z0-9]+/).filter(Boolean)
+  const first = words[0] || ''
+  if (/^[A-Z][A-Z0-9]{1,4}$/.test(first)) return first
+  const initials = words
+    .filter((word) => !/^(ltd|limited|plc|llc|inc|co|the|and|of)$/i.test(word))
+    .map((word) => word[0].toUpperCase())
+    .join('')
+    .slice(0, 4)
+  return initials.length >= 2 ? initials : 'EMP'
+}
+
+/**
+ * The next free staff number for an organisation, continuing its numbering (SGK001, SGK002...).
+ * Given to anyone added without one.
+ */
+export function nextStaffNumber(orgTenantId: string): string {
+  const db = DatabaseManager.getDatabase()
+  const prefix = staffNumberPrefix(orgTenantId)
+  const numbers = (
+    db
+      .prepare('SELECT staff_number AS n FROM employees WHERE tenant_id = ? AND staff_number IS NOT NULL')
+      .all(orgTenantId) as Array<{ n: string }>
+  ).map((row) => String(row.n).toUpperCase())
+  const taken = new Set(numbers)
+  const pattern = new RegExp(`^${prefix}-?(\\d+)$`)
+  let highest = 0
+  let width = 3
+  for (const number of numbers) {
+    const match = pattern.exec(number)
+    if (!match) continue
+    highest = Math.max(highest, Number(match[1]))
+    width = Math.max(width, match[1].length)
+  }
+  let next = highest + 1
+  while (taken.has(`${prefix}${String(next).padStart(width, '0')}`)) next += 1
+  return `${prefix}${String(next).padStart(width, '0')}`
+}
+
 function employeeFromRow(row: any): Employee {
   let skills: string[] = []
   try {
@@ -57,6 +110,7 @@ function employeeFromRow(row: any): Employee {
     userId: row.user_id || undefined,
     branch: row.branch || undefined,
     legacyUsername: row.legacy_username || undefined,
+    intendedRole: row.intended_role || undefined,
     status: row.status,
     createdAt: row.created_at,
   }
@@ -89,6 +143,8 @@ export interface Employee {
   branch?: string
   /** Login name in the office's old job system, so imported jobs show who did them. */
   legacyUsername?: string
+  /** The app role they start on when invited, e.g. manager for office users. */
+  intendedRole?: string
   status: 'active' | 'terminated' | 'on_leave'
   createdAt: string
 }
@@ -154,8 +210,19 @@ export class PayrollService {
     const tenantId = employee.tenantId || 'default'
     // Editing a record keeps the date it was first added.
     const existing = db
-      .prepare('SELECT created_at, qualifications_json FROM employees WHERE id = ? AND tenant_id = ?')
-      .get(id, tenantId) as { created_at?: string; qualifications_json?: string } | undefined
+      .prepare(
+        'SELECT created_at, qualifications_json, branch, legacy_username, intended_role, staff_number FROM employees WHERE id = ? AND tenant_id = ?',
+      )
+      .get(id, tenantId) as
+      | {
+          created_at?: string
+          staff_number?: string | null
+          qualifications_json?: string
+          branch?: string | null
+          legacy_username?: string | null
+          intended_role?: string | null
+        }
+      | undefined
     if (employee.id && !existing) {
       const other = db.prepare('SELECT tenant_id FROM employees WHERE id = ?').get(id) as
         | { tenant_id: string }
@@ -163,10 +230,13 @@ export class PayrollService {
       if (other && other.tenant_id !== tenantId) throw new Error('That employee belongs to another organisation')
     }
 
+    // Left blank, they keep the number they have or are given the next one.
     const staffNumber =
       String(employee.staffNumber || '')
         .trim()
-        .toUpperCase() || null
+        .toUpperCase() ||
+      existing?.staff_number ||
+      nextStaffNumber(tenantId)
     const userId = String(employee.userId || '').trim() || null
     if (staffNumber) {
       const taken = db
@@ -218,6 +288,10 @@ export class PayrollService {
       skills_json: JSON.stringify(skills),
       qualifications_json: JSON.stringify(qualifications),
       user_id: userId,
+      // Not edited from the staff form, so a save keeps what the import set.
+      branch: (employee.branch ?? existing?.branch) || null,
+      legacy_username: (employee.legacyUsername ?? existing?.legacy_username) || null,
+      intended_role: (employee.intendedRole ?? existing?.intended_role) || null,
       status: employee.status || 'active',
       created_at: existing?.created_at || now,
       updated_at: now,
@@ -226,8 +300,8 @@ export class PayrollService {
     db.prepare(
       `
             INSERT OR REPLACE INTO employees 
-            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, staff_number, skills_json, qualifications_json, user_id, status, created_at, updated_at)
-            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @staff_number, @skills_json, @qualifications_json, @user_id, @status, @created_at, @updated_at)
+            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, staff_number, skills_json, qualifications_json, user_id, branch, legacy_username, intended_role, status, created_at, updated_at)
+            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @staff_number, @skills_json, @qualifications_json, @user_id, @branch, @legacy_username, @intended_role, @status, @created_at, @updated_at)
         `,
     ).run(record)
 
@@ -328,8 +402,8 @@ export class PayrollService {
           .trim()
         const [first, ...rest] = name.split(' ')
         db.prepare(
-          `INSERT INTO employees (id, tenant_id, first_name, last_name, phone, base_salary, currency, status, user_id)
-           VALUES (?, ?, ?, ?, ?, 0, 'USD', 'active', ?)`,
+          `INSERT INTO employees (id, tenant_id, first_name, last_name, phone, base_salary, currency, status, user_id, staff_number)
+           VALUES (?, ?, ?, ?, ?, 0, 'USD', 'active', ?, ?)`,
         ).run(
           `EMP-${randomUUID()}`,
           tenantId,
@@ -337,6 +411,7 @@ export class PayrollService {
           rest.join(' '),
           member.phone || null,
           member.userId,
+          nextStaffNumber(tenantId),
         )
         added += 1
       }
@@ -345,8 +420,26 @@ export class PayrollService {
     return added
   }
 
+  /** Gives a staff number to everyone added before numbers were given automatically, oldest first. */
+  assignMissingStaffNumbers(tenantId: string): number {
+    const db = DatabaseManager.getDatabase()
+    const missing = db
+      .prepare(
+        `SELECT id FROM employees WHERE tenant_id = ? AND (staff_number IS NULL OR TRIM(staff_number) = '')
+          ORDER BY created_at, rowid`,
+      )
+      .all(tenantId) as Array<{ id: string }>
+    if (!missing.length) return 0
+    const update = db.prepare('UPDATE employees SET staff_number = ? WHERE id = ? AND tenant_id = ?')
+    db.transaction(() => {
+      for (const row of missing) update.run(nextStaffNumber(tenantId), row.id, tenantId)
+    })()
+    return missing.length
+  }
+
   async listEmployees(tenantId: string = 'default'): Promise<Employee[]> {
     const db = DatabaseManager.getDatabase()
+    if (tenantId !== 'default') this.assignMissingStaffNumbers(tenantId)
     const rows = db.prepare('SELECT * FROM employees WHERE tenant_id = ?').all(tenantId) as any[]
     return rows.map((row) => employeeFromRow(row))
   }

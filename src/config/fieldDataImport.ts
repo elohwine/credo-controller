@@ -102,8 +102,8 @@ export const FIELD_IMPORT_KIND_INFO: FieldImportKindInfo[] = [
     kind: 'people',
     label: 'Staff',
     summary:
-      'Each person is added to the staff list in HR with their branch. Pay is left at 0 for you to set. They are linked to their account when they join with the same phone number.',
-    columns: ['Full name', 'Username', 'Staff number', 'Phone', 'Email', 'Branch', 'Archived'],
+      'Each person is added to the staff list in HR with their branch and the role they start on when invited (office users as managers, everyone else as field workers). Pay is left at 0 for you to set. They are linked to their account when they join with the same phone number.',
+    columns: ['Full name', 'Username', 'Staff number', 'Phone', 'Email', 'Branch', 'Role', 'Archived'],
   },
   {
     kind: 'vans',

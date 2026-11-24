@@ -121,13 +121,23 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
     const backend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
     let cancelled = false
     const load = async () => {
-      const [offers, receipts, inbound, runs, workflows] = await Promise.all([
-        fetch(`${backend}/api/wallet/credentials/pending-offers?status=open`, { headers })
+      // Same sources as the Inbox page: an organisation reads its own records, a person their own.
+      const [offers, receipts, assigned, inbound, runs, workflows, inboxRules] = await Promise.all([
+        fetch(`${backend}/api/wallet/credentials/pending-offers?status=open${isOrg ? '&holder=organization' : ''}`, {
+          headers,
+        })
           .then((res) => res.json())
           .catch(() => null),
-        fetch(`${backend}/api/wallet/credentials/pending-receipts`, { headers })
-          .then((res) => res.json())
-          .catch(() => null),
+        !isOrg
+          ? fetch(`${backend}/api/wallet/credentials/pending-receipts`, { headers })
+              .then((res) => res.json())
+              .catch(() => null)
+          : Promise.resolve(null),
+        !isOrg
+          ? fetch(`${backend}/workflow-requests/assigned?status=pending&limit=50`, { headers })
+              .then((res) => (res.ok ? res.json() : null))
+              .catch(() => null)
+          : Promise.resolve(null),
         isOrg
           ? fetch(`${backend}/workflow-requests/inbound?status=pending&limit=20`, { headers })
               .then((res) => res.json())
@@ -143,21 +153,26 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
               .then((res) => res.json())
               .catch(() => null)
           : Promise.resolve(null),
+        import('./requests/RequestWorkspace').catch(() => null),
       ])
       if (cancelled) return
-      const offerRows = openInboxOffers(offers)
-      const pendingReceipts = Array.isArray(receipts) ? receipts : []
-      const receiptRows = pendingReceipts.filter(
-        (row: any) => String(row?.sourceType || '').toLowerCase() === 'payment',
-      )
       const requestRows = Array.isArray(inbound) ? inbound : []
+      const inboxIds = new Set<string>(
+        inboxRules ? inboxRules.inboxCardIds(openInboxOffers(offers), isOrg ? 'org' : 'personal') : [],
+      )
+      const pendingReceipts = Array.isArray(receipts?.pendingReceipts) ? receipts.pendingReceipts : []
+      pendingReceipts
+        .filter((row: any) => String(row?.sourceType || '').toLowerCase() === 'payment')
+        .forEach((row: any) => inboxIds.add(`receipt:${row.receiptRowId}`))
+      ;(Array.isArray(assigned) ? assigned : []).forEach((row: any) => inboxIds.add(String(row.id)))
+      requestRows.forEach((row: any) => inboxIds.add(String(row.id)))
       const jobCounts = runs?.counts || {}
       // Every open job, matching the dashboard's Open jobs tile.
       const openJobs = ['pending', 'not_booked', 'assigned', 'active', 'arrived', 'on_hold', 'failed'].reduce(
         (sum, category) => sum + (Number(jobCounts[category]) || 0),
         0,
       )
-      setCounts({ inbox: offerRows.length + receiptRows.length, requests: requestRows.length, jobs: openJobs })
+      setCounts({ inbox: inboxIds.size, requests: requestRows.length, jobs: openJobs })
       setWorkflowTypes(Array.isArray(workflows?.workflowTypes) ? workflows.workflowTypes : [])
     }
     void load()

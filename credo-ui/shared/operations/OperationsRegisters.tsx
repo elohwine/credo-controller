@@ -611,7 +611,7 @@ function AttendantFileView({
       {canEdit ? (
         <Paper withBorder radius="md" p="md">
           <Stack gap="sm">
-            <TextInput size={size} label="Staff number" placeholder="e.g. SGK-014" value={staffNumber} onChange={(event) => setStaffNumber(event.currentTarget.value)} />
+            <TextInput size={size} label="Staff number" placeholder="Leave blank to give the next number" value={staffNumber} onChange={(event) => setStaffNumber(event.currentTarget.value)} />
             <TagsInput size={size} label="Skills" placeholder="Type a skill and press Enter" data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'Carpentry', 'Roofing', 'Tiling', 'Welding']} value={skills} onChange={setSkills} />
             <Group justify="flex-end">
               <Button size={size} radius="xl" loading={saving} onClick={() => void save()}>

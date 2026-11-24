@@ -703,6 +703,25 @@ function mapRecordOfferToRow(card: StageCardApiRow, holder: 'personal' | 'org'):
   }
 }
 
+/**
+ * Ids of the wallet cards the inbox lists, read with the same rules as the inbox itself, so the
+ * menu count never includes cards the inbox does not show (job updates live on Jobs).
+ */
+export function inboxCardIds(cards: unknown, holder: 'personal' | 'org'): string[] {
+  const list = (cards as { offers?: unknown })?.offers ?? cards
+  const rows: StageCardApiRow[] = Array.isArray(list) ? (list as StageCardApiRow[]) : []
+  const ids = new Set<string>()
+  for (const card of rows) {
+    const row =
+      mapStageCardToRow(card) ||
+      mapWorkflowStepCardToRow(card) ||
+      mapPurchaseStageCardToRow(card) ||
+      mapRecordOfferToRow(card, holder)
+    if (row) ids.add(String(row.id))
+  }
+  return Array.from(ids)
+}
+
 function isRecordOfferRow(row: RequestRow | null): boolean {
   if (!row) return false
   return String((parseRequestContext(row) as Record<string, unknown>).source || '') === 'record_offer'

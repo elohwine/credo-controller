@@ -717,7 +717,8 @@ function AddPerson({
       <TextInput
         size={size}
         label="Staff number"
-        placeholder="e.g. SGK-014"
+        placeholder="Leave blank to give the next number"
+        description="Optional. Left blank, the next number in your sequence is given."
         value={form.staffNumber}
         onChange={(event) => setForm({ ...form, staffNumber: event.currentTarget.value })}
       />
@@ -917,7 +918,11 @@ function PersonPanel({
   // Invite someone who has no app access yet.
   const [phone, setPhone] = useState(employee?.phone || member?.phone || '')
   const [inviteEmail, setInviteEmail] = useState(employee?.email || '')
-  const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
+  const [inviteRole, setInviteRole] = useState(
+    employee?.intendedRole && roleChoices.some((choice) => choice.value === employee.intendedRole)
+      ? employee.intendedRole
+      : defaultInviteRole(roleChoices),
+  )
   const [whatsapp, setWhatsapp] = useState(false)
   const invitePhone = phone.trim().length > 4
   // Details and pay.
@@ -1382,6 +1387,7 @@ function PersonPanel({
                 <TextInput
                   size={size}
                   label="Staff number"
+                  placeholder="Leave blank to give the next number"
                   value={pay.staffNumber}
                   readOnly={!editDetails}
                   onChange={(event) => setPay({ ...pay, staffNumber: event.currentTarget.value })}

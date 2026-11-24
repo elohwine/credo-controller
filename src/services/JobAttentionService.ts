@@ -12,6 +12,10 @@
  *
  * The messages are inbox cards of the kind a finished job already sends (`workflow_update`), so
  * they appear on the phone and go out on WhatsApp through the same trigger as every other card.
+ *
+ * The inbox is for what happens on the platform. A job that only arrived from the jobs mailbox or
+ * an uploaded file, and that nobody has taken up here yet, is shown on the Jobs list (needs
+ * attention) but sends no inbox card or summary until someone hands it out or a worker picks it up.
  * Jobs are read through `OperationsRegisterService`; nothing here keeps its own copy of a job.
  * `job_attention_log` only remembers what was already said.
  */
@@ -56,6 +60,8 @@ export interface AttentionItem {
   detail: string
   elapsedMinutes?: number
   targetMinutes?: number
+  /** Made or taken up on the platform. Only these reach the inbox; the rest stay on the Jobs list. */
+  startedHere: boolean
 }
 
 export const ATTENTION = {
@@ -146,6 +152,14 @@ export function weekKey(date: Date): string {
   return `${day.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
 }
 
+interface Progress {
+  status: string
+  lastStep?: number
+  finishedAt?: number
+  /** Someone on the platform has handed the job out (or on to someone else). */
+  handedOut?: boolean
+}
+
 interface Recipient {
   userId: string
   walletTenantId: string
@@ -180,6 +194,7 @@ export class JobAttentionService {
         reference: intake.payload.reference,
         description: intake.payload.description,
       })
+      const startedHere = intake.payload.sourceType !== 'email' && intake.payload.sourceType !== 'import'
       const priority = fieldJobPriority({ input: intake.payload })
       const targetMinutes = priority ? responseTargets[priority] : null
       const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - since) / 60_000))
@@ -203,6 +218,7 @@ export class JobAttentionService {
               : `No worker has been assigned. ${duration(remaining)} remain before the ${duration(targetMinutes)} first-response target.`,
             elapsedMinutes,
             targetMinutes,
+            startedHere,
           })
         }
         continue
@@ -218,6 +234,7 @@ export class JobAttentionService {
         days: Math.floor((now.getTime() - since) / DAY),
         headline: `${sentence(label)} is still waiting to be booked`,
         detail: `It came in ${age(now.getTime() - since)} ago and nobody has booked it yet.`,
+        startedHere,
       })
     }
 
@@ -226,27 +243,45 @@ export class JobAttentionService {
     )
   }
 
-  private progressOf(orgTenantId: string): Map<string, { status: string; lastStep?: number; finishedAt?: number }> {
+  private progressOf(orgTenantId: string): Map<string, Progress> {
     const rows = this.db
       .prepare(
         `SELECT r.id, r.status, r.completed_at AS finishedAt,
+                CASE WHEN json_valid(r.output) THEN COALESCE(json_array_length(r.output, '$.reassignments'), 0) ELSE 0 END AS handedOut,
                 MAX(COALESCE(s.completed_at, s.started_at, s.created_at)) AS lastStep
            FROM workflow_runs r LEFT JOIN workflow_steps s ON s.run_id = r.id
           WHERE r.tenant_id = ? AND r.status NOT IN ('completed', 'cancelled')
           GROUP BY r.id`,
       )
-      .all(orgTenantId) as Array<{ id: string; status: string; finishedAt?: string; lastStep?: string }>
+      .all(orgTenantId) as Array<{
+      id: string
+      status: string
+      finishedAt?: string
+      lastStep?: string
+      handedOut?: number
+    }>
     return new Map(
       rows.map((row) => [
         row.id,
-        { status: row.status, lastStep: time(row.lastStep), finishedAt: time(row.finishedAt) },
+        {
+          status: row.status,
+          lastStep: time(row.lastStep),
+          finishedAt: time(row.finishedAt),
+          handedOut: Number(row.handedOut) > 0,
+        },
       ]),
     )
   }
 
+  /** A mailbox or uploaded job counts once someone here handed it out or a worker picked it up. */
+  private startedHere(job: JobSummary, progress: Progress | undefined): boolean {
+    if (job.source !== 'email' && job.source !== 'import') return true
+    return Boolean(progress?.handedOut || job.failedVisit || ['active', 'arrived', 'on_hold'].includes(job.category))
+  }
+
   private classify(
     job: JobSummary,
-    progress: { status: string; lastStep?: number; finishedAt?: number } | undefined,
+    progress: Progress | undefined,
     today: string,
     now: number,
     responseTargets: JobResponseTargets,
@@ -262,6 +297,7 @@ export class JobAttentionService {
       label,
       storeNumber: job.storeNumber,
       assigneeId: job.assigneeId,
+      startedHere: this.startedHere(job, progress),
     }
     const make = (kind: AttentionKind, since: number, headline: string, detail: string): AttentionItem => ({
       ...base,
@@ -406,7 +442,8 @@ export class JobAttentionService {
   }
 
   public sweepOrganisation(orgTenantId: string, now = new Date()): { announced: number; summaries: number } {
-    const items = this.attention(orgTenantId, now)
+    // Jobs nobody has taken up here yet stay on the Jobs list; they are not inbox news.
+    const items = this.attention(orgTenantId, now).filter((item) => item.startedHere)
     const result = { announced: 0, summaries: 0 }
 
     // Jobs that are no longer stuck: forget them (so a second time is announced again) and close their cards.
@@ -451,7 +488,11 @@ export class JobAttentionService {
     const weekly = now.getUTCDay() === ATTENTION.weeklyDay
     // The daily summary is for things stuck a day or more; the weekly one lists everything.
     const listed = weekly ? items : items.filter((item) => item.days >= 1)
-    if (listed.length === 0) return 0
+    if (listed.length === 0) {
+      // Nothing left to sum up: an older summary would still count jobs that are no longer inbox news.
+      this.closeSummaries(orgTenantId, now)
+      return 0
+    }
 
     const scope = weekly ? 'week' : 'day'
     const subject = weekly ? weekKey(now) : now.toISOString().slice(0, 10)
@@ -484,12 +525,7 @@ export class JobAttentionService {
     ].filter(Boolean)
 
     // Yesterday's summary is out of date once today's arrives.
-    this.db
-      .prepare(
-        `UPDATE wallet_pending_offers SET resolved_at = ?
-          WHERE issuer_tenant_id = ? AND source_type = 'workflow_update' AND source_id LIKE ? AND resolved_at IS NULL`,
-      )
-      .run(now.toISOString(), orgTenantId, `org:${orgTenantId}:attention-%`)
+    this.closeSummaries(orgTenantId, now)
 
     const sent = this.send(orgTenantId, managers, {
       sourceId: `org:${orgTenantId}:attention-${scope}:${subject}`,
@@ -498,6 +534,15 @@ export class JobAttentionService {
       metadata: { outcome: weekly ? 'weekly' : 'daily', count: listed.length, attention: true },
     })
     return sent > 0 ? 1 : 0
+  }
+
+  private closeSummaries(orgTenantId: string, now: Date): void {
+    this.db
+      .prepare(
+        `UPDATE wallet_pending_offers SET resolved_at = ?
+          WHERE issuer_tenant_id = ? AND source_type = 'workflow_update' AND source_id LIKE ? AND resolved_at IS NULL`,
+      )
+      .run(now.toISOString(), orgTenantId, `org:${orgTenantId}:attention-%`)
   }
 
   /** Forget jobs that are no longer stuck and close the cards that said so. */

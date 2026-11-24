@@ -1906,6 +1906,10 @@
             "type": "string",
             "description": "Login name in the office's old job system, so imported jobs show who did them."
           },
+          "intendedRole": {
+            "type": "string",
+            "description": "The app role they start on when invited, e.g. manager for office users."
+          },
           "status": {
             "type": "string",
             "enum": [

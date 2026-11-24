@@ -12,6 +12,7 @@ import { JobHistoryPromotionService } from '../JobHistoryPromotionService'
 import { JobRegisterService } from '../JobRegisterService'
 import { operationsRegisterService } from '../OperationsRegisterService'
 import { OrganizationService } from '../OrganizationService'
+import { PayrollService } from '../PayrollService'
 
 const ORG = 'org-sgk'
 const OWNER = 'user-owner'
@@ -56,6 +57,8 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     db.exec(migration('156_job_history_imports.sql'))
     db.exec(migration('157_old_system_import_details.sql'))
     db.exec(migration('158_job_history_runs.sql'))
+    db.exec(migration('160_employee_qualifications.sql'))
+    db.exec(migration('164_employee_intended_role.sql'))
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
     restores.push(jest.spyOn(OrganizationService.prototype, 'listOrgMembers').mockReturnValue([] as any))
   })
@@ -309,7 +312,7 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
     expect(() => importer.preview(ORG, 'stores', `Store Number,Name\n${rows}`)).toThrow(/Import up to 2000/)
   })
 
-  it('brings in a MyMobileWorkers export: staff, vans, tools, jobs with their details and check results', () => {
+  it('brings in a MyMobileWorkers export: staff, vans, tools, jobs with their details and check results', async () => {
     const options = { country: 'GB' as const, currency: 'GBP' }
     importer.commit(
       ORG,
@@ -332,24 +335,32 @@ describe('Importing stores, jobs, vans and rates from a file the old system expo
       OWNER,
       'people',
       [
-        'External ID,Username,Full name,Email,Contact number,Branch,Archived',
-        'SGK01,GeorgeTavenenhamo,,george@example.com,07700900123,Midlands,',
-        'Jordan Smith,JordanSmith_deleted,,,,Midlands,yes',
-        ',Head Office,Head Office,,,,',
-        'SGK01,GeorgeTavenenhamo,,,,,',
+        'External ID,Username,Full name,Email,Contact number,Branch,Role,Archived',
+        'SGK01,GeorgeTavenenhamo,,george@example.com,07700900123,Midlands,,',
+        'Jordan Smith,JordanSmith_deleted,,,,Midlands,,yes',
+        ',Head Office,Head Office,,,,,',
+        'SGK01,GeorgeTavenenhamo,,,,,,',
+        ',KudakwasheMatare,,kuda@example.com,,,Office manager,',
       ].join('\n'),
       undefined,
       options,
     )
-    expect(people).toMatchObject({ added: 2, alreadyThere: 1, problems: 1 })
+    expect(people).toMatchObject({ added: 3, alreadyThere: 1, problems: 1 })
     const staff = db
-      .prepare('SELECT first_name AS f, last_name AS l, phone, status, staff_number AS n, branch, legacy_username AS u, currency FROM employees ORDER BY first_name')
+      .prepare('SELECT first_name AS f, last_name AS l, phone, status, staff_number AS n, branch, legacy_username AS u, currency, intended_role AS r FROM employees ORDER BY first_name')
       .all()
     expect(staff).toEqual([
-      { f: 'George', l: 'Tavenenhamo', phone: '+447700900123', status: 'active', n: 'SGK01', branch: 'Midlands', u: 'GeorgeTavenenhamo', currency: 'GBP' },
+      { f: 'George', l: 'Tavenenhamo', phone: '+447700900123', status: 'active', n: 'SGK01', branch: 'Midlands', u: 'GeorgeTavenenhamo', currency: 'GBP', r: 'field_worker' },
       // A name in the staff-number column is not a staff number.
-      { f: 'Jordan', l: 'Smith', phone: null, status: 'terminated', n: null, branch: 'Midlands', u: 'JordanSmith', currency: 'GBP' },
+      { f: 'Jordan', l: 'Smith', phone: null, status: 'terminated', n: 'EMP001', branch: 'Midlands', u: 'JordanSmith', currency: 'GBP', r: 'field_worker' },
+      // Office users start as managers when invited. Anyone without a number is given the next one.
+      { f: 'Kudakwashe', l: 'Matare', phone: null, status: 'active', n: 'EMP002', branch: null, u: 'KudakwasheMatare', currency: 'GBP', r: 'manager' },
     ])
+
+    // Editing someone from the staff form keeps what the import set.
+    const george = db.prepare(`SELECT id FROM employees WHERE first_name = 'George'`).get() as { id: string }
+    const edited = await new PayrollService().saveEmployee({ id: george.id, tenantId: ORG, firstName: 'George', lastName: 'Tavenenhamo', baseSalary: 10 })
+    expect(edited).toMatchObject({ branch: 'Midlands', legacyUsername: 'GeorgeTavenenhamo', intendedRole: 'field_worker' })
 
     const vans = importer.commit(
       ORG,

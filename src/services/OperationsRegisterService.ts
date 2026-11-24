@@ -35,7 +35,7 @@ import { failedVisitReasonLabel, failedVisitsOf, openFailedVisit } from '../conf
 import { fieldJobSourceOf, type FieldJobSource } from '../config/fieldJobSource'
 import { getWorkflowTypeForWorkflow, normalizeWorkflowTypeAlias } from './workflow/initiation'
 import { OrganizationService } from './OrganizationService'
-import { payrollService } from './PayrollService'
+import { nextStaffNumber, payrollService } from './PayrollService'
 
 export type VanStatus = 'active' | 'off_road' | 'retired'
 export type VanEventKind = 'allocated' | 'service' | 'mot' | 'accident' | 'daily_check'
@@ -926,8 +926,11 @@ export class OperationsRegisterService {
       throw new Error('That person is not an active member of this organisation')
     }
     payrollService.syncTeam(orgTenantId, this.members(orgTenantId))
-    const staffNumber = clean(input.staffNumber, 40).toUpperCase()
-    if (!staffNumber) throw new Error('Add a staff number')
+    const before = this.db
+      .prepare('SELECT staff_number AS staffNumber FROM employees WHERE tenant_id = ? AND user_id = ?')
+      .get(orgTenantId, userId) as { staffNumber?: string | null } | undefined
+    // Left blank, they keep their number or are given the next one.
+    const staffNumber = clean(input.staffNumber, 40).toUpperCase() || before?.staffNumber || nextStaffNumber(orgTenantId)
     const taken = this.db
       .prepare('SELECT user_id AS userId FROM employees WHERE tenant_id = ? AND staff_number = ?')
       .get(orgTenantId, staffNumber) as { userId: string } | undefined
@@ -938,9 +941,6 @@ export class OperationsRegisterService {
       if (name && !skillsByKey.has(name.toLowerCase())) skillsByKey.set(name.toLowerCase(), name)
     }
     const skills = Array.from(skillsByKey.values()).slice(0, SKILL_LIMIT)
-    const before = this.db
-      .prepare('SELECT staff_number AS staffNumber FROM employees WHERE tenant_id = ? AND user_id = ?')
-      .get(orgTenantId, userId) as { staffNumber?: string | null } | undefined
     const updated = this.db
       .prepare(
         `UPDATE employees SET staff_number = ?, skills_json = ?, updated_at = CURRENT_TIMESTAMP

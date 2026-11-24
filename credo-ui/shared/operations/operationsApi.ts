@@ -491,6 +491,8 @@ export interface EmployeeRecord {
   skills?: string[]
   qualifications?: EmployeeQualification[]
   userId?: string
+  /** Role their invite starts on, set by an import (office users: manager). */
+  intendedRole?: string
   status: string
 }
 

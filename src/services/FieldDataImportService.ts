@@ -44,6 +44,8 @@ import { parseCsv } from '../utils/parseCsv'
 import { fieldJobSheetService } from './FieldJobSheetService'
 import { jobHistoryPromotionService } from './JobHistoryPromotionService'
 import { operationsRegisterService } from './OperationsRegisterService'
+import { nextStaffNumber } from './PayrollService'
+import { starterRoleName } from './OrgStarterRoles'
 import { normalizeContactPhone } from './ssi/contactHash'
 
 export const MAX_IMPORT_ROWS = 2000
@@ -205,6 +207,11 @@ const SPECS: Record<FieldImportKind, ColumnSpec[]> = {
     { key: 'branch', meaning: 'Branch', aliases: ['branch', 'branchname', 'depot', 'office', 'region', 'team'] },
     { key: 'archived', meaning: 'Left the company', aliases: ['archived', 'inactive', 'left', 'deleted', 'leaver'] },
     { key: 'status', meaning: 'Status', aliases: ['accountstatus', 'status', 'employmentstatus'] },
+    {
+      key: 'role',
+      meaning: 'Role on the app (office or field)',
+      aliases: ['role', 'approle', 'jobtitle', 'title', 'position', 'usertype', 'accounttype', 'type'],
+    },
   ],
   vans: [
     {
@@ -737,6 +744,21 @@ function slotTime(raw: string): string {
   return rest.slice(0, 40)
 }
 
+/**
+ * The app role an imported person starts on. Office (web) users run the work, mobile users do it.
+ * The owner role is never given by a file.
+ */
+export function importRole(value: string): string {
+  const text = value.toLowerCase()
+  if (!text.trim()) return 'field_worker'
+  if (/\badmin|administrator|owner|director\b/.test(text)) return 'admin'
+  if (/supervisor|foreman|team ?lead|chargehand/.test(text)) return 'supervisor'
+  if (/finance|accounts?\b|bookkeep|payroll/.test(text)) return 'finance_manager'
+  if (/auditor|read ?only|viewer/.test(text)) return 'auditor'
+  if (/manager|office|portal|web|dispatch|planner|coordinator|scheduler/.test(text)) return 'manager'
+  return 'field_worker'
+}
+
 /** "GeorgeTavenenhamo_deleted" reads as "George Tavenenhamo". */
 function nameFromUsername(username: string): string {
   return username
@@ -825,6 +847,8 @@ interface PlannedRow {
   preview: FieldImportRowPreview
   /** Saves the row. Only set when the row is new. */
   apply?: () => void
+  /** Fills in what an existing row is missing, without changing anything already set. */
+  fill?: () => void
 }
 
 type Reader = (record: Record<string, string>, key: string) => string
@@ -880,6 +904,11 @@ export class FieldDataImportService {
     let history = 0
     for (const item of planned) {
       if (item.preview.status !== 'new' || !item.apply) {
+        try {
+          item.fill?.()
+        } catch {
+          // A row that is already saved stays as it was.
+        }
         rows.push(item.preview)
         continue
       }
@@ -1086,7 +1115,7 @@ export class FieldDataImportService {
     const db = DatabaseManager.getDatabase()
     const staff = db
       .prepare(
-        'SELECT id, first_name, last_name, phone, email, staff_number, legacy_username FROM employees WHERE tenant_id = ?',
+        'SELECT id, first_name, last_name, phone, email, staff_number, legacy_username, intended_role FROM employees WHERE tenant_id = ?',
       )
       .all(orgTenantId) as Array<Record<string, string | null>>
     const byUsername = new Map(
@@ -1134,6 +1163,7 @@ export class FieldDataImportService {
         (phone && byPhone.get(phone.replace(/\D/g, ''))) ||
         (email && byEmail.get(email))
       if (match) {
+        const fileRole = read(record, 'role')
         return {
           preview: {
             row,
@@ -1141,6 +1171,16 @@ export class FieldDataImportService {
             summary: label,
             note: `Already on staff as ${[match.first_name, match.last_name].filter(Boolean).join(' ')}`,
           },
+          // An earlier import without roles: give them the role this file names.
+          ...(fileRole && !match.intended_role
+            ? {
+                fill: () => {
+                  db.prepare(
+                    `UPDATE employees SET intended_role = ? WHERE id = ? AND tenant_id = ? AND intended_role IS NULL`,
+                  ).run(importRole(fileRole), match.id, orgTenantId)
+                },
+              }
+            : {}),
         }
       }
       const left =
@@ -1148,12 +1188,13 @@ export class FieldDataImportService {
         importFlag(read(record, 'archived')) ||
         /\b(inactive|archived|deleted|disabled|left|terminated|suspended)\b/i.test(read(record, 'status'))
       const branch = read(record, 'branch').slice(0, 80)
+      const role = importRole(read(record, 'role'))
       const [given, ...rest] = fullName.split(' ')
       return {
         preview: {
           row,
           status: 'new',
-          summary: [label, branch, left ? 'left' : ''].filter(Boolean).join(' · '),
+          summary: [label, branch, starterRoleName(role), left ? 'left' : ''].filter(Boolean).join(' · '),
           ...(phoneNote
             ? { note: phoneNote }
             : left || phone
@@ -1163,8 +1204,8 @@ export class FieldDataImportService {
         apply: () => {
           db.prepare(
             `INSERT INTO employees
-               (id, tenant_id, first_name, last_name, email, phone, base_salary, currency, status, staff_number, branch, legacy_username)
-             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+               (id, tenant_id, first_name, last_name, email, phone, base_salary, currency, status, staff_number, branch, legacy_username, intended_role)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
           ).run(
             `EMP-${randomUUID()}`,
             orgTenantId,
@@ -1174,9 +1215,10 @@ export class FieldDataImportService {
             phone || null,
             setup.currency,
             left ? 'terminated' : 'active',
-            staffNumber || null,
+            staffNumber || nextStaffNumber(orgTenantId),
             branch || null,
             username || null,
+            role,
           )
         },
       }

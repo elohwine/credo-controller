@@ -344,4 +344,49 @@ describe('Stuck job alerts', () => {
     expect(service.sweep(TUESDAY)).toMatchObject({ announced: 0, summaries: 0 })
     expect(cardsFor(OWNER_WALLET)).toHaveLength(0)
   })
+
+  it('keeps mailbox and uploaded jobs off the inbox until someone takes them up here', () => {
+    addJob('RUN-MAIL', { poNumber: 'PO-MAIL', sourceType: 'email' }, 'paused', ago(TUESDAY, 2 * DAY))
+    addJob('RUN-FILE', { poNumber: 'PO-FILE', sourceType: 'import' }, 'paused', ago(TUESDAY, 2 * DAY))
+    const upload = jobIntakeRepository.create(ORG, 'import', {
+      poNumber: 'PO-WAIT',
+      description: 'Leaking tap',
+      amount: 0,
+      currency: 'USD',
+      sourceType: 'import',
+    })
+    db.prepare(`UPDATE job_intakes SET created_at = ? WHERE id = ?`).run(ago(TUESDAY, 2 * DAY), upload.id)
+    // An old card for the mailbox job, from before the rule, is closed by the next check.
+    db.prepare(
+      `INSERT INTO job_attention_log (org_tenant_id, scope, subject, kind, notified_at) VALUES (?, 'run', 'RUN-MAIL', 'unassigned', ?)`,
+    ).run(ORG, ago(TUESDAY, DAY))
+    db.prepare(
+      `INSERT INTO wallet_pending_offers (id, tenant_id, issuer_tenant_id, source_type, source_id, title, created_at)
+       VALUES ('old', ?, ?, 'workflow_update', ?, 'Job PO-MAIL has nobody on it', ?)`,
+    ).run(OWNER_WALLET, ORG, `run:RUN-MAIL:attention:unassigned:${ago(TUESDAY, DAY)}`, ago(TUESDAY, DAY))
+
+    // Still listed on Jobs as needing attention.
+    expect(
+      service
+        .attention(ORG, TUESDAY)
+        .map((item) => `${item.kind}:${item.runId || item.intakeId}`)
+        .sort(),
+    ).toEqual(['unassigned:RUN-FILE', 'unassigned:RUN-MAIL', `waiting:${upload.id}`].sort())
+    expect(service.sweepOrganisation(ORG, TUESDAY)).toEqual({ announced: 0, summaries: 0 })
+    expect(cardsFor(OWNER_WALLET).filter((card) => !card.resolvedAt)).toHaveLength(0)
+
+    // Handed out from the job view and then left: now it is inbox news.
+    db.prepare(`UPDATE workflow_runs SET input = ?, output = ? WHERE id = 'RUN-MAIL'`).run(
+      JSON.stringify({ poNumber: 'PO-MAIL', sourceType: 'email', scheduledDate: '2026-11-22', assigneeId: 'u-farai' }),
+      JSON.stringify({
+        assignment: { assigneeId: 'u-farai' },
+        workflowStage: 'ASSIGNED',
+        reassignments: [{ to: 'u-farai', by: 'u-admin' }],
+      }),
+    )
+    service.sweepOrganisation(ORG, new Date(TUESDAY.getTime() + HOUR))
+    expect(cardsFor(OWNER_WALLET).filter((card) => !card.resolvedAt).map((card) => card.title)).toContain(
+      'Job PO-MAIL is late',
+    )
+  })
 })
