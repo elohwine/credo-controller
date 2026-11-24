@@ -19,17 +19,9 @@ import { clearStoredOrganizationContext, hasSignedInSession } from '@/utils/orga
 import { CONTEXT_UPDATED_EVENT } from '@/lib/portalContext'
 import { PIN_CHANGE_FLAG } from '../../shared/security/AccountSecurity'
 
-// A missing connection should fail at once and leave the last screen in place.
-// Waiting for the browser to time out is what makes the app feel stuck.
-const portalAxios = axios as typeof axios & { __offlineFastFail?: boolean }
-if (typeof window !== 'undefined' && !portalAxios.__offlineFastFail) {
-  portalAxios.__offlineFastFail = true
-  axios.interceptors.request.use((config) => {
-    if (window.navigator.onLine === false) {
-      return Promise.reject(Object.assign(new Error('offline'), { code: 'OFFLINE' }))
-    }
-    return config
-  })
+const portalAxios = axios as typeof axios & { __pinChangeGuard?: boolean }
+if (typeof window !== 'undefined' && !portalAxios.__pinChangeGuard) {
+  portalAxios.__pinChangeGuard = true
   // A temporary PIN from an organisation opens nothing but the change-PIN screen.
   axios.interceptors.response.use(undefined, (error) => {
     if (error?.response?.status === 403 && error?.response?.data?.code === 'pin_change_required') {
@@ -55,20 +47,21 @@ export default function App({ Component, pageProps }: AppProps) {
   const [env, setEnv] = React.useState({} as { [key: string]: string })
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [initializationAttempt, setInitializationAttempt] = React.useState(0)
 
-  // Consolidated initialization - only runs once on mount
+  // Retry startup settings explicitly or when a failed connection comes back.
   React.useEffect(() => {
     let isMounted = true
 
     const initializeApp = async () => {
       setLoading(true)
+      setError(null)
 
       try {
         // 1. Get env config
-        const envRes = await axios.get('/api/env')
-        if (!envRes.data.hasOwnProperty('NEXT_PUBLIC_VC_REPO')) {
-          setError('Environment configuration is incomplete. Please check .env.local file.')
-          return
+        const envRes = await axios.get('/api/env', { timeout: 15000 })
+        if (typeof envRes.data?.NEXT_PUBLIC_VC_REPO !== 'string' || !envRes.data.NEXT_PUBLIC_VC_REPO.trim()) {
+          throw new Error('The portal API address is missing. Contact your platform administrator.')
         }
 
         if (!isMounted) return
@@ -170,10 +163,9 @@ export default function App({ Component, pageProps }: AppProps) {
           }
         }
       } catch (err: any) {
-        const isNetworkError = err.code === 'ERR_NETWORK' || err.message?.includes('Network Error')
-        const errorMessage = isNetworkError
-          ? '⚠️ Backend not reachable. Please start the Credo controller at localhost:3000'
-          : `Configuration error: ${err.message}`
+        const errorMessage = axios.isAxiosError(err)
+          ? 'Could not load portal settings. Check your connection and retry.'
+          : err.message || 'Could not initialize the portal. Try again.'
 
         console.error('App initialization error:', errorMessage)
         if (isMounted) setError(errorMessage)
@@ -187,7 +179,14 @@ export default function App({ Component, pageProps }: AppProps) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [initializationAttempt])
+
+  React.useEffect(() => {
+    if (!error) return
+    const retry = () => setInitializationAttempt((attempt) => attempt + 1)
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [error])
 
   return (
     <MantineProvider
@@ -223,6 +222,9 @@ export default function App({ Component, pageProps }: AppProps) {
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Connection Error</div>
                 <div style={{ fontSize: '14px' }}>{error}</div>
+                <button onClick={() => setInitializationAttempt((attempt) => attempt + 1)} style={{ marginTop: 8 }}>
+                  Retry connection
+                </button>
               </div>
               <button
                 onClick={() => setError(null)}

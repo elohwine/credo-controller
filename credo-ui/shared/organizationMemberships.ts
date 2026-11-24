@@ -25,7 +25,7 @@ export function membershipAccount(token: string | null): string | null {
 
 export function parseMemberships(value: unknown): OrganizationMembership[] {
   if (!Array.isArray(value)) throw new Error('The organisation membership response is invalid. Try refreshing.')
-  return value.map((item: unknown) => {
+  const memberships: OrganizationMembership[] = value.map((item: unknown) => {
     if (!item || typeof item !== 'object') throw new Error('The organisation membership response is invalid.')
     const entry = item as Record<string, unknown>
     const id = entry.orgTenantId ?? entry.id
@@ -41,6 +41,12 @@ export function parseMemberships(value: unknown): OrganizationMembership[] {
       ...(typeof entry.issuerDid === 'string' ? { issuerDid: entry.issuerDid } : {}),
       ...(typeof entry.memberCount === 'number' ? { memberCount: entry.memberCount } : {}),
     }
+  })
+  const seen = new Set<string>()
+  return memberships.filter((membership) => {
+    if (seen.has(membership.orgTenantId)) return false
+    seen.add(membership.orgTenantId)
+    return true
   })
 }
 

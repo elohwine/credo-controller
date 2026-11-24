@@ -226,6 +226,7 @@ export class DatabaseManager {
       { version: 162, file: '162_regeocode_job_locations.sql', name: 'regeocode_job_locations' },
       { version: 163, file: '163_member_invite_delivery.sql', name: 'member_invite_delivery' },
       { version: 164, file: '164_employee_intended_role.sql', name: 'employee_intended_role' },
+      { version: 165, file: '165_login_second_factor.sql', name: 'login_second_factor' },
     ]
 
     for (const migration of migrationFiles) {

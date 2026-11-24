@@ -118,6 +118,23 @@ export interface OrgMemberNameSource {
   role?: string | null
   displayName?: string | null
   phone?: string | null
+  status?: string
+  invitePending?: boolean
+}
+
+/** An imported employee or an unanswered invitation cannot receive an app job. */
+export function enrolledJobMembers<T extends OrgMemberNameSource>(members: T[]): T[] {
+  return members.filter(
+    (member) => Boolean(member.userId) && member.status === 'active' && member.invitePending === false,
+  )
+}
+
+export function selectedJobMember(selection: string, members: OrgMemberNameSource[]): string | undefined {
+  if (!selection || selection === STAGE_ACTOR_CHOICE) return undefined
+  if (!enrolledJobMembers(members).some((member) => member.userId === selection)) {
+    throw new Error('Choose an active member who has completed their invitation.')
+  }
+  return selection
 }
 
 /** A person's name for pickers: their name, else their phone, never a raw id when avoidable. */
@@ -134,8 +151,6 @@ export function orgMemberLabel(member: OrgMemberNameSource): string {
   return `${orgMemberName(member)} (${roleLabel(String(member.role || 'member')).toLowerCase()})`
 }
 
-const phoneKey = (value?: string | null) => String(value || '').replace(/\D/g, '').slice(-9)
-
 /** Pickers reject repeated values; imported contacts often share a phone number, so keep the first. */
 export function uniqueOptions<T extends { value: string }>(options: T[]): T[] {
   const seen = new Set<string>()
@@ -147,18 +162,12 @@ export function uniqueOptions<T extends { value: string }>(options: T[]): T[] {
 }
 
 /**
- * Who can go out or check the work: team members by name and role, then contacts who are
- * not on the team already (inviting someone also saves them as a team contact).
+ * Who can go out or check the work: active team members who completed their invitation.
  */
-export function jobPeopleOptions(
-  members: OrgMemberNameSource[],
-  contacts: JobContact[],
-): Array<{ value: string; label: string }> {
-  const onTeam = new Set(members.map((member) => phoneKey(member.phone)).filter(Boolean))
-  return uniqueOptions([
-    ...members.map((member) => ({ value: member.userId, label: orgMemberLabel(member) })),
-    ...contacts.filter((contact) => !contact.storeNumber && !onTeam.has(phoneKey(contact.phone))).map(jobContactOption),
-  ])
+export function jobPeopleOptions(members: OrgMemberNameSource[]): Array<{ value: string; label: string }> {
+  return uniqueOptions(
+    enrolledJobMembers(members).map((member) => ({ value: member.userId, label: orgMemberLabel(member) })),
+  )
 }
 
 export const NOBODY_CHOSEN_YET = 'Nobody chosen yet. Pick someone below.'
@@ -181,6 +190,8 @@ export function stageActorOption(
   return {
     value: STAGE_ACTOR_CHOICE,
     label:
-      stageAction === FIELD_WORKER_STAGE || !owner ? NOBODY_CHOSEN_YET : `${orgMemberName(owner)} (owner, until someone is chosen)`,
+      stageAction === FIELD_WORKER_STAGE || !owner
+        ? NOBODY_CHOSEN_YET
+        : `${orgMemberName(owner)} (owner, until someone is chosen)`,
   }
 }

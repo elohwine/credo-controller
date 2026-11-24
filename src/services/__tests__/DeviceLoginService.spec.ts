@@ -9,6 +9,12 @@ import { assertPersonalSessionActive, requireDeviceLoginApproval } from '../Pers
 
 const attestation = jest.fn<() => Promise<void>>()
 const present = jest.fn<() => Promise<void>>()
+const secondFactorWallet = jest.fn((challengeId: string, challengeToken: string) => {
+  if (challengeId !== 'pin-factor' || challengeToken !== 'factor-secret')
+    throw new Error('This sign-in step is unavailable or has expired. Start again.')
+  return { tenantId: 'wallet-a' }
+})
+const completeSecondFactor = jest.fn(() => ({ mustChangePin: false }))
 jest.unstable_mockModule('../AndroidKeyAttestation', () => ({ verifyAndroidKeyAttestation: attestation }))
 jest.unstable_mockModule('../SSIAuthService', () => ({
   SSIAuthService: class {},
@@ -67,7 +73,12 @@ describe('Verified device protocol', () => {
     Object.defineProperty(DatabaseManager, 'instance', { value: db, writable: true, configurable: true })
     service = new DeviceLoginService(
       {} as never,
-      { pinDigest: (pin: string) => `digest:${pin}`, sessionForTrustedDevice } as never,
+      {
+        pinDigest: (pin: string) => `digest:${pin}`,
+        sessionForTrustedDevice,
+        secondFactorWallet,
+        completeLoginSecondFactor: completeSecondFactor,
+      } as never,
     )
   })
   afterAll(() => {
@@ -106,6 +117,8 @@ describe('Verified device protocol', () => {
     present.mockReset()
     attestation.mockReset()
     sessionForTrustedDevice.mockClear()
+    secondFactorWallet.mockClear()
+    completeSecondFactor.mockClear()
   })
   const start = () => service.start({ deviceKeyId: 'verified-key', purpose: 'device_login' })
   const webRequest = () => {
@@ -131,6 +144,28 @@ describe('Verified device protocol', () => {
     await expect(
       service.finish(request, { challengeId: challenge.challengeId, signature: signature(challenge) }),
     ).rejects.toMatchObject({ status: 401 })
+  })
+  it('requires the PIN challenge token, then completes the device and wallet proof for the same account', async () => {
+    const challenge = service.start({
+      deviceKeyId: 'verified-key',
+      purpose: 'pin_second_factor',
+      secondFactorChallengeId: 'pin-factor',
+      secondFactorChallengeToken: 'factor-secret',
+    })
+    await expect(
+      service.finish(request, { challengeId: challenge.challengeId, signature: signature(challenge) }),
+    ).resolves.toMatchObject({ token: 'device-session', tenantId: 'wallet-a', mustChangePin: false })
+    expect(secondFactorWallet).toHaveBeenCalledWith('pin-factor', 'factor-secret')
+    expect(completeSecondFactor).toHaveBeenCalledWith('pin-factor', 'wallet-a')
+
+    expect(() =>
+      service.start({
+        deviceKeyId: 'verified-key',
+        purpose: 'pin_second_factor',
+        secondFactorChallengeId: 'pin-factor',
+        secondFactorChallengeToken: 'wrong',
+      }),
+    ).toThrow('This sign-in step is unavailable or has expired. Start again.')
   })
   it('gives unknown device selectors the same non-identifying challenge shape', async () => {
     const known = start()

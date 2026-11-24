@@ -23,13 +23,21 @@ export interface WalletLoginStart {
 
 export type WalletLoginPoll =
   | { status: 'pending'; expiresAt: string }
-  | { status: 'verified'; token: string; tenantId: string; claims: PlatformIdentityClaims }
+  | {
+      status: 'verified'
+      token: string
+      tenantId: string
+      claims: PlatformIdentityClaims
+      mustChangePin?: boolean
+    }
 
 interface WalletLoginRow {
   login_id: string
   poll_token_hash: string
   expires_at: string
   consumed_at: string | null
+  expected_tenant_id?: string | null
+  second_factor_challenge_id?: string | null
 }
 
 function hashToken(token: string): string {
@@ -54,7 +62,7 @@ export class WalletLoginService {
     private readonly ssiAuthService: SSIAuthService,
   ) {}
 
-  public async start(): Promise<WalletLoginStart> {
+  public async start(secondFactor?: { tenantId: string; challengeId: string }): Promise<WalletLoginStart> {
     if (!shouldAllowWholeCardType('wallet_login', PLATFORM_IDENTITY_VC_TYPE)) {
       throw new StatusException('Wallet sign-in proof policy does not allow PlatformIdentityCredential', 500)
     }
@@ -100,9 +108,19 @@ export class WalletLoginService {
     const expiresAt = new Date(now.getTime() + LOGIN_TTL_MS).toISOString()
     DatabaseManager.getDatabase()
       .prepare(
-        'INSERT INTO wallet_login_sessions (login_id, poll_token_hash, created_at, expires_at, authorization_request) VALUES (?, ?, ?, ?, ?)',
+        `INSERT INTO wallet_login_sessions
+          (login_id, poll_token_hash, created_at, expires_at, authorization_request, expected_tenant_id, second_factor_challenge_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(loginId, hashToken(pollToken), now.toISOString(), expiresAt, authorizationRequest)
+      .run(
+        loginId,
+        hashToken(pollToken),
+        now.toISOString(),
+        expiresAt,
+        authorizationRequest,
+        secondFactor?.tenantId || null,
+        secondFactor?.challengeId || null,
+      )
 
     return { loginId, authorizationRequest, pollToken, expiresAt }
   }
@@ -111,7 +129,8 @@ export class WalletLoginService {
     const db = DatabaseManager.getDatabase()
     const row = db
       .prepare(
-        'SELECT login_id, poll_token_hash, expires_at, consumed_at FROM wallet_login_sessions WHERE login_id = ?',
+        `SELECT login_id, poll_token_hash, expires_at, consumed_at, expected_tenant_id, second_factor_challenge_id
+           FROM wallet_login_sessions WHERE login_id = ?`,
       )
       .get(loginId) as WalletLoginRow | undefined
     if (!row || !pollToken || !sameHash(row.poll_token_hash, hashToken(pollToken))) {
@@ -139,7 +158,13 @@ export class WalletLoginService {
     if (!presentation) throw new StatusException('The wallet did not share a platform identity', 401)
 
     try {
-      const session = await this.ssiAuthService.loginWithVerifiedPresentation(presentation, loginId)
+      const session =
+        row.second_factor_challenge_id && row.expected_tenant_id
+          ? await this.ssiAuthService.loginWithVerifiedPresentation(presentation, loginId, {
+              challengeId: row.second_factor_challenge_id,
+              tenantId: row.expected_tenant_id,
+            })
+          : await this.ssiAuthService.loginWithVerifiedPresentation(presentation, loginId)
       return { status: 'verified', ...session }
     } catch (error: any) {
       throw new StatusException(error?.message || 'Wallet sign-in failed', 401)

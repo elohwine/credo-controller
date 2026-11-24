@@ -25,6 +25,7 @@ import { getActiveOrgId, getContextMode, getOrgToken, isEmployeeOrgRole } from '
 import { usePhoneOperations } from '@/lib/operations'
 import { IncomingJobs } from '../../shared/operations/IncomingJobs'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
+import { enrolledJobMembers } from '../../shared/jobPeople'
 
 interface Member {
   userId: string
@@ -32,6 +33,7 @@ interface Member {
   displayName?: string
   phone?: string
   status?: string
+  invitePending?: boolean
 }
 
 const ALLOWED_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'text/plain'])
@@ -106,14 +108,14 @@ export default function IntakePage() {
       })
       const rows = Array.isArray(membersResponse.data) ? membersResponse.data : []
       setMembers(
-        rows
-          .filter((member: any) => member?.userId)
+        enrolledJobMembers<Member>(rows)
           .map((member: any) => ({
             userId: String(member.userId),
             role: String(member.role || 'member'),
             displayName: member.displayName ? String(member.displayName) : undefined,
             phone: member.phone ? String(member.phone) : undefined,
             status: member.status ? String(member.status) : undefined,
+            invitePending: member.invitePending,
           })),
       )
     } catch (error: any) {

@@ -9228,10 +9228,29 @@
           "mustChangePin": {
             "type": "boolean",
             "description": "A temporary PIN was used: only the change-PIN screen opens until the person picks their own"
+          },
+          "secondFactor": {
+            "properties": {
+              "expiresAt": {
+                "type": "string"
+              },
+              "challengeToken": {
+                "type": "string"
+              },
+              "challengeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "expiresAt",
+              "challengeToken",
+              "challengeId"
+            ],
+            "type": "object",
+            "description": "PIN passed, but this account also requires its enrolled phone or a one-time text code."
           }
         },
         "required": [
-          "token",
           "tenantId"
         ],
         "type": "object",
@@ -9978,8 +9997,49 @@
         "enum": [
           "device_login",
           "web_login",
-          "change_pin"
+          "change_pin",
+          "pin_second_factor"
         ]
+      },
+      "WalletLoginStart": {
+        "properties": {
+          "loginId": {
+            "type": "string"
+          },
+          "authorizationRequest": {
+            "type": "string"
+          },
+          "pollToken": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "loginId",
+          "authorizationRequest",
+          "pollToken",
+          "expiresAt"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "SecondFactorBody": {
+        "properties": {
+          "challengeId": {
+            "type": "string"
+          },
+          "challengeToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challengeId",
+          "challengeToken"
+        ],
+        "type": "object",
+        "additionalProperties": false
       },
       "RegistryRequestStatus": {
         "type": "string",
@@ -10158,30 +10218,6 @@
         "type": "object",
         "additionalProperties": false
       },
-      "WalletLoginStart": {
-        "properties": {
-          "loginId": {
-            "type": "string"
-          },
-          "authorizationRequest": {
-            "type": "string"
-          },
-          "pollToken": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "loginId",
-          "authorizationRequest",
-          "pollToken",
-          "expiresAt"
-        ],
-        "type": "object",
-        "additionalProperties": false
-      },
       "IdentityVerificationSource": {
         "type": "string",
         "enum": [
@@ -10268,6 +10304,9 @@
           },
           {
             "properties": {
+              "mustChangePin": {
+                "type": "boolean"
+              },
               "claims": {
                 "$ref": "#/components/schemas/PlatformIdentityClaims"
               },
@@ -19259,6 +19298,10 @@
           "targetMinutes": {
             "type": "number",
             "format": "double"
+          },
+          "startedHere": {
+            "type": "boolean",
+            "description": "Made or taken up on the platform. Only these reach the inbox; the rest stay on the Jobs list."
           }
         },
         "required": [
@@ -19268,7 +19311,8 @@
           "since",
           "days",
           "headline",
-          "detail"
+          "detail",
+          "startedHere"
         ],
         "type": "object",
         "additionalProperties": false
@@ -34361,6 +34405,12 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "secondFactorChallengeToken": {
+                    "type": "string"
+                  },
+                  "secondFactorChallengeId": {
+                    "type": "string"
+                  },
                   "newPin": {
                     "type": "string"
                   },
@@ -34385,6 +34435,184 @@
         }
       }
     },
+    "/api/wallet/auth/login/second-factor/device/start": {
+      "post": {
+        "operationId": "StartLoginSecondFactorDevice",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletLoginStart"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorBody"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/login/second-factor/otp/send": {
+      "post": {
+        "operationId": "SendLoginSecondFactorOtp",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "sentTo": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "sentTo",
+                    "expiresAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SecondFactorBody"
+                  },
+                  {
+                    "properties": {
+                      "phone": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "phone"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wallet/auth/login/second-factor/otp/verify": {
+      "post": {
+        "operationId": "VerifyLoginSecondFactorOtp",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "mustChangePin": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "mustChangePin",
+                    "tenantId",
+                    "token"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Wallet-Auth"
+        ],
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/SecondFactorBody"
+                  },
+                  {
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/wallet/auth/device-login/finish": {
       "post": {
         "operationId": "FinishDeviceLogin",
@@ -34395,6 +34623,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "mustChangePin": {
+                      "type": "boolean"
+                    },
                     "presented": {
                       "type": "boolean"
                     },
@@ -34726,18 +34957,40 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "secondFactor": {
+                      "properties": {
+                        "expiresAt": {
+                          "type": "string"
+                        },
+                        "challengeToken": {
+                          "type": "string"
+                        },
+                        "challengeId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "expiresAt",
+                        "challengeToken",
+                        "challengeId"
+                      ],
+                      "type": "object"
+                    },
                     "mustChangePin": {
                       "type": "boolean"
                     },
                     "hasGenericId": {
                       "type": "boolean"
                     },
+                    "tenantId": {
+                      "type": "string"
+                    },
                     "token": {
                       "type": "string"
                     }
                   },
                   "required": [
-                    "token"
+                    "tenantId"
                   ],
                   "type": "object"
                 }

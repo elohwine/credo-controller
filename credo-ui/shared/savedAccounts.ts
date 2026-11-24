@@ -81,7 +81,9 @@ function readList(): SavedAccount[] {
 export function savedAccountPersonKey(session: Record<string, string>, id: string): string {
   const phone = String(session.credoUserPhone || session.walletPhone || '').replace(/\D/g, '')
   if (phone.length >= 9) return `phone:${phone.slice(-9)}`
-  const email = String(session.walletEmail || '').trim().toLowerCase()
+  const email = String(session.walletEmail || '')
+    .trim()
+    .toLowerCase()
   if (email) return `email:${email}`
   return `wallet:${id}`
 }
@@ -167,7 +169,12 @@ export function listSavedAccounts(): SavedAccount[] {
 /** Names the platform fills in before a person gives their own. Never shown as somebody's name. */
 export function isPlaceholderName(name?: string | null): boolean {
   const value = String(name || '').trim()
-  return !value || /^(team member|organi[sz]ation owner|account|my account)$/i.test(value)
+  return (
+    !value ||
+    /^(team member|organi[sz]ation owner|account|my account|personal account)$/i.test(value) ||
+    /^[+\d\s().-]+$/.test(value) ||
+    /^[^\s@]+@[^\s@]+$/.test(value)
+  )
 }
 
 export function savedAccountLabel(name?: string, phone?: string, fallback = 'Account'): string {
@@ -178,6 +185,7 @@ export function savedAccountLabel(name?: string, phone?: string, fallback = 'Acc
   const number = raw && /^\d{9,15}$/.test(raw) ? `+${raw}` : raw
   if (displayName && number) return `${displayName} (${number})`
   if (displayName) return displayName
+  if (!isPlaceholderName(fallback)) return fallback
   if (number) return number
   return isPlaceholderName(fallback) ? 'Account' : fallback
 }
@@ -267,17 +275,23 @@ export function rememberCurrentAccount(label?: string): void {
   if (typeof window === 'undefined') return
   const id = currentAccountId()
   if (!id) return
+  const saved = readList()
+  const previous = saved.find((account) => account.id === id)
+  const storedName = localStorage.getItem('credoUserName') || localStorage.getItem('holderUsername')
+  const previousName = previous?.session.credoUserName || previous?.session.holderUsername
+  if (isPlaceholderName(storedName) && previousName && !isPlaceholderName(previousName)) {
+    localStorage.setItem('credoUserName', previousName)
+  }
   const phone = localStorage.getItem('credoUserPhone') || localStorage.getItem('walletPhone') || ''
   const nextLabel = savedAccountLabel(
     localStorage.getItem('credoUserName') || localStorage.getItem('holderUsername') || undefined,
     phone,
-    label,
+    previous?.label || label,
   )
   const session = snapshotSession()
   const person = savedAccountPersonKey(session, id)
   // Unchanged: do not write. Every write reaches the other open tabs as a storage event, and
   // they answer by saving again, so rewriting timestamps here kept tabs re-rendering each other.
-  const saved = readList()
   const first = saved[0]
   if (
     first &&
@@ -290,7 +304,13 @@ export function rememberCurrentAccount(label?: string): void {
   const accounts = saved.filter(
     (account) => account.id !== id && savedAccountPersonKey(account.session, account.id) !== person,
   )
-  accounts.unshift({ id, label: nextLabel, savedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), session })
+  accounts.unshift({
+    id,
+    label: nextLabel,
+    savedAt: new Date().toISOString(),
+    checkedAt: new Date().toISOString(),
+    session,
+  })
   writeList(accounts)
 }
 

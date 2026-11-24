@@ -91,6 +91,12 @@ export default function AuthPage() {
                 pin: loginPassword,
             });
 
+            if (response.data?.secondFactor) {
+                router.replace(`/auth/login?phone=${encodeURIComponent(loginPhone)}`);
+                setError('This account needs a phone confirmation. Please sign in again on the secure sign-in page.');
+                return;
+            }
+
             applyPersonalLogin(response.data, loginPhone);
 
             notifications.show({

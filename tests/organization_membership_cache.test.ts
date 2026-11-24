@@ -1,6 +1,10 @@
 import { describe, expect, jest, test } from '@jest/globals'
 import {
-  membershipAccount, parseMemberships, persistMemberships, readMemberships, refreshMemberships,
+  membershipAccount,
+  parseMemberships,
+  persistMemberships,
+  readMemberships,
+  refreshMemberships,
 } from '../credo-ui/shared/organizationMemberships'
 
 const token = (tenantId: string, extra = {}) =>
@@ -13,8 +17,12 @@ function storage() {
   const data = new Map<string, string>()
   return {
     getItem: (key: string) => data.get(key) ?? null,
-    setItem: (key: string, value: string) => { data.set(key, value) },
-    removeItem: (key: string) => { data.delete(key) },
+    setItem: (key: string, value: string) => {
+      data.set(key, value)
+    },
+    removeItem: (key: string) => {
+      data.delete(key)
+    },
   }
 }
 
@@ -23,7 +31,14 @@ describe('authoritative, account-scoped organisation memberships', () => {
     const saved = storage()
     persistMemberships(saved, alice, [org])
     saved.setItem('credoOrganizations', JSON.stringify([org]))
-    expect(await refreshMemberships(saved, alice, async () => [], () => alice)).toEqual([])
+    expect(
+      await refreshMemberships(
+        saved,
+        alice,
+        async () => [],
+        () => alice,
+      ),
+    ).toEqual([])
     expect(readMemberships(saved, alice)).toEqual([])
     expect(saved.getItem('credoOrganizations')).toBeNull()
   })
@@ -46,8 +61,16 @@ describe('authoritative, account-scoped organisation memberships', () => {
   test('an API failure stays failed and only preserves a display-only offline copy', async () => {
     const saved = storage()
     persistMemberships(saved, alice, [org])
-    await expect(refreshMemberships(saved, alice, async () => { throw new Error('Unavailable') }, () => alice))
-      .rejects.toThrow('Unavailable')
+    await expect(
+      refreshMemberships(
+        saved,
+        alice,
+        async () => {
+          throw new Error('Unavailable')
+        },
+        () => alice,
+      ),
+    ).rejects.toThrow('Unavailable')
     expect(readMemberships(saved, alice)).toEqual([org])
   })
 
@@ -55,7 +78,14 @@ describe('authoritative, account-scoped organisation memberships', () => {
     const saved = storage()
     persistMemberships(saved, alice, [org])
     for (const invalid of [null, {}, { organizations: [] }, [{ id: 'bad' }]]) {
-      await expect(refreshMemberships(saved, alice, async () => invalid, () => alice)).rejects.toThrow('invalid')
+      await expect(
+        refreshMemberships(
+          saved,
+          alice,
+          async () => invalid,
+          () => alice,
+        ),
+      ).rejects.toThrow('invalid')
     }
     expect(readMemberships(saved, alice)).toEqual([org])
   })
@@ -63,7 +93,14 @@ describe('authoritative, account-scoped organisation memberships', () => {
   test('a response arriving after the account changed cannot update either cache', async () => {
     const saved = storage()
     persistMemberships(saved, bob, [])
-    await expect(refreshMemberships(saved, alice, async () => [org], () => bob)).rejects.toThrow('account changed')
+    await expect(
+      refreshMemberships(
+        saved,
+        alice,
+        async () => [org],
+        () => bob,
+      ),
+    ).rejects.toThrow('account changed')
     expect(readMemberships(saved, alice)).toEqual([])
     expect(readMemberships(saved, bob)).toEqual([])
   })
@@ -72,7 +109,12 @@ describe('authoritative, account-scoped organisation memberships', () => {
     const saved = storage()
     persistMemberships(saved, alice, [org])
     const member = { ...org, role: 'member', canOpenOrgContext: false }
-    await refreshMemberships(saved, alice, async () => [member], () => alice)
+    await refreshMemberships(
+      saved,
+      alice,
+      async () => [member],
+      () => alice,
+    )
     expect(readMemberships(saved, alice)).toEqual([member])
   })
 
@@ -95,7 +137,17 @@ describe('authoritative, account-scoped organisation memberships', () => {
   })
 
   test('normalizes backend membership identifiers without inventing roles', () => {
-    expect(parseMemberships([{ id: 'org-1', name: 'Demo', role: 'member' }]))
-      .toEqual([{ orgTenantId: 'org-1', name: 'Demo', role: 'member' }])
+    expect(parseMemberships([{ id: 'org-1', name: 'Demo', role: 'member' }])).toEqual([
+      { orgTenantId: 'org-1', name: 'Demo', role: 'member' },
+    ])
+  })
+
+  test('lists a membership only once even when both identifier shapes are returned or cached', () => {
+    const duplicated = [org, { id: org.orgTenantId, name: org.name, role: org.role }]
+    expect(parseMemberships(duplicated)).toEqual([org])
+    const saved = storage()
+    saved.setItem('credentisMembershipsV2:wallet-a', JSON.stringify(duplicated))
+    expect(readMemberships(saved, alice)).toEqual([org])
+    expect(parseMemberships([org, { ...org, orgTenantId: 'org-2' }])).toHaveLength(2)
   })
 })

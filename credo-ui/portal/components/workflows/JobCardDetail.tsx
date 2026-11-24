@@ -1,5 +1,5 @@
 import { feedback } from '@/lib/feedback'
-import React, { useEffect, useState } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import axios from 'axios'
 import {
   Drawer,
@@ -38,7 +38,9 @@ import { isOrganisationJobRecord, jobClientWait } from '../../../shared/fieldJob
 import { assertFieldStepSucceeded } from '../../../shared/fieldEvidence'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
 import { getOrgScopedToken, readActiveOrganization, readCurrentUserId } from '@/utils/organizationContext'
-import { jobContactOption, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, uniqueOptions } from '@/lib/jobPeople'
+import { enrolledJobMembers } from '@/lib/jobPeople'
+import { EnvContext } from '@/pages/_app'
+import type { TeamMember } from '../../../shared/operations/operationsApi'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { StageActorTimeline } from '@/components/finance/StageActorTimeline'
 import {
@@ -123,6 +125,8 @@ interface JobCardDetailProps {
 }
 
 export default function JobCardDetail({ job, opened, onClose, onRefresh, initialTab = 'details' }: JobCardDetailProps) {
+  const env = useContext(EnvContext)
+  const backend = env.NEXT_PUBLIC_VC_REPO
   const { api: operations, notify } = usePortalOperations()
   const router = useRouter()
   const openRelatedWork = useRelatedWorkNavigation()
@@ -130,12 +134,10 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   const [submitting, setSubmitting] = useState(false)
   const [reassigning, setReassigning] = useState(false)
   const [nextAssignee, setNextAssignee] = useState<string | null>(null)
-  const [members, setMembers] = useState<Array<{ userId: string; role: string; displayName?: string; phone?: string }>>(
-    [],
-  )
-  const [contacts, setContacts] = useState<
-    Array<{ name: string; phone?: string; contactScope?: 'internal' | 'external' }>
-  >([])
+  const [members, setMembers] = useState<TeamMember[]>([])
+  const [membersLoading, setMembersLoading] = useState(false)
+  const [membersError, setMembersError] = useState<string | null>(null)
+  const [membersRetry, setMembersRetry] = useState(0)
   const [actorReports, setActorReports] = useState<WorkflowActorReport[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [inspectionOutcome, setInspectionOutcome] = useState<string | null>('passed')
@@ -157,63 +159,45 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   }, [initialTab, job?.id])
 
   useEffect(() => {
+    if (!opened || !backend) return
     const org = readActiveOrganization()
     const token = getOrgScopedToken()
-    const backend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
-    if (!org?.orgTenantId || !token) return
+    setMembers([])
+    setNextAssignee(null)
+    if (!org?.orgTenantId || !token) {
+      setMembersError('Switch to the organization to load its team.')
+      return
+    }
+    let active = true
+    setMembersLoading(true)
+    setMembersError(null)
     axios
       .get(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/workflows/actors`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       .then((res) => {
-        setActorReports(Array.isArray(res.data?.workflows) ? res.data.workflows : [])
+        if (active) setActorReports(Array.isArray(res.data?.workflows) ? res.data.workflows : [])
       })
-      .catch(() => setActorReports([]))
+      .catch(() => {
+        if (active) setActorReports([])
+      })
     axios
-      .get(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members`, {
+      .get<TeamMember[]>(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       .then((res) => {
-        const rows = Array.isArray(res.data) ? res.data : []
-        setMembers(
-          rows
-            .filter((member: any) => member?.status !== 'inactive' && member?.userId)
-            .map((member: any) => ({
-              userId: String(member.userId),
-              role: String(member.role || 'member'),
-              displayName: member.displayName ? String(member.displayName) : undefined,
-              phone: member.phone ? String(member.phone) : undefined,
-            })),
-        )
+        if (active) setMembers(enrolledJobMembers(res.data))
       })
-      .catch(() => setMembers([]))
-    if (!['owner', 'admin'].includes(String(org.role || '').toLowerCase())) return
-    Promise.all([
-      axios.get(`${backend}/api/contacts`, {
-        params: { contactScope: 'internal' },
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-      axios.get(`${backend}/api/contacts`, {
-        params: { contactScope: 'external' },
-        headers: { Authorization: `Bearer ${token}` },
-      }),
-    ])
-      .then((responses) => {
-        const rows = responses.flatMap((res) =>
-          Array.isArray(res.data?.contacts) ? res.data.contacts : Array.isArray(res.data) ? res.data : [],
-        )
-        setContacts(
-          rows
-            .filter((contact: any) => contact?.phone)
-            .map((contact: any) => ({
-              name: String(contact.name || 'Contact'),
-              phone: String(contact.phone),
-              contactScope: contact.contactScope === 'internal' ? ('internal' as const) : ('external' as const),
-            })),
-        )
+      .catch(() => {
+        if (active) setMembersError('Could not load the team. Try again.')
       })
-      .catch(() => setContacts([]))
-  }, [])
+      .finally(() => {
+        if (active) setMembersLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [opened, backend, membersRetry])
 
   const activeOrgRole = String(readActiveOrganization()?.role || '').toLowerCase()
   // Only organization owners and admins can move a job to another worker.
@@ -238,7 +222,6 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       return
     }
     try {
-      const backend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
       const response = await axios.get(
         `${backend}/api/platform/job-intake/${encodeURIComponent(intakeId)}/attachments/${encodeURIComponent(attachmentId)}`,
         { headers: { Authorization: `Bearer ${token}` } },
@@ -323,7 +306,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
   const resumeWithOrgToken = async (payload: Record<string, unknown>) => {
     setActionError(null)
-    const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+    const credoBackend = backend
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!token) throw new Error('Switch to the organization before recording this step')
     try {
@@ -343,7 +326,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   const handleRetry = async () => {
     setSubmitting(true)
     setActionError(null)
-    const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+    const credoBackend = backend
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!token) {
       setSubmitting(false)
@@ -393,7 +376,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     if (!note || !holdId) return
     setSubmitting(true)
     setActionError(null)
-    const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+    const credoBackend = backend
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!token) {
       setSubmitting(false)
@@ -434,7 +417,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
   // Sign-off and payout: prove from the wallet first, then the server moves the job.
   const openProof = async (stage: ProofStage) => {
-    const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+    const credoBackend = backend
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!token) {
       feedback.warn('This step is done as the organization.', { title: 'Switch to the organization' })
@@ -468,36 +451,16 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     if (!job?.id || !nextAssignee) return
     setReassigning(true)
     try {
-      const credoBackend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+      const credoBackend = backend
       const token = getOrgScopedToken() || getPreferredTenantToken()
       if (!token) throw new Error('Switch to the organization before reassigning this job')
-      let assigneeUserId = nextAssignee
-      const parsed = parseJobContactSelection(nextAssignee)
-      if (parsed) {
-        const org = readActiveOrganization()
-        if (!org?.orgTenantId) throw new Error('Switch to the organization before reassigning this job')
-        const headers = { Authorization: `Bearer ${token}` }
-        if (parsed.scope === 'external') {
-          const lookup = await axios.get(
-            `${credoBackend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members/by-phone`,
-            { params: { phone: parsed.phone }, headers },
-          )
-          assigneeUserId = String(lookup.data?.userId || '')
-          if (!assigneeUserId) throw new Error(OUTSIDE_CONTACT_NEEDS_APP)
-        } else {
-          const invited = await axios.post(
-            `${credoBackend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members/invite`,
-            { phone: parsed.phone, role: 'field_worker' },
-            { headers },
-          )
-          assigneeUserId = String(invited.data?.targetUserId || '')
-          if (!assigneeUserId) throw new Error('That contact could not be added to the team.')
-        }
+      if (!members.some((member) => member.userId === nextAssignee)) {
+        throw new Error('Choose an active member who has completed their invitation.')
       }
       await axios.post(
         `${credoBackend}/workflows/runs/${job.id}/reassign`,
         {
-          assigneeUserId,
+          assigneeUserId: nextAssignee,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       )
@@ -673,9 +636,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               <Anchor
                 component="button"
                 onClick={() => {
-                const links = handoffLinks(state.handoffs)
-                const link = links.find((item) => item.id === childWait.requestId)
-                if (link) openRelatedWork(link, links)
+                  const links = handoffLinks(state.handoffs)
+                  const link = links.find((item) => item.id === childWait.requestId)
+                  if (link) openRelatedWork(link, links)
                 }}
               >
                 {childWait.line}
@@ -863,7 +826,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 job={job}
                 canReport={Boolean(currentUserId) && (assigneeId === currentUserId || mayBookJobs)}
                 canRebook={mayBookJobs}
-                people={jobPeopleOptions(members, [])}
+                people={jobPeopleOptions(members)}
                 names={peopleNames}
                 notify={notify}
                 onChanged={onRefresh}
@@ -1155,39 +1118,27 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                             : 'Move this job to someone else'
                         }
                         placeholder="Choose a member"
-                        description="The van they drive goes on the job, unless you picked another van."
+                        description="Only active members who completed their invitation are listed. Their van goes on the job unless you picked another."
+                        disabled={membersLoading || Boolean(membersError)}
                         value={nextAssignee}
                         onChange={setNextAssignee}
-                        data={uniqueOptions([
-                          ...members.map((member) => {
-                            const role = String(member.role || 'member').replace(/_/g, ' ')
-                            const stored = String(member.displayName || '').trim()
-                            const generic = !stored || /^(organization owner|team member)$/i.test(stored)
-                            const who = !generic
-                              ? stored
-                              : member.phone
-                                ? member.phone
-                                : role === 'owner'
-                                  ? 'Organization owner'
-                                  : `Team member · ${member.userId.slice(0, 6)}`
-                            return { value: member.userId, label: `${who} (${role})` }
-                          }),
-                          ...contacts
-                            .filter((contact) => contact.phone)
-                            .map((contact) =>
-                              jobContactOption({
-                                name: contact.name,
-                                phone: contact.phone || '',
-                                contactScope: contact.contactScope,
-                              }),
-                            ),
-                        ])}
+                        data={jobPeopleOptions(members)}
+                        searchable
+                        nothingFoundMessage="No enrolled members found"
                       />
+                      {membersError && (
+                        <Alert color="red">
+                          <Text size="sm">{membersError}</Text>
+                          <Button variant="light" size="xs" onClick={() => setMembersRetry((value) => value + 1)}>
+                            Retry loading team
+                          </Button>
+                        </Alert>
+                      )}
                       <Button
                         size="xs"
                         variant="light"
                         loading={reassigning}
-                        disabled={!nextAssignee}
+                        disabled={!nextAssignee || membersLoading || Boolean(membersError)}
                         onClick={handleReassign}
                       >
                         {pauseReason === 'await_assignment' ? 'Give them the job' : 'Move job'}
@@ -1349,18 +1300,17 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                 variant="light"
                 loading={submitting}
                 onClick={async () => {
-                setSubmitting(true)
-                try {
-                  const backend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
+                  setSubmitting(true)
+                  try {
                     await axios.post(
                       `${backend}/workflows/runs/${encodeURIComponent(job.id)}/assignment-record/replace`,
                       {},
                       {
-                    headers: { Authorization: `Bearer ${getOrgScopedToken()}` },
+                        headers: { Authorization: `Bearer ${getOrgScopedToken()}` },
                       },
                     )
-                  onRefresh()
-                } catch (error) {
+                    onRefresh()
+                  } catch (error) {
                     feedback.error(
                       axios.isAxiosError(error)
                         ? error.response?.data?.message || error.message

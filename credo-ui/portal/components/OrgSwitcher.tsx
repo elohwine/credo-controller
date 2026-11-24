@@ -1,5 +1,5 @@
 import { feedback } from '@/lib/feedback';
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Box, Badge, Divider, Group, Loader, Menu, ScrollArea, Text, UnstyledButton } from '@mantine/core'
 import { IconBuilding, IconCheck, IconChevronDown, IconPlus, IconUser, IconWallet } from '@tabler/icons-react'
 import { useRouter } from 'next/router'
@@ -10,6 +10,7 @@ import { beginAddAccount, currentAccountId, isSavedAccountsKey, isSessionStorage
 import { isOrgContextActive } from '@/utils/portalTenant'
 import { captureOrganizationSwitchContext } from '../../shared/taskContext'
 import { readMemberships, persistMemberships, refreshMemberships } from '../../shared/organizationMemberships'
+import { EnvContext } from '@/pages/_app'
 
 export interface OrgInfo {
   orgTenantId: string
@@ -122,6 +123,7 @@ export function clearActiveOrg() {
 }
 
 export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
+  const env = useContext(EnvContext)
   const router = useRouter()
   const [organizations, setOrganizations] = useState<OrgInfo[]>([])
   const [activeOrg, setActiveOrg] = useState<OrgInfo | null>(null)
@@ -134,7 +136,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null)
   const [roleChangedOrg, setRoleChangedOrg] = useState<OrgInfo | null>(null)
 
-  const holderBackend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+  const holderBackend = env.NEXT_PUBLIC_VC_REPO
   const loadingRef = useRef(false)
   const loadedAtRef = useRef(0)
 
@@ -149,7 +151,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   // Focus, page changes and opening the picker only refresh a list older than this; a real
   // context change (sign-in, switch) always refreshes.
   const loadOrganizations = useCallback((force = false) => {
-    if (typeof window === 'undefined') return
+    if (typeof window === 'undefined' || !holderBackend) return
     setActiveOrg(getActiveOrg())
     const token = getPersonalToken()
     if (!token) {
@@ -264,7 +266,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   }, [loadOrganizations, router])
 
   useEffect(() => {
-    if (opened) {
+    if (opened && holderBackend) {
       setAccounts(listSavedAccounts())
       setActiveAccountId(currentAccountId())
       loadOrganizations()
@@ -404,7 +406,9 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   // Not signed in at all (no personal token, no org, nothing cached): nothing to switch between.
   if (!mounted || (!activeOrg && !getPersonalToken() && organizations.length === 0)) return null
 
-  const currentLabel = activeOrg ? activeOrg.name : 'Personal'
+  const personalLabel = accounts.find((account) => account.id === activeAccountId)?.label || 'Personal account'
+  const otherAccounts = accounts.filter((account) => account.id !== activeAccountId)
+  const currentLabel = activeOrg ? activeOrg.name : personalLabel
   const currentIcon = activeOrg ? <IconBuilding size={16} /> : <IconWallet size={16} />
 
   return (
@@ -454,7 +458,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
             disabled={!activeOrg}
             leftSection={activeOrg ? <IconWallet size={16} /> : <IconCheck size={16} />}
           >
-            <Text size="sm" fw={500}>Personal account</Text>
+            <Text size="sm" fw={500}>{personalLabel}</Text>
             <Text size="xs" c="dimmed">
               {activeOrg ? 'Back to your own jobs and requests' : 'Your own jobs, requests and receipts'}
             </Text>
@@ -463,11 +467,6 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           <Divider my="xs" />
 
           <Menu.Label>Organizations</Menu.Label>
-          {organizations.length > 0 && (
-            <Menu.Item onClick={() => { void router.push('/organization/enter') }} leftSection={<IconWallet size={16} />}>
-              Enter with a staff card
-            </Menu.Item>
-          )}
           {loading && organizations.length === 0 && (
             <Menu.Item disabled leftSection={<Loader size={14} />}>
               Loading organizations…
@@ -507,8 +506,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
 
           <Divider my="xs" />
 
-          <Menu.Label>Accounts</Menu.Label>
-          {accounts.map((account) => {
+          {otherAccounts.length > 0 && <Menu.Label>Other accounts</Menu.Label>}
+          {otherAccounts.map((account) => {
             const selected = account.id === activeAccountId
             return (
               <Menu.Item

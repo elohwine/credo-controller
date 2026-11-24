@@ -121,10 +121,12 @@ async function registerDevice(walletId: string, pin: string, label: string, usag
 }
 
 interface DeviceAuthorizationInput {
-  purpose: 'device_login' | 'web_login' | 'change_pin'
+  purpose: 'device_login' | 'web_login' | 'change_pin' | 'pin_second_factor'
   walletId?: string
   authorizationRequest?: string
   newPin?: string
+  secondFactorChallengeId?: string
+  secondFactorChallengeToken?: string
 }
 
 export interface PreparedDeviceAuthorization {
@@ -142,8 +144,12 @@ export async function prepareDeviceAuthorization(input: DeviceAuthorizationInput
   const device = loginDevices().find((item) => item.walletId === walletId && native?.hasKey?.(item.alias))
   if (!device) throw new Error('Sign in with your PIN, then turn on sign-in with this phone in Settings, Sign-in and security.')
   const challenge = await api.post('/api/wallet/auth/device-login/start', {
-    deviceKeyId: device.deviceKeyId, purpose: input.purpose,
-    authorizationRequest: input.authorizationRequest, newPin: input.newPin,
+    deviceKeyId: device.deviceKeyId,
+    purpose: input.purpose,
+    authorizationRequest: input.authorizationRequest,
+    newPin: input.newPin,
+    secondFactorChallengeId: input.secondFactorChallengeId,
+    secondFactorChallengeToken: input.secondFactorChallengeToken,
   })
   return { ...challenge.data, alias: device.alias }
 }

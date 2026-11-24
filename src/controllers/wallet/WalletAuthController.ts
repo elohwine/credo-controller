@@ -60,6 +60,11 @@ interface LoginRequest {
   [key: string]: any // Allow additional properties from auth module
 }
 
+interface SecondFactorBody {
+  challengeId: string
+  challengeToken: string
+}
+
 interface RegisterRequest {
   username: string
   email?: string // Optional if phone is provided
@@ -135,9 +140,45 @@ export class WalletAuthController extends Controller {
 
   @Post('/device-login/start')
   public startDeviceLogin(
-    @Body() body: { deviceKeyId: string; purpose: DeviceLoginPurpose; authorizationRequest?: string; newPin?: string },
+    @Body()
+    body: {
+      deviceKeyId: string
+      purpose: DeviceLoginPurpose
+      authorizationRequest?: string
+      newPin?: string
+      secondFactorChallengeId?: string
+      secondFactorChallengeToken?: string
+    },
   ): DeviceLoginStart {
     return new DeviceLoginService(container.resolve(Agent), this.ssiAuthService).start(body)
+  }
+
+  @Post('/login/second-factor/device/start')
+  public async startLoginSecondFactorDevice(@Body() body: SecondFactorBody): Promise<WalletLoginStart> {
+    const pending = this.ssiAuthService.secondFactorWallet(body?.challengeId, body?.challengeToken)
+    return this.walletLoginService().start({
+      tenantId: pending.tenantId,
+      challengeId: body.challengeId,
+    })
+  }
+
+  @Post('/login/second-factor/otp/send')
+  public async sendLoginSecondFactorOtp(
+    @Body() body: SecondFactorBody & { phone: string },
+  ): Promise<{ expiresAt: string; sentTo: string }> {
+    return this.ssiAuthService.sendLoginOtp(body?.challengeId, body?.challengeToken, body?.phone)
+  }
+
+  @Post('/login/second-factor/otp/verify')
+  public async verifyLoginSecondFactorOtp(
+    @Body() body: SecondFactorBody & { code: string },
+  ): Promise<{ token: string; tenantId: string; mustChangePin: boolean }> {
+    const result = await this.ssiAuthService.verifyLoginOtp(body?.challengeId, body?.challengeToken, body?.code)
+    this.setHeader(
+      'Set-Cookie',
+      `auth.token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
+    )
+    return result
   }
 
   @Post('/device-login/finish')
@@ -148,7 +189,7 @@ export class WalletAuthController extends Controller {
       challengeId: string
       signature: string
     },
-  ): Promise<{ token?: string; tenantId?: string; presented?: boolean }> {
+  ): Promise<{ token?: string; tenantId?: string; presented?: boolean; mustChangePin?: boolean }> {
     return new DeviceLoginService(container.resolve(Agent), this.ssiAuthService).finish(request, body)
   }
 
@@ -317,7 +358,13 @@ export class WalletAuthController extends Controller {
   public async login(
     @Request() request: ExRequest,
     @Body() body: LoginRequest,
-  ): Promise<{ token: string; hasGenericId?: boolean; mustChangePin?: boolean }> {
+  ): Promise<{
+    token?: string
+    tenantId: string
+    hasGenericId?: boolean
+    mustChangePin?: boolean
+    secondFactor?: { challengeId: string; challengeToken: string; expiresAt: string }
+  }> {
     console.log('[LOGIN] ===== START LOGIN FLOW (SSI) =====')
 
     try {
@@ -333,11 +380,19 @@ export class WalletAuthController extends Controller {
         pin: body.pin,
       })
 
+      if (result.token) {
+        this.setHeader(
+          'Set-Cookie',
+          `auth.token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`,
+        )
+      }
       console.log('[LOGIN] User authenticated via SSI Service')
       return {
         token: result.token,
+        tenantId: result.tenantId,
         hasGenericId: true,
         mustChangePin: result.mustChangePin,
+        secondFactor: result.secondFactor,
       }
     } catch (e: any) {
       console.log('[LOGIN] Authentication failed:', e.message)

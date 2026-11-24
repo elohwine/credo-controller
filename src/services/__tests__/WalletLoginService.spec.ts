@@ -51,6 +51,7 @@ describe('WalletLoginService', () => {
     db = new Database(':memory:')
     db.exec(readFileSync(join(process.cwd(), 'migrations/120_wallet_login_sessions.sql'), 'utf8'))
     db.exec('ALTER TABLE wallet_login_sessions ADD COLUMN authorization_request TEXT')
+    db.exec(readFileSync(join(process.cwd(), 'migrations/165_login_second_factor.sql'), 'utf8'))
     ;(DatabaseManager as any).instance = db
     const { WalletLoginService } = await import('../WalletLoginService')
     service = new WalletLoginService({} as any, { loginWithVerifiedPresentation } as any)
@@ -75,6 +76,20 @@ describe('WalletLoginService', () => {
       .prepare('SELECT poll_token_hash FROM wallet_login_sessions WHERE login_id = ?')
       .get(start.loginId) as any
     expect(row.poll_token_hash).not.toContain(start.pollToken)
+  })
+
+  it('binds a PIN second-factor wallet session to the account that passed the PIN', async () => {
+    const start = await service.start({ tenantId: 'tenant-1', challengeId: 'pin-challenge' })
+    const row = db
+      .prepare('SELECT expected_tenant_id, second_factor_challenge_id FROM wallet_login_sessions WHERE login_id = ?')
+      .get(start.loginId) as any
+    expect(row).toEqual({ expected_tenant_id: 'tenant-1', second_factor_challenge_id: 'pin-challenge' })
+    sessions.set(start.loginId, { state: 'ResponseVerified', presentations: [fakePresentation()] })
+    await service.poll(start.loginId, start.pollToken)
+    expect(loginWithVerifiedPresentation).toHaveBeenLastCalledWith(fakePresentation(), start.loginId, {
+      tenantId: 'tenant-1',
+      challengeId: 'pin-challenge',
+    })
   })
 
   it('only answers the browser holding the poll token', async () => {

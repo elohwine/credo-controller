@@ -3165,10 +3165,11 @@ const models: TsoaRoute.Models = {
     "LoginResponse": {
         "dataType": "refObject",
         "properties": {
-            "token": {"dataType":"string","required":true},
+            "token": {"dataType":"string"},
             "tenantId": {"dataType":"string","required":true},
             "displayName": {"dataType":"string"},
             "mustChangePin": {"dataType":"boolean"},
+            "secondFactor": {"dataType":"nestedObjectLiteral","nestedProperties":{"expiresAt":{"dataType":"string","required":true},"challengeToken":{"dataType":"string","required":true},"challengeId":{"dataType":"string","required":true}}},
         },
         "additionalProperties": false,
     },
@@ -3460,7 +3461,27 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "DeviceLoginPurpose": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["device_login"]},{"dataType":"enum","enums":["web_login"]},{"dataType":"enum","enums":["change_pin"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["device_login"]},{"dataType":"enum","enums":["web_login"]},{"dataType":"enum","enums":["change_pin"]},{"dataType":"enum","enums":["pin_second_factor"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "WalletLoginStart": {
+        "dataType": "refObject",
+        "properties": {
+            "loginId": {"dataType":"string","required":true},
+            "authorizationRequest": {"dataType":"string","required":true},
+            "pollToken": {"dataType":"string","required":true},
+            "expiresAt": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "SecondFactorBody": {
+        "dataType": "refObject",
+        "properties": {
+            "challengeId": {"dataType":"string","required":true},
+            "challengeToken": {"dataType":"string","required":true},
+        },
+        "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "RegistryRequestStatus": {
@@ -3541,17 +3562,6 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
-    "WalletLoginStart": {
-        "dataType": "refObject",
-        "properties": {
-            "loginId": {"dataType":"string","required":true},
-            "authorizationRequest": {"dataType":"string","required":true},
-            "pollToken": {"dataType":"string","required":true},
-            "expiresAt": {"dataType":"string","required":true},
-        },
-        "additionalProperties": false,
-    },
-    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "IdentityVerificationSource": {
         "dataType": "refAlias",
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["self_attested"]},{"dataType":"enum","enums":["registry_confirmed"]}],"validators":{}},
@@ -3576,7 +3586,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "WalletLoginPoll": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"nestedObjectLiteral","nestedProperties":{"expiresAt":{"dataType":"string","required":true},"status":{"dataType":"enum","enums":["pending"],"required":true}}},{"dataType":"nestedObjectLiteral","nestedProperties":{"claims":{"ref":"PlatformIdentityClaims","required":true},"tenantId":{"dataType":"string","required":true},"token":{"dataType":"string","required":true},"status":{"dataType":"enum","enums":["verified"],"required":true}}}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"nestedObjectLiteral","nestedProperties":{"expiresAt":{"dataType":"string","required":true},"status":{"dataType":"enum","enums":["pending"],"required":true}}},{"dataType":"nestedObjectLiteral","nestedProperties":{"mustChangePin":{"dataType":"boolean"},"claims":{"ref":"PlatformIdentityClaims","required":true},"tenantId":{"dataType":"string","required":true},"token":{"dataType":"string","required":true},"status":{"dataType":"enum","enums":["verified"],"required":true}}}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "SameDeviceLoginBody": {
@@ -6452,6 +6462,7 @@ const models: TsoaRoute.Models = {
             "detail": {"dataType":"string","required":true},
             "elapsedMinutes": {"dataType":"double"},
             "targetMinutes": {"dataType":"double"},
+            "startedHere": {"dataType":"boolean","required":true},
         },
         "additionalProperties": false,
     },
@@ -16444,7 +16455,7 @@ export function RegisterRoutes(app: Router) {
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsWalletAuthController_startDeviceLogin: Record<string, TsoaRoute.ParameterSchema> = {
-                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"newPin":{"dataType":"string"},"authorizationRequest":{"dataType":"string"},"purpose":{"ref":"DeviceLoginPurpose","required":true},"deviceKeyId":{"dataType":"string","required":true}}},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"secondFactorChallengeToken":{"dataType":"string"},"secondFactorChallengeId":{"dataType":"string"},"newPin":{"dataType":"string"},"authorizationRequest":{"dataType":"string"},"purpose":{"ref":"DeviceLoginPurpose","required":true},"deviceKeyId":{"dataType":"string","required":true}}},
         };
         app.post('/api/wallet/auth/device-login/start',
             ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
@@ -16467,6 +16478,111 @@ export function RegisterRoutes(app: Router) {
 
               await templateService.apiHandler({
                 methodName: 'startDeviceLogin',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_startLoginSecondFactorDevice: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"ref":"SecondFactorBody"},
+        };
+        app.post('/api/wallet/auth/login/second-factor/device/start',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.startLoginSecondFactorDevice)),
+
+            async function WalletAuthController_startLoginSecondFactorDevice(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_startLoginSecondFactorDevice, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'startLoginSecondFactorDevice',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_sendLoginSecondFactorOtp: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"dataType":"intersection","subSchemas":[{"ref":"SecondFactorBody"},{"dataType":"nestedObjectLiteral","nestedProperties":{"phone":{"dataType":"string","required":true}}}]},
+        };
+        app.post('/api/wallet/auth/login/second-factor/otp/send',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.sendLoginSecondFactorOtp)),
+
+            async function WalletAuthController_sendLoginSecondFactorOtp(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_sendLoginSecondFactorOtp, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'sendLoginSecondFactorOtp',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsWalletAuthController_verifyLoginSecondFactorOtp: Record<string, TsoaRoute.ParameterSchema> = {
+                body: {"in":"body","name":"body","required":true,"dataType":"intersection","subSchemas":[{"ref":"SecondFactorBody"},{"dataType":"nestedObjectLiteral","nestedProperties":{"code":{"dataType":"string","required":true}}}]},
+        };
+        app.post('/api/wallet/auth/login/second-factor/otp/verify',
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController)),
+            ...(fetchMiddlewares<RequestHandler>(WalletAuthController.prototype.verifyLoginSecondFactorOtp)),
+
+            async function WalletAuthController_verifyLoginSecondFactorOtp(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsWalletAuthController_verifyLoginSecondFactorOtp, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<WalletAuthController>(WalletAuthController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'verifyLoginSecondFactorOtp',
                 controller,
                 response,
                 next,

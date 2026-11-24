@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { EnvContext } from '@/pages/_app'
 import { feedback } from '@/lib/feedback'
 import JobDepositPanel from '@/components/requests/JobDepositPanel'
 import { milestone } from '@/components/feedback/Milestone'
@@ -995,6 +996,7 @@ const REQUEST_TABLE_SORTERS: Record<string, (row: RequestRow) => string> = {
 }
 
 export default function RequestWorkspace({ mode, category }: RequestWorkspaceProps) {
+  const env = useContext(EnvContext)
   const router = useRouter()
   const openRelatedWork = useRelatedWorkNavigation()
   const [taskOnly, setTaskOnly] = useState(false)
@@ -1015,6 +1017,8 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [receiptsLoadError, setReceiptsLoadError] = useState<string | null>(null)
+  const loadSequence = useRef(0)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [linkedOnly, setLinkedOnly] = useState(false)
   const [attention, setAttention] = useState<InboxAttentionFilter>('all')
@@ -1033,7 +1037,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   const [orgSwitchPrompt, setOrgSwitchPrompt] = useState<{ orgTenantId: string; orgName: string; href: string; purpose: OrgSwitchPurpose } | null>(null)
   const [orgSwitching, setOrgSwitching] = useState(false)
 
-  const backendUrl = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+  const backendUrl = env.NEXT_PUBLIC_VC_REPO
 
   useEffect(() => {
     try {
@@ -1047,7 +1051,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
 
   // Read marks and "last seen" live on the server, so an item opened on the phone is not new here.
   useEffect(() => {
-    if (mode !== 'inbox') return undefined
+    if (mode !== 'inbox' || !backendUrl) return undefined
     const target = portalInboxReadTarget()
     if (!target) return undefined
     let cancelled = false
@@ -1067,7 +1071,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
     return () => {
       cancelled = true
     }
-  }, [mode])
+  }, [mode, backendUrl])
 
   const postReadState = (update: { readKeys?: string[]; lastSeenAt?: string }) => {
     const target = portalInboxReadTarget()
@@ -1295,6 +1299,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
   }, [visibleItems])
 
   const loadRequests = async (cursor?: string | null, append = false) => {
+    if (!backendUrl) return
     if (!orgTenantId && mode !== 'inbox') return
     // In personal context only the person's own cards load; organization rows need the org session.
     const orgToken = orgTenantId ? getOrgScopedToken() : null
@@ -1310,16 +1315,14 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       return
     }
 
-    // No connection: keep the list already on screen. Do not replace it with an empty one.
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      return
-    }
-
     if (append) setLoadingMore(true)
     else setLoading(true)
     setError(null)
+    setReceiptsLoadError(null)
 
     const loadContext = captureOrganizationSwitchContext(localStorage)
+    const sequence = ++loadSequence.current
+    const isCurrent = () => loadContext.isCurrent() && sequence === loadSequence.current
     try {
       const task = getPortalTask()
       if (task) {
@@ -1333,6 +1336,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
           headers: { Authorization: `Bearer ${orgToken}` },
         })
         assertCurrent()
+        if (!isCurrent()) return
         if (window.location.href !== startingUrl) return
         const row: RequestRow = { ...res.data, __source: 'platform' }
         setItems([row])
@@ -1395,6 +1399,7 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
 
         const mergedItems = Array.from(dedupedById.values())
 
+        if (!isCurrent()) return
         setItems((prev) => (append ? [...prev, ...mergedItems] : mergedItems))
         setNextCursor(res.data?.nextCursor || null)
         return
@@ -1455,8 +1460,9 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
             if (row) workflowRows.push(row)
           }
         } catch (err) {
-          if (!loadContext.isCurrent()) return
-          feedback.error(axios.isAxiosError(err) ? err.response?.data?.message || err.message : 'Refresh your inbox to try again.', { title: 'Could not load payment receipts' })
+          if (!isCurrent()) return
+          console.warn('Could not check pending payment receipts', err)
+          setReceiptsLoadError('Could not check for payment receipts. Other inbox items are shown; retry to check receipts.')
         }
       }
 
@@ -1492,14 +1498,14 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
         }
       }
 
-      if (!loadContext.isCurrent()) return
+      if (!isCurrent()) return
       setItems((prev) => (append ? [...prev, ...workflowRows] : workflowRows))
       setNextCursor(null)
     } catch (err: any) {
-      if (!loadContext.isCurrent()) return
+      if (!isCurrent()) return
       setError(err?.response?.data?.message || err?.message || 'Failed to load requests')
     } finally {
-      if (loadContext.isCurrent()) {
+      if (isCurrent()) {
         setLoading(false)
         setLoadingMore(false)
       }
@@ -2158,20 +2164,20 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
 
   // The inbox also works in personal context: it shows the job steps and requests waiting for you.
   useEffect(() => {
-    if (!orgTenantId && mode !== 'inbox') return
+    if (!backendUrl || (!orgTenantId && mode !== 'inbox')) return
     if (orgTenantId) {
       void loadOrganizationWorkflows()
       void loadWorkflowActors(orgTenantId)
     } else {
       setActorsLoading(false)
     }
-    void loadRequests(null, false)
-  }, [orgTenantId])
+  }, [orgTenantId, backendUrl, mode])
 
   useEffect(() => {
-    if (!orgTenantId && mode !== 'inbox') return
+    if (!backendUrl || (!orgTenantId && mode !== 'inbox')) return
     void loadRequests(null, false)
-  }, [statusFilter, requestIdFromQuery])
+    return () => { loadSequence.current += 1 }
+  }, [orgTenantId, backendUrl, mode, statusFilter, requestIdFromQuery])
 
   const rowAttentionOf = (row: RequestRow) =>
     inboxAttention({ status: normalizeStatus(row.status), isRead: openedIds.has(row.id), stillOpen: Boolean(row.nextStep) })
@@ -2424,6 +2430,14 @@ export default function RequestWorkspace({ mode, category }: RequestWorkspacePro
       {error && (
         <Alert icon={<IconAlertCircle size={16} />} color="red" title="Load error">
           {error}
+        </Alert>
+      )}
+      {receiptsLoadError && (
+        <Alert icon={<IconAlertCircle size={16} />} color="orange" title="Receipts check unavailable">
+          <Text size="sm">{receiptsLoadError}</Text>
+          <Button variant="light" size="xs" mt="xs" loading={loading} onClick={() => void loadRequests(null, false)}>
+            Retry receipts check
+          </Button>
         </Alert>
       )}
 

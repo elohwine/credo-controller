@@ -20,6 +20,7 @@ import { FIELD_JOB_CATEGORY_LABELS } from '../../../src/config/fieldJobCategory'
 import { FIELD_JOB_SOURCE_OPTIONS, fieldJobSourceLabel } from '../../../src/config/fieldJobSource'
 import type { ListSort } from '../../../src/config/listPage'
 import { DataTable, useClientList, useListState, type DataColumn } from '../DataTable'
+import { enrolledJobMembers } from '../jobPeople'
 
 import { IncomingJobs, type IncomingJobsMember } from './IncomingJobs'
 import {
@@ -502,12 +503,10 @@ export function JobBoard({
             label="Worker"
             data={[
               { value: 'all', label: 'Everyone' },
-              ...members
-                .filter((member) => member.userId)
-                .map((member) => ({
-                  value: member.userId,
-                  label: member.displayName || names[member.userId] || 'Team member',
-                })),
+              ...enrolledJobMembers(members).map((member) => ({
+                value: member.userId,
+                label: member.displayName || names[member.userId] || 'Team member',
+              })),
             ]}
             value={workerId}
             onChange={setWorkerId}
@@ -550,16 +549,18 @@ export function JobBoard({
           onChange={(event) => setTo(event.currentTarget.value)}
         />
       </Group>
-      {!lockedView && <SegmentedControl<string>
-        fullWidth={surface === 'phone'}
-        value={view}
-        onChange={setView}
-        data={[
-          { label: 'List', value: 'list' },
-          { label: 'Calendar', value: 'calendar' },
-          { label: 'Report', value: 'reports' },
-        ]}
-      />}
+      {!lockedView && (
+        <SegmentedControl<string>
+          fullWidth={surface === 'phone'}
+          value={view}
+          onChange={setView}
+          data={[
+            { label: 'List', value: 'list' },
+            { label: 'Calendar', value: 'calendar' },
+            { label: 'Report', value: 'reports' },
+          ]}
+        />
+      )}
 
       {view === 'list' && (
         <Stack gap="xs">

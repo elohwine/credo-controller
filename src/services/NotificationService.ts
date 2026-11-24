@@ -986,15 +986,17 @@ export class NotificationService {
   public async sendSms(
     to: string,
     message: string,
+    options: { logRecipient?: boolean } = {},
   ): Promise<{ success: boolean; skipped?: boolean; messageId?: string }> {
     const adapter = (process.env.SMS_ADAPTER || 'africastalking').toLowerCase()
     const apiKey = process.env.SMS_API_KEY || process.env.AT_API_KEY
     const username = process.env.SMS_USERNAME || process.env.AT_USERNAME
     const from = process.env.SMS_FROM || process.env.AT_SENDER_ID || 'CREDENTIS'
     const url = process.env.SMS_GATEWAY_URL
+    const recipientLog = options.logRecipient === false ? { recipient: '[redacted]' } : { to }
 
     if (!apiKey && !url) {
-      logger.warn({ to }, 'SMS not configured — skipping')
+      logger.warn(recipientLog, 'SMS not configured — skipping')
       return { success: false, skipped: true }
     }
 
@@ -1012,7 +1014,7 @@ export class NotificationService {
           },
         )
         const messageId = data?.SMSMessageData?.Recipients?.[0]?.messageId
-        logger.info({ to, messageId }, "SMS sent via Africa's Talking")
+        logger.info({ ...recipientLog, messageId }, "SMS sent via Africa's Talking")
         return { success: true, messageId }
       }
 
@@ -1023,17 +1025,17 @@ export class NotificationService {
           { auth: { username: username!, password: apiKey! } },
         )
         const messageId = data?.[0]?.id
-        logger.info({ to, messageId }, 'SMS sent via BulkSMS')
+        logger.info({ ...recipientLog, messageId }, 'SMS sent via BulkSMS')
         return { success: true, messageId }
       }
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (apiKey) headers.Authorization = `Bearer ${apiKey}`
       const { data } = await axios.post(url!, { to, message, from }, { headers })
-      logger.info({ to }, 'SMS sent via generic HTTP gateway')
+      logger.info(recipientLog, 'SMS sent via generic HTTP gateway')
       return { success: true, messageId: data?.messageId || data?.id }
     } catch (error) {
-      logger.error({ to, err: error instanceof Error ? error.message : String(error) }, 'SMS send failed')
+      logger.error({ ...recipientLog, err: error instanceof Error ? error.message : String(error) }, 'SMS send failed')
       return { success: false }
     }
   }

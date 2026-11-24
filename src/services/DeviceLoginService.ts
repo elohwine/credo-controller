@@ -15,7 +15,7 @@ import { WalletLoginService } from './WalletLoginService'
 import { stageProofService } from './ssi/StageProofService'
 import { PRODUCT_NAME } from '../config/productEdition'
 
-export type DeviceLoginPurpose = 'device_login' | 'web_login' | 'change_pin'
+export type DeviceLoginPurpose = 'device_login' | 'web_login' | 'change_pin' | 'pin_second_factor'
 export interface DeviceLoginStart {
   challengeId: string
   payload: string
@@ -37,6 +37,7 @@ interface Operation {
   verificationId?: string
   newPinHash?: string
   policyHash?: string
+  secondFactorChallengeId?: string
 }
 const TTL = 2 * 60 * 1000
 
@@ -51,10 +52,12 @@ export class DeviceLoginService {
     purpose: DeviceLoginPurpose
     authorizationRequest?: string
     newPin?: string
+    secondFactorChallengeId?: string
+    secondFactorChallengeToken?: string
   }): DeviceLoginStart {
     const db = DatabaseManager.getDatabase()
     if (
-      !['device_login', 'web_login', 'change_pin'].includes(input.purpose) ||
+      !['device_login', 'web_login', 'change_pin', 'pin_second_factor'].includes(input.purpose) ||
       !input.deviceKeyId ||
       input.deviceKeyId.length > 128
     ) {
@@ -133,6 +136,15 @@ export class DeviceLoginService {
       if (problem) throw new StatusException(`${problem}.`, 400)
       operation.newPinHash = this.auth.pinDigest(input.newPin!)
     }
+    if (input.purpose === 'pin_second_factor') {
+      const challengeId = String(input.secondFactorChallengeId || '')
+      const challengeToken = String(input.secondFactorChallengeToken || '')
+      const pending = this.auth.secondFactorWallet(challengeId, challengeToken)
+      if (pending.tenantId !== key?.wallet_tenant_id) {
+        throw new StatusException('This phone is not enrolled for the account signing in.', 403)
+      }
+      operation.secondFactorChallengeId = challengeId
+    }
     const challengeId = randomBytes(32).toString('base64url')
     const expiresAt = new Date(Date.now() + TTL).toISOString()
     const payload = JSON.stringify({
@@ -166,6 +178,7 @@ export class DeviceLoginService {
     token?: string
     tenantId?: string
     presented?: boolean
+    mustChangePin?: boolean
   }> {
     if (!input.signature || input.signature.length > 1024 || !/^[A-Za-z0-9_-]{40,100}$/.test(input.challengeId)) {
       throw new StatusException('This device sign-in could not be verified.', 401)
@@ -194,6 +207,16 @@ export class DeviceLoginService {
         ).run(saved.operation.newPinHash, new Date().toISOString(), row.wallet_tenant_id)
       })()
       return this.auth.sessionForTrustedDevice(row.wallet_tenant_id, row.device_key_id)
+    }
+    if (row.purpose === 'pin_second_factor') {
+      const challengeId = saved.operation.secondFactorChallengeId
+      if (!challengeId) throw new StatusException('This sign-in step is unavailable.', 400)
+      const session = await this.authenticateWallet(request, row.wallet_tenant_id, row.device_key_id)
+      if (session.tenantId !== row.wallet_tenant_id) {
+        throw new StatusException('The phone card belongs to a different account.', 401)
+      }
+      const completion = this.auth.completeLoginSecondFactor(challengeId, row.wallet_tenant_id)
+      return { ...session, mustChangePin: completion.mustChangePin }
     }
     if (row.purpose === 'web_login') {
       const { authorizationRequest, verificationId } = saved.operation

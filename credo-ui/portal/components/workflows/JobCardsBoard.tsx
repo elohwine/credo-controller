@@ -123,7 +123,7 @@ export default function JobCardsBoard() {
   const [canCreate, setCanCreate] = useState(false)
   const [memberNames, setMemberNames] = useState<Record<string, string>>({})
   const [teamMembers, setTeamMembers] = useState<
-    Array<{ userId: string; role: string; displayName?: string; phone?: string; status?: string }>
+    Array<{ userId: string; role: string; displayName?: string; phone?: string; status?: string; invitePending?: boolean }>
   >([])
   const { api: operations, notify } = usePortalOperations()
     // Stuck jobs are rows in the list with a flag, not a second list of the same jobs.
@@ -141,7 +141,8 @@ export default function JobCardsBoard() {
     const org = readActiveOrganization()
     const token = localStorage.getItem('credoOrgToken') || getPreferredTenantToken()
     if (!org?.orgTenantId || !token) return
-    const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+    const credoBackend = env.NEXT_PUBLIC_VC_REPO
+    if (!credoBackend) return
     axios
       .get(`${credoBackend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -157,6 +158,7 @@ export default function JobCardsBoard() {
                 displayName: m.displayName ? String(m.displayName) : undefined,
                 phone: m.phone ? String(m.phone) : undefined,
                 status: m.status ? String(m.status) : undefined,
+                invitePending: m.invitePending,
             })),
         )
         const names: Record<string, string> = {}
@@ -186,12 +188,13 @@ export default function JobCardsBoard() {
     // The backend address can change while a load is still running; only the newest load may fill the list.
   const fetchSeq = useRef(0)
     const fetchJobs = useCallback(async () => {
+  if (!env.NEXT_PUBLIC_VC_REPO) return
     const seq = ++fetchSeq.current
     const stale = () => seq !== fetchSeq.current
     setLoading(true)
     setJobsLoadError(null)
         try {
-      const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+      const credoBackend = env.NEXT_PUBLIC_VC_REPO
 
       const contextMode = localStorage.getItem('credoContextMode') === 'org' ? 'org' : 'personal'
       const preferredToken = getPreferredTenantToken()
@@ -317,7 +320,7 @@ export default function JobCardsBoard() {
     const token = localStorage.getItem('credoOrgToken') || getPreferredTenantToken()
     if (!token) return
         try {
-      const credoBackend = env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+      const credoBackend = env.NEXT_PUBLIC_VC_REPO
             const res = await axios.get(`${credoBackend}/workflows/runs/${encodeURIComponent(runId)}`, {
                 headers: { Authorization: `Bearer ${token}` },
       })

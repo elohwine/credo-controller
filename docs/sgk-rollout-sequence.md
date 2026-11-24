@@ -76,6 +76,20 @@ Backfill and activate SGK-aligned capabilities for existing tenants without inte
   the jobs map requires the manager's explicit consent before contacting OpenStreetMap.
 - Check both table and card views with imported, emailed and manually created jobs.
   Each opens the existing job details, progress timeline, history and assignment controls.
+- Job assignment and creation pickers list only active organisation members with
+  `invitePending: false`. Imported employees, contacts and unanswered invitations are
+  not assignable until onboarding is complete. Confirm an enrolled field worker appears
+  in the job timeline assignment, new-job form and incoming-job booking on both apps.
+- Portal job forms use the API address from `EnvContext` (`/api/env`), not `window.__ENV`.
+  A team-loading failure must be shown as an error rather than an empty team.
+- Account menus show the current personal sign-in once, with other saved accounts in their
+  own section. Preserve the same wallet's known name across PIN sign-in; never borrow a
+  different wallet's name or use organisation names as personal identity.
+- An empty payment-receipt response is normal. If its request fails, retain the rest of the
+  inbox and show a retryable receipt-check warning, not a claim that receipts exist.
+- The browser's `navigator.onLine` flag is advisory, not proof the API is unreachable.
+  Do not block API requests or portal-settings loading solely on that flag. Startup
+  settings failures offer a retry and retry again when the browser reports reconnection.
   Lists use the same short status labels and colours in both apps; detailed waiting
   instructions remain in the job itself.
 - Check narrow screens and both colour schemes. A failed list load must show an error

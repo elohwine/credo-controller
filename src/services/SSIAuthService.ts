@@ -32,6 +32,7 @@ import { container, injectable, inject } from 'tsyringe'
 import { RestMultiTenantAgentModules } from '../cliAgent'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
 import { EMPLOYEE_OFFER_SOURCE_TYPE } from '../config/credentials/EmployeeVC'
+import { StatusException } from '../errors'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getTenantById } from '../persistence/TenantRepository'
 import { deploymentSecret } from '../utils/deploymentSecret'
@@ -42,6 +43,7 @@ import { type DeviceAssertion, deviceTrustService } from './DeviceTrustService'
 import { billDocumentClaims, documentClaims } from './documentFacts'
 import { MONEY_STEP_ROLES } from './GuideProgressService'
 import { memberInviteService } from './MemberInviteService'
+import { notificationService } from './NotificationService'
 import { personalSessionVersion, requireDeviceLoginApproval } from './PersonalSessionPolicy'
 import { contactHash, contactHashCandidates, normalizeContactEmail, phoneHashCandidates } from './ssi/contactHash'
 import { hashPin, needsRehash, pinProblem, verifyPin } from './ssi/pinHash'
@@ -115,6 +117,27 @@ export interface SecurityStatus {
   handlesMoney: boolean
 }
 
+interface LoginSecondFactorChallenge {
+  id: string
+  user_id: string
+  tenant_id: string
+  token_hash: string
+  expires_at: string
+  used_at: string | null
+  otp_hash: string | null
+  otp_salt: string | null
+  otp_expires_at: string | null
+  otp_sent_at: string | null
+  otp_attempts: number
+}
+
+const LOGIN_SECOND_FACTOR_TTL_MS = 5 * 60 * 1000
+const LOGIN_OTP_TTL_MS = 5 * 60 * 1000
+const LOGIN_OTP_RESEND_MS = 60 * 1000
+const LOGIN_OTP_MAX_ATTEMPTS = 5
+const LOGIN_OTP_SEND_WINDOW_MS = 15 * 60 * 1000
+const LOGIN_OTP_MAX_SENDS = 3
+
 @injectable()
 export class SSIAuthService {
   private agent: Agent<RestMultiTenantAgentModules>
@@ -154,7 +177,9 @@ export class SSIAuthService {
     await this.register({ username: displayName.trim() || 'Team member', phone, email }, { quiet: true })
     const created = lookup()
     if (!created?.id || !created.tenant_id) {
-      throw new Error(phone ? 'Could not open an account for that phone number' : 'Could not open an account for that email')
+      throw new Error(
+        phone ? 'Could not open an account for that phone number' : 'Could not open an account for that email',
+      )
     }
     return { userId: created.id, tenantId: created.tenant_id, created: true }
   }
@@ -451,11 +476,26 @@ export class SSIAuthService {
   async loginWithVerifiedPresentation(
     presentation: W3cJwtVerifiablePresentation,
     verificationId?: string,
-  ): Promise<{ token: string; tenantId: string; claims: PlatformIdentityClaims }> {
+    secondFactor?: { tenantId: string; challengeId: string },
+  ): Promise<{ token: string; tenantId: string; claims: PlatformIdentityClaims; mustChangePin?: boolean }> {
     const identity = await this.verifiedPlatformIdentity(presentation, this.presentationSignerDid(presentation))
     if (!verificationId) throw new Error('A device-approved verifier session is required')
     const device = requireDeviceLoginApproval(verificationId, identity.tenantId)
-    return this.sessionForVerifiedPresentation(presentation, identity.holderDid, identity, device.deviceKeyId)
+    if (secondFactor && identity.tenantId !== secondFactor.tenantId) {
+      throw new PlatformIdentityError(
+        'presenter_not_account_holder',
+        'The phone approval belongs to a different account',
+      )
+    }
+    const result = await this.sessionForVerifiedPresentation(
+      presentation,
+      identity.holderDid,
+      identity,
+      device.deviceKeyId,
+    )
+    if (!secondFactor) return result
+    const completion = this.completeLoginSecondFactor(secondFactor.challengeId, identity.tenantId)
+    return { ...result, mustChangePin: completion.mustChangePin }
   }
 
   public async sessionForTrustedDevice(
@@ -613,11 +653,12 @@ export class SSIAuthService {
    * Login via Phone/Email + PIN (Web2-friendly fallback)
    * For users who prefer traditional UX
    */
-  async loginWithPin(credentials: {
-    phone?: string
-    email?: string
-    pin: string
-  }): Promise<{ token: string; tenantId: string; mustChangePin: boolean }> {
+  async loginWithPin(credentials: { phone?: string; email?: string; pin: string }): Promise<{
+    token?: string
+    tenantId: string
+    mustChangePin: boolean
+    secondFactor?: { challengeId: string; challengeToken: string; expiresAt: string }
+  }> {
     const db = DatabaseManager.getDatabase()
 
     if (!credentials.phone?.trim() && !credentials.email?.trim()) throw new Error('Phone or Email required')
@@ -668,9 +709,198 @@ export class SSIAuthService {
       custodyRebindService.scheduleRebind(user.tenant_id),
     )
 
-    const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
+    const mustChangePin = Number(user.pin_change_required || 0) === 1
+    const phoneSignIn = this.securityStatus(user.id).phoneSignIn
+    if (phoneSignIn) {
+      return {
+        tenantId: user.tenant_id,
+        mustChangePin,
+        secondFactor: this.createLoginSecondFactor(user.id, user.tenant_id),
+      }
+    }
 
-    return { token, tenantId: user.tenant_id, mustChangePin: Number(user.pin_change_required || 0) === 1 }
+    const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
+    return { token, tenantId: user.tenant_id, mustChangePin }
+  }
+
+  private createLoginSecondFactor(
+    userId: string,
+    tenantId: string,
+  ): { challengeId: string; challengeToken: string; expiresAt: string } {
+    const now = new Date().toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `DELETE FROM login_second_factor_challenges
+          WHERE julianday(expires_at) < julianday(?, '-1 day')
+             OR julianday(used_at) < julianday(?, '-1 day')`,
+      )
+      .run(now, now)
+    const id = crypto.randomUUID()
+    const challengeToken = crypto.randomBytes(32).toString('base64url')
+    const expiresAt = new Date(Date.now() + LOGIN_SECOND_FACTOR_TTL_MS).toISOString()
+    DatabaseManager.getDatabase()
+      .prepare(
+        `INSERT INTO login_second_factor_challenges (id, user_id, tenant_id, token_hash, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(id, userId, tenantId, crypto.createHash('sha256').update(challengeToken).digest('hex'), expiresAt)
+    return { challengeId: id, challengeToken, expiresAt }
+  }
+
+  private pendingLoginSecondFactor(id: string, token: string): LoginSecondFactorChallenge {
+    const row = DatabaseManager.getDatabase()
+      .prepare('SELECT * FROM login_second_factor_challenges WHERE id = ?')
+      .get(id) as LoginSecondFactorChallenge | undefined
+    const supplied = crypto
+      .createHash('sha256')
+      .update(String(token || ''))
+      .digest()
+    const expected = Buffer.from(row?.token_hash || '', 'hex')
+    if (
+      !row ||
+      !token ||
+      row.used_at ||
+      Date.parse(row.expires_at) <= Date.now() ||
+      expected.length !== supplied.length ||
+      !crypto.timingSafeEqual(expected, supplied)
+    ) {
+      throw new StatusException('This sign-in step is unavailable or has expired. Start again.', 401)
+    }
+    return row
+  }
+
+  public secondFactorWallet(id: string, token: string): { tenantId: string } {
+    const challenge = this.pendingLoginSecondFactor(id, token)
+    return { tenantId: challenge.tenant_id }
+  }
+
+  public async sendLoginOtp(id: string, token: string, phone: string): Promise<{ expiresAt: string; sentTo: string }> {
+    const db = DatabaseManager.getDatabase()
+    const challenge = this.pendingLoginSecondFactor(id, token)
+    const normalized = this.normalizePhone(String(phone || '').trim())
+    const account = this.findUserByContact(normalized) as { id?: string } | undefined
+    if (!normalized || account?.id !== challenge.user_id) {
+      throw new StatusException('Enter the phone number on this account.', 400)
+    }
+    if (challenge.otp_sent_at && Date.now() - Date.parse(challenge.otp_sent_at) < LOGIN_OTP_RESEND_MS) {
+      throw new StatusException('Wait a minute before requesting another code.', 429)
+    }
+    if (Number(challenge.otp_attempts) >= LOGIN_OTP_MAX_ATTEMPTS) {
+      throw new StatusException('Too many incorrect codes. Start signing in again.', 429)
+    }
+    const code = String(crypto.randomInt(100000, 1000000))
+    const salt = crypto.randomBytes(16).toString('hex')
+    const otpHash = contactHash(`login-otp:${salt}:${code}`)
+    const expiresAt = new Date(Date.now() + LOGIN_OTP_TTL_MS).toISOString()
+    const sentAt = new Date().toISOString()
+    const cooldown = new Date(Date.now() - LOGIN_OTP_RESEND_MS).toISOString()
+    const windowStart = new Date(Date.now() - LOGIN_OTP_SEND_WINDOW_MS).toISOString()
+    db.transaction(() => {
+      const recent = db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM login_second_factor_challenges
+            WHERE user_id = ? AND otp_sent_at > ?`,
+        )
+        .get(challenge.user_id, windowStart) as { count: number }
+      if (Number(recent.count) >= LOGIN_OTP_MAX_SENDS) {
+        throw new StatusException('Too many sign-in codes requested. Wait 15 minutes and try again.', 429)
+      }
+      const claimed = db
+        .prepare(
+          `UPDATE login_second_factor_challenges
+                SET otp_hash = ?, otp_salt = ?, otp_expires_at = ?, otp_sent_at = ?
+            WHERE id = ? AND used_at IS NULL AND expires_at > ?
+              AND otp_attempts < ? AND (otp_sent_at IS NULL OR otp_sent_at <= ?)`,
+        )
+        .run(otpHash, salt, expiresAt, sentAt, id, sentAt, LOGIN_OTP_MAX_ATTEMPTS, cooldown)
+      if (claimed.changes !== 1) throw new StatusException('Wait before requesting another code, or start again.', 429)
+    })()
+    const delivery = await notificationService.sendSms(
+      normalized,
+      `${PRODUCT_NAME} sign-in code: ${code}. It expires in 5 minutes. Do not share it.`,
+      { logRecipient: false },
+    )
+    if (!delivery.success) {
+      db.prepare(
+        `UPDATE login_second_factor_challenges
+            SET otp_hash = NULL, otp_salt = NULL, otp_expires_at = NULL
+          WHERE id = ? AND otp_sent_at = ? AND used_at IS NULL`,
+      ).run(id, sentAt)
+      throw new StatusException('We could not send a text message. Try phone approval or try again later.', 503)
+    }
+    const digits = normalized.replace(/\D/g, '')
+    return { expiresAt, sentTo: `****${digits.slice(-4)}` }
+  }
+
+  public async verifyLoginOtp(
+    id: string,
+    token: string,
+    code: string,
+  ): Promise<{ token: string; tenantId: string; mustChangePin: boolean }> {
+    const db = DatabaseManager.getDatabase()
+    const challenge = this.pendingLoginSecondFactor(id, token)
+    if (
+      !challenge.otp_hash ||
+      !challenge.otp_salt ||
+      !challenge.otp_expires_at ||
+      Date.parse(challenge.otp_expires_at) <= Date.now() ||
+      Number(challenge.otp_attempts) >= LOGIN_OTP_MAX_ATTEMPTS
+    ) {
+      throw new StatusException('That code has expired. Request a new one.', 401)
+    }
+    const supplied = Buffer.from(contactHash(`login-otp:${challenge.otp_salt}:${String(code || '')}`), 'hex')
+    const expected = Buffer.from(challenge.otp_hash, 'hex')
+    const matches =
+      /^\d{6}$/.test(String(code || '')) &&
+      expected.length === supplied.length &&
+      crypto.timingSafeEqual(expected, supplied)
+    if (!matches) {
+      db.prepare(
+        `UPDATE login_second_factor_challenges SET otp_attempts = otp_attempts + 1
+          WHERE id = ? AND used_at IS NULL AND otp_attempts < ?`,
+      ).run(id, LOGIN_OTP_MAX_ATTEMPTS)
+      throw new StatusException('That code is not right. Try again.', 401)
+    }
+    const usedAt = new Date().toISOString()
+    const claimed = db
+      .prepare(
+        `UPDATE login_second_factor_challenges SET used_at = ?
+          WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?
+            AND otp_expires_at > ? AND otp_attempts < ?`,
+      )
+      .run(usedAt, id, challenge.user_id, usedAt, usedAt, LOGIN_OTP_MAX_ATTEMPTS)
+    if (claimed.changes !== 1) throw new StatusException('This sign-in step has already been used.', 401)
+    const user = db
+      .prepare('SELECT id, tenant_id, did, pin_change_required FROM ssi_users WHERE id = ?')
+      .get(challenge.user_id) as
+      | { id: string; tenant_id: string; did?: string; pin_change_required?: number }
+      | undefined
+    if (!user || user.tenant_id !== challenge.tenant_id)
+      throw new StatusException('This account is unavailable. Start again.', 401)
+    const sessionToken = await this.generateSessionToken(user.id, user.tenant_id, user.did)
+    return {
+      token: sessionToken,
+      tenantId: user.tenant_id,
+      mustChangePin: Number(user.pin_change_required || 0) === 1,
+    }
+  }
+
+  public completeLoginSecondFactor(id: string, tenantId: string): { mustChangePin: boolean } {
+    const db = DatabaseManager.getDatabase()
+    const usedAt = new Date().toISOString()
+    const row = db
+      .prepare(
+        `UPDATE login_second_factor_challenges SET used_at = ?
+          WHERE id = ? AND tenant_id = ? AND used_at IS NULL AND expires_at > ?
+          RETURNING user_id`,
+      )
+      .get(usedAt, id, tenantId, usedAt) as { user_id: string } | undefined
+    if (!row) throw new StatusException('This sign-in step is unavailable or has expired. Start again.', 401)
+    const user = db
+      .prepare('SELECT pin_change_required FROM ssi_users WHERE id = ? AND tenant_id = ?')
+      .get(row.user_id, tenantId) as { pin_change_required?: number } | undefined
+    if (!user) throw new StatusException('This account is unavailable. Start again.', 401)
+    return { mustChangePin: Number(user.pin_change_required || 0) === 1 }
   }
 
   /**

@@ -23,6 +23,7 @@ import {
   CopyButton,
   ActionIcon,
   Tooltip,
+  TextInput,
 } from '@mantine/core'
 import { IconAlertCircle, IconCheck, IconWallet, IconCopy, IconQrcode } from '@tabler/icons-react'
 import QRCode from 'react-qr-code'
@@ -49,6 +50,16 @@ export default function LoginPage() {
   const [ssiLoading, setSsiLoading] = useState(false)
   const [ssiModalOpen, setSsiModalOpen] = useState(false)
   const [authRequest, setAuthRequest] = useState<string | null>(null)
+  const [pendingSecondFactor, setPendingSecondFactor] = useState<{
+    challengeId: string
+    challengeToken: string
+    expiresAt: string
+    identifier: string
+  } | null>(null)
+  const [otpPhone, setOtpPhone] = useState('')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpSentTo, setOtpSentTo] = useState('')
+  const [otpLoading, setOtpLoading] = useState(false)
   const walletAttempt = useRef(0)
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
@@ -109,6 +120,16 @@ export default function LoginPage() {
         pin: form.pin,
       })
 
+      if (response.data?.secondFactor) {
+        const secondFactor = { ...response.data.secondFactor, identifier }
+        setPendingSecondFactor(secondFactor)
+        setOtpPhone(email ? '' : identifier)
+        setOtpCode('')
+        setOtpSentTo('')
+        await beginSecondFactorDevice(secondFactor, identifier)
+        return
+      }
+
       console.log('[Login] Success:', response.data)
       setSuccess(true)
 
@@ -132,6 +153,87 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const beginSecondFactorDevice = async (factor: NonNullable<typeof pendingSecondFactor>, identifier: string) => {
+    const attempt = ++walletAttempt.current
+    if (pollTimer.current) clearTimeout(pollTimer.current)
+    setSsiLoading(true)
+    setError(null)
+    try {
+      const start = await axios.post(`${holderBackend}/api/wallet/auth/login/second-factor/device/start`, {
+        challengeId: factor.challengeId,
+        challengeToken: factor.challengeToken,
+      })
+      if (attempt !== walletAttempt.current) return
+      setAuthRequest(start.data.authorizationRequest)
+      setSsiModalOpen(true)
+      pollForVerification(start.data.loginId, start.data.pollToken, attempt, identifier)
+    } catch (err: any) {
+      if (attempt !== walletAttempt.current) return
+      setError(
+        err.response?.data?.message || 'Could not start phone approval. You can use a text message code instead.',
+      )
+      setSsiModalOpen(true)
+    } finally {
+      setSsiLoading(false)
+    }
+  }
+
+  const sendSecondFactorOtp = async () => {
+    if (!pendingSecondFactor) return
+    walletAttempt.current++
+    if (pollTimer.current) clearTimeout(pollTimer.current)
+    setAuthRequest(null)
+    setOtpLoading(true)
+    setError(null)
+    try {
+      const response = await axios.post(`${holderBackend}/api/wallet/auth/login/second-factor/otp/send`, {
+        challengeId: pendingSecondFactor.challengeId,
+        challengeToken: pendingSecondFactor.challengeToken,
+        phone: otpPhone,
+      })
+      setOtpSentTo(response.data.sentTo)
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Could not send a sign-in code.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const verifySecondFactorOtp = async () => {
+    if (!pendingSecondFactor) return
+    setOtpLoading(true)
+    setError(null)
+    try {
+      const response = await axios.post(`${holderBackend}/api/wallet/auth/login/second-factor/otp/verify`, {
+        challengeId: pendingSecondFactor.challengeId,
+        challengeToken: pendingSecondFactor.challengeToken,
+        code: otpCode,
+      })
+      completeLogin(response.data, pendingSecondFactor.identifier)
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'That code could not be verified.')
+    } finally {
+      setOtpLoading(false)
+    }
+  }
+
+  const completeLogin = (data: any, identifier?: string) => {
+    walletAttempt.current++
+    if (pollTimer.current) clearTimeout(pollTimer.current)
+    applyPersonalLogin(data, identifier)
+    setPendingSecondFactor(null)
+    setSsiModalOpen(false)
+    setSuccess(true)
+    const returnUrl = safeReturnUrl(router.query.returnUrl)
+    if (data?.mustChangePin) {
+      localStorage.setItem(PIN_CHANGE_FLAG, '1')
+      router.replace(`/auth/change-pin?returnUrl=${encodeURIComponent(returnUrl)}`)
+      return
+    }
+    localStorage.removeItem(PIN_CHANGE_FLAG)
+    setTimeout(() => router.push(returnUrl), 1000)
   }
 
   // SSI Login - Step 1: Get authorization request
@@ -158,7 +260,7 @@ export default function LoginPage() {
   }
 
   // Poll for SSI login verification
-  const pollForVerification = async (loginId: string, pollToken: string, attempt: number) => {
+  const pollForVerification = async (loginId: string, pollToken: string, attempt: number, identifier?: string) => {
     const maxAttempts = 150 // 5 minutes at 2s intervals, the sign-in lifetime
     let attempts = 0
 
@@ -178,13 +280,7 @@ export default function LoginPage() {
         if (attempt !== walletAttempt.current) return
 
         if (response.data.status === 'verified') {
-          applyPersonalLogin(response.data)
-
-          setSuccess(true)
-          setSsiModalOpen(false)
-
-          const returnUrl = safeReturnUrl(router.query.returnUrl)
-          setTimeout(() => router.push(returnUrl), 1000)
+          completeLogin(response.data, identifier || pendingSecondFactor?.identifier)
           return
         }
       } catch (err: any) {
@@ -193,7 +289,6 @@ export default function LoginPage() {
         setError(
           err.response?.data?.details || err.response?.data?.message || 'Phone sign-in failed. Please try again.',
         )
-        setSsiModalOpen(false)
         return
       }
 
@@ -302,19 +397,28 @@ export default function LoginPage() {
           walletAttempt.current++
           if (pollTimer.current) clearTimeout(pollTimer.current)
           setSsiModalOpen(false)
+          setPendingSecondFactor(null)
+          setAuthRequest(null)
         }}
         title={
           <Group gap="xs">
             <IconWallet size={24} />
-            <Text fw={600}>Sign in with your phone</Text>
+            <Text fw={600}>{pendingSecondFactor ? "Confirm it's you" : 'Sign in with your phone'}</Text>
           </Group>
         }
         centered
         size="md"
       >
         <Stack align="center" gap="lg">
+          {error && (
+            <Alert color="red" title="Sign-in confirmation">
+              {error}
+            </Alert>
+          )}
           <Text ta="center" size="sm" c="dimmed">
-            {`Scan this code with the ${PRODUCT_NAME} phone app to sign in.`}
+            {pendingSecondFactor
+              ? 'Scan with your enrolled phone. It checks your account card and asks for fingerprint, face or screen lock.'
+              : `Scan this code with the ${PRODUCT_NAME} phone app to sign in.`}
           </Text>
 
           {authRequest && (
@@ -355,9 +459,56 @@ export default function LoginPage() {
             </>
           )}
 
-          <Text ta="center" size="sm" c="blue">
-            Waiting for your phone...
-          </Text>
+          {authRequest && (
+            <Text ta="center" size="sm" c="blue">
+              Waiting for your phone...
+            </Text>
+          )}
+          {pendingSecondFactor && (
+            <Stack w="100%" gap="sm">
+              <Divider label="or use a text message code" labelPosition="center" />
+              {!otpSentTo ? (
+                <>
+                  {pendingSecondFactor.identifier.includes('@') && (
+                    <PhoneField
+                      surface="portal"
+                      label="Account phone number"
+                      value={otpPhone}
+                      onChange={setOtpPhone}
+                      required
+                    />
+                  )}
+                  <Button variant="light" loading={otpLoading} onClick={() => void sendSecondFactorOtp()}>
+                    Send a code by text
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Text size="sm" c="dimmed">
+                    Code sent to {otpSentTo}.
+                  </Text>
+                  <TextInput
+                    label="6-digit code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(event) => setOtpCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 6))}
+                  />
+                  <Button
+                    loading={otpLoading}
+                    disabled={otpCode.length !== 6}
+                    onClick={() => void verifySecondFactorOtp()}
+                  >
+                    Verify code
+                  </Button>
+                  <Button variant="subtle" loading={otpLoading} onClick={() => void sendSecondFactorOtp()}>
+                    Send a new code
+                  </Button>
+                </>
+              )}
+            </Stack>
+          )}
         </Stack>
       </Modal>
     </Layout>

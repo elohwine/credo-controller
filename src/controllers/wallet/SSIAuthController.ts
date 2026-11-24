@@ -97,13 +97,15 @@ interface PinLoginRequest {
 
 interface LoginResponse {
   /** JWT session token */
-  token: string
+  token?: string
   /** Tenant/Wallet ID */
   tenantId: string
   /** Display name from VC (only for VC login) */
   displayName?: string
   /** A temporary PIN was used: only the change-PIN screen opens until the person picks their own */
   mustChangePin?: boolean
+  /** PIN passed, but this account also requires its enrolled phone or a one-time text code. */
+  secondFactor?: { challengeId: string; challengeToken: string; expiresAt: string }
 }
 
 interface SessionInfo {
@@ -325,14 +327,16 @@ export class SSIAuthController extends Controller {
         pin: body.pin,
       })
 
-      // Set auth cookie
-      const cookieValue = `auth.token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`
-      this.setHeader('Set-Cookie', cookieValue)
+      if (result.token) {
+        const cookieValue = `auth.token=${result.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 24 * 60 * 60}`
+        this.setHeader('Set-Cookie', cookieValue)
+      }
 
       return {
         token: result.token,
         tenantId: result.tenantId,
         mustChangePin: result.mustChangePin,
+        secondFactor: result.secondFactor,
       }
     } catch (error: any) {
       request.logger?.error({ error: error.message }, 'PIN Login failed')

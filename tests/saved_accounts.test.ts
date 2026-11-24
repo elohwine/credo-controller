@@ -84,6 +84,46 @@ describe('saved account identity labels shared by portal and mobile', () => {
     expect(portal.listSavedAccounts().map((entry) => entry.label)).toEqual(['Eloh (222)', 'Clive (111)'])
   })
 
+  test('keeps a previously known name when PIN sign-in only returns the same wallet and phone', () => {
+    storage.set(
+      'credoSavedAccounts',
+      JSON.stringify([
+        {
+          ...account('worker', '263714123456'),
+          session: { ...account('worker', '263714123456').session, credoUserName: 'Clive' },
+        },
+      ]),
+    )
+    storage.set('walletToken', token('worker'))
+    storage.set('credoUserPhone', '263714123456')
+    portal.rememberCurrentAccount('263714123456')
+    expect(storage.get('credoUserName')).toBe('Clive')
+    expect(mobile.listSavedAccounts().map((entry) => entry.label)).toEqual(['Clive (+263714123456)'])
+  })
+
+  test('does not carry a different wallet name across sign-in, and preserves a legacy named label', () => {
+    storage.set(
+      'credoSavedAccounts',
+      JSON.stringify([
+        {
+          ...account('worker', '263714123456'),
+          label: 'Clive (+263714123456)',
+        },
+      ]),
+    )
+    expect(portal.listSavedAccounts()[0].label).toBe('Clive (+263714123456)')
+    storage.set('walletToken', token('someone-else'))
+    storage.set('credoUserPhone', '263714654321')
+    portal.rememberCurrentAccount()
+    expect(portal.listSavedAccounts()[0].label).toBe('+263714654321')
+    expect(storage.has('credoUserName')).toBe(false)
+  })
+
+  test('does not treat a phone number or email identifier as a display name', () => {
+    expect(portal.savedAccountLabel('263714123456', '263714123456')).toBe('+263714123456')
+    expect(mobile.savedAccountLabel('worker@example.test', '263714123456')).toBe('+263714123456')
+  })
+
   test('keeps successful names and marks an expired saved session as signed out', async () => {
     storage.set('credoSavedAccounts', JSON.stringify([account('worker', '111'), account('expired', '222')]))
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (url, options) => {
@@ -120,7 +160,10 @@ describe('saved account identity labels shared by portal and mobile', () => {
     storage.set(
       'credoSavedAccounts',
       JSON.stringify([
-        { ...account('a', '263774183277'), session: { ...account('a', '263774183277').session, credoUserName: 'Eloh' } },
+        {
+          ...account('a', '263774183277'),
+          session: { ...account('a', '263774183277').session, credoUserName: 'Eloh' },
+        },
         account('b', '+263774183277'),
         account('c', '263714123456'),
       ]),
@@ -129,10 +172,7 @@ describe('saved account identity labels shared by portal and mobile', () => {
   })
 
   test('signing in again clears the signed-out mark', () => {
-    storage.set(
-      'credoSavedAccounts',
-      JSON.stringify([{ ...account('old', '263714123456'), signedOut: true }]),
-    )
+    storage.set('credoSavedAccounts', JSON.stringify([{ ...account('old', '263714123456'), signedOut: true }]))
     storage.set('walletToken', token('new'))
     storage.set('credoUserPhone', '263714123456')
     portal.rememberCurrentAccount()

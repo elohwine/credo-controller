@@ -146,9 +146,10 @@ import { captureHashedPhoto } from '@/lib/evidenceHash'
 import {
   FIELD_CHECKER_STAGE,
   FIELD_WORKER_STAGE,
+  enrolledJobMembers,
+  selectedJobMember,
   jobContactOption,
   jobPeopleOptions,
-  OUTSIDE_CONTACT_NEEDS_APP,
   parseJobContactSelection,
   stageActorOption,
 } from '@/lib/jobPeople'
@@ -348,6 +349,7 @@ interface OrgMemberLite {
   userId: string
   role: string
   status: string
+  invitePending?: boolean
   displayName?: string
   phone?: string
 }
@@ -1537,7 +1539,7 @@ function memberOptionLabel(member: OrgMemberLite, duplicate: boolean): string {
 }
 
 function memberSelectData(members: OrgMemberLite[], valuePrefix = ''): Array<{ value: string; label: string }> {
-  const active = members.filter((member) => member.status === 'active')
+  const active = enrolledJobMembers(members)
   const bases = active.map((member) => memberOptionLabel(member, false))
   const counts = new Map<string, number>()
   bases.forEach((label) => counts.set(label, (counts.get(label) || 0) + 1))
@@ -1545,28 +1547,6 @@ function memberSelectData(members: OrgMemberLite[], valuePrefix = ''): Array<{ v
     value: `${valuePrefix}${member.userId}`,
     label: memberOptionLabel(member, (counts.get(bases[index]) || 0) > 1),
   }))
-}
-
-async function ensureOnTeam(selection: string | null | undefined, role: string): Promise<AssigneeResolution> {
-  const raw = String(selection || '').trim()
-  const parsed = parseJobContactSelection(raw)
-  if (!parsed) return resolveAssigneeSelection(raw, null)
-  const orgId = getActiveOrgId()
-  if (!orgId) return {}
-  if (parsed.scope === 'external') {
-    const lookup = await api.get(`/api/organizations/${encodeURIComponent(orgId)}/members/by-phone`, {
-      params: { phone: parsed.phone },
-    })
-    const userId = String(lookup.data?.userId || '').trim()
-    if (!userId) throw new Error(OUTSIDE_CONTACT_NEEDS_APP)
-    return { assigneeId: userId, assigneeUserId: userId }
-  }
-  const res = await api.post(`/api/organizations/${encodeURIComponent(orgId)}/members/invite`, {
-    phone: parsed.phone,
-    role,
-  })
-  const userId = String(res.data?.targetUserId || '').trim()
-  return userId ? { assigneeId: userId, assigneeUserId: userId } : {}
 }
 
 function inferNextEvidencePhase(run: any): 'before' | 'concealed' | 'after' | 'receipt' {
@@ -1912,19 +1892,8 @@ export default function FinancePage() {
     }>
   >([])
   const fieldJobPeople = useMemo(
-    () =>
-      jobPeopleOptions(
-        orgMembers.filter((member) => member.status === 'active'),
-        contacts
-          .filter((contact) => contact.phone)
-          .map((contact) => ({
-            name: contact.name,
-            phone: contact.phone || '',
-            contactScope: contact.contactScope,
-            storeNumber: contact.storeNumber,
-          })),
-      ),
-    [orgMembers, contacts],
+    () => jobPeopleOptions(orgMembers),
+    [orgMembers],
   )
   // Who does what for school fees (the receipt step), the same lookup the website uses.
   const [feeStageActors, setFeeStageActors] = useState<JobActorStage[]>([])
@@ -2352,16 +2321,15 @@ export default function FinancePage() {
       const res = await api.get(`/api/organizations/${encodeURIComponent(orgId)}/members`, {
         headers: { Authorization: `Bearer ${token}` },
       })
-      const members = safeArray<OrgMemberLite>(res.data).filter(
-        (m: any) => String(m?.status || '').toLowerCase() === 'active',
-      )
+      const members = enrolledJobMembers(safeArray<OrgMemberLite>(res.data))
       setOrgMembers(members)
 
       const owner = members.find((m) => m.role === 'owner') || members.find((m) => m.role === 'admin') || null
       setOwnerUserId(owner?.userId || null)
-    } catch {
+    } catch (error) {
       setOrgMembers([])
       setOwnerUserId(null)
+      phoneNotify(friendlyRequestError(error, 'Could not load the team. Refresh to try again.'), 'error')
     }
 
     try {
@@ -4036,8 +4004,8 @@ export default function FinancePage() {
       const template = findTemplateForCapability(activeTemplates, 'field_execution')
       const workflowId = template?.id || 'field_execution_fept'
 
-      const assignee = await ensureOnTeam(fieldRunForm.assigneeId, 'field_worker')
-      const receiver = await ensureOnTeam(fieldRunForm.receiverId, 'member')
+      const assignee = resolveAssigneeSelection(selectedJobMember(fieldRunForm.assigneeId, orgMembers), null)
+      const receiver = resolveAssigneeSelection(selectedJobMember(fieldRunForm.receiverId, orgMembers), null)
       const payoutAmount = parseFloat(fieldRunForm.payoutAmount)
       const reference = `FR-${Date.now()}`
       const body = {
@@ -4535,7 +4503,10 @@ export default function FinancePage() {
 
     setFeptActionLoading(true)
     try {
-      const onTeam = await ensureOnTeam(assigneeId || fieldReassignAssigneeId, 'field_worker')
+      const onTeam = resolveAssigneeSelection(
+        selectedJobMember(assigneeId || fieldReassignAssigneeId || '', orgMembers),
+        null,
+      )
       const nextUserId = onTeam.assigneeUserId || onTeam.assigneeId
       if (!nextUserId) {
         throw new Error('Choose a team member or a saved contact with a phone number.')
@@ -5810,6 +5781,7 @@ export default function FinancePage() {
                       displayName: member.displayName,
                       phone: member.phone,
                       status: member.status,
+                      invitePending: member.invitePending,
                     }))}
                   canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(
                     String(getOrgRoleClaim() || '').toLowerCase(),
@@ -7913,7 +7885,7 @@ export default function FinancePage() {
 
           <Select
             label="Who goes out"
-            description="Someone on the team is added if they are not already. An outside contact gets this job only, and only if they already have the app."
+            description="Only active members who completed their invitation are listed."
             value={fieldRunForm.assigneeId}
             onChange={(val) => setFieldRunForm({ ...fieldRunForm, assigneeId: val || 'stage-actor' })}
             data={[stageActorOption(fieldStageActors, FIELD_WORKER_STAGE, orgMembers), ...fieldJobPeople]}

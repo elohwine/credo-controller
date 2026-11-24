@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useContext, useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
 import {
   Stack,
@@ -19,11 +19,12 @@ import { getPreferredTenantToken } from '@/utils/portalTenant'
 import {
   FIELD_CHECKER_STAGE,
   FIELD_WORKER_STAGE,
+  enrolledJobMembers,
   jobPeopleOptions,
-  OUTSIDE_CONTACT_NEEDS_APP,
-  parseJobContactSelection,
+  selectedJobMember,
   stageActorOption,
 } from '@/lib/jobPeople'
+import { EnvContext } from '@/pages/_app'
 import BaseModal from '@/components/walt/modal/BaseModal'
 import { PhoneField } from '../../../shared/PhoneField'
 import FormCard from '@/components/shared/FormCard'
@@ -32,20 +33,13 @@ import { IconBriefcase } from '@tabler/icons-react'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from './JobPaymentPlanFields'
 import { usePortalOperations } from '@/lib/operations'
 import { JobScheduleFields, useJobChoices, withCurrent } from '../../../shared/operations/JobScheduleFields'
-import { storeSite } from '../../../shared/operations/operationsApi'
+import { storeSite, type TeamMember } from '../../../shared/operations/operationsApi'
 import {
   FIELD_BRANCH_OPTIONS,
   FIELD_PRIORITY_OPTIONS,
   FIELD_PROBLEM_TYPES,
 } from '../../../shared/operations/jobOptions'
 
-interface Member {
-  userId: string
-  role: string
-  displayName?: string
-  phone?: string
-  status?: string
-}
 interface Contact {
   id: string
   name: string
@@ -64,16 +58,14 @@ interface NewJobModalProps {
 
 const STAGE_ACTOR = 'stage-actor'
 
-function backendUrl(): string {
-  return ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
-}
-
 /**
  * Create a field job from the portal: who does the work, who signs it off, what and where.
  * Mirrors the mobile "New job" form so both surfaces send the same request.
  */
 export default function NewJobModal({ opened, onClose, onCreated, embedded = false, onBusyChange }: NewJobModalProps) {
-  const [members, setMembers] = useState<Member[]>([])
+  const env = useContext(EnvContext)
+  const backend = env.NEXT_PUBLIC_VC_REPO
+  const [members, setMembers] = useState<TeamMember[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
   const [templateId, setTemplateId] = useState<string | null>(null)
   const [actorsView, setActorsView] = useState<unknown>(null)
@@ -110,7 +102,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   })
 
   useEffect(() => {
-    if (!opened) return
+    if (!opened || !backend) return
     const org = readActiveOrganization()
     const token = getOrgScopedToken() || getPreferredTenantToken()
     if (!org?.orgTenantId || !token) {
@@ -118,13 +110,14 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       return
     }
     const headers = { Authorization: `Bearer ${token}` }
-    const backend = backendUrl()
+    let active = true
+    setMembers([])
     setLoadingSetup(true)
     setSetupError(null)
     Promise.all([
-      axios
-        .get(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members`, { headers })
-        .catch(() => ({ data: [] })),
+      axios.get<TeamMember[]>(`${backend}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members`, {
+        headers,
+      }),
       Promise.all([
         axios
           .get(`${backend}/api/contacts`, { params: { contactScope: 'internal' }, headers })
@@ -141,19 +134,9 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         .catch(() => ({ data: null })),
     ])
       .then(([membersRes, contactsRes, workflowsRes, actorsRes]) => {
+        if (!active) return
         setActorsView(actorsRes.data)
-        const memberRows = Array.isArray(membersRes.data) ? membersRes.data : []
-        setMembers(
-          memberRows
-            .filter((m: any) => m?.userId && m?.status !== 'inactive')
-            .map((m: any) => ({
-              userId: String(m.userId),
-              role: String(m.role || 'member'),
-              displayName: m.displayName ? String(m.displayName) : undefined,
-              phone: m.phone ? String(m.phone) : undefined,
-              status: m.status,
-            })),
-        )
+        setMembers(enrolledJobMembers(membersRes.data))
         const contactLists = Array.isArray(contactsRes) ? contactsRes : [contactsRes]
         const contactRows = contactLists.flatMap((res: any) => {
           const rows = Array.isArray(res?.data?.contacts) ? res.data.contacts : Array.isArray(res?.data) ? res.data : []
@@ -177,35 +160,18 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         // A saved template row is optional. The first job can run from the answers.
         setTemplateId(fept?.id ? String(fept.id) : 'field_execution_fept')
       })
-      .finally(() => setLoadingSetup(false))
-  }, [opened])
-
-  const peopleOptions = useMemo(() => jobPeopleOptions(members, contacts), [members, contacts])
-
-  const ensureOnTeam = async (selection: string, role: string, headers: Record<string, string>) => {
-    if (!selection || selection === STAGE_ACTOR) return undefined
-    const parsed = parseJobContactSelection(selection)
-    if (!parsed) return selection
-    const org = readActiveOrganization()
-    if (!org?.orgTenantId) throw new Error('Switch to the organization before creating a job.')
-    if (parsed.scope === 'external') {
-      const lookup = await axios.get(
-        `${backendUrl()}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members/by-phone`,
-        { params: { phone: parsed.phone }, headers },
-      )
-      const userId = String(lookup.data?.userId || '').trim()
-      if (!userId) throw new Error(OUTSIDE_CONTACT_NEEDS_APP)
-      return userId
+      .catch(() => {
+        if (active) setSetupError('Could not load the team and job setup. Close this form and try again.')
+      })
+      .finally(() => {
+        if (active) setLoadingSetup(false)
+      })
+    return () => {
+      active = false
     }
-    const res = await axios.post(
-      `${backendUrl()}/api/organizations/${encodeURIComponent(org.orgTenantId)}/members/invite`,
-      { phone: parsed.phone, role },
-      { headers },
-    )
-    const userId = String(res.data?.targetUserId || '').trim()
-    if (!userId) throw new Error('That contact could not be added to the team.')
-    return userId
-  }
+  }, [opened, backend])
+
+  const peopleOptions = useMemo(() => jobPeopleOptions(members), [members])
 
   const handleCreate = async () => {
     const token = getOrgScopedToken() || getPreferredTenantToken()
@@ -228,8 +194,8 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
     setSaving(true)
     onBusyChange?.(true)
     try {
-      const assigneeUserId = await ensureOnTeam(form.assigneeId, 'field_worker', headers)
-      const receiverUserId = await ensureOnTeam(form.receiverId, 'member', headers)
+      const assigneeUserId = selectedJobMember(form.assigneeId, members)
+      const receiverUserId = selectedJobMember(form.receiverId, members)
       const ref = `FR-${Date.now()}`
       const body: Record<string, unknown> = {
         amount,
@@ -260,7 +226,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         body.assigneeUserId = assigneeUserId
       }
       if (receiverUserId) body.receiverId = receiverUserId
-      const res = await axios.post(`${backendUrl()}/workflows/${encodeURIComponent(templateId)}/execute`, body, {
+      const res = await axios.post(`${backend}/workflows/${encodeURIComponent(templateId)}/execute`, body, {
         headers,
       })
       if (res.data?.error) throw new Error(String(res.data.error))
@@ -418,7 +384,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         />
         <Select
           label="Who goes out"
-          description="Someone on the team is added if they are not already. An outside contact gets this job only, and only if they already have the app."
+          description="Only active members who completed their invitation are listed."
           searchable
           data={[stageActorOption(actorsView, FIELD_WORKER_STAGE, members), ...peopleOptions]}
           value={form.assigneeId}
@@ -452,9 +418,7 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           onCallOut={(callOut) => setForm((prev) => ({ ...prev, callOut }))}
           showCallOut={false}
           date={form.scheduledDate}
-          assigneeId={
-            form.assigneeId === STAGE_ACTOR || parseJobContactSelection(form.assigneeId) ? null : form.assigneeId
-          }
+          assigneeId={form.assigneeId === STAGE_ACTOR ? null : form.assigneeId}
           names={Object.fromEntries(members.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
         />
         <Select
@@ -472,7 +436,11 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           <Button variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} loading={saving || loadingSetup} disabled={!templateId}>
+          <Button
+            onClick={handleCreate}
+            loading={saving || loadingSetup}
+            disabled={!templateId || Boolean(setupError) || !backend}
+          >
             Create job
           </Button>
         </Group>

@@ -8,7 +8,7 @@ import { PhoneField } from '../../shared/PhoneField'
 import { BrandMark } from '../../shared/BrandMark'
 import { PRODUCT_NAME } from '@/lib/orgProfile'
 import { useRouter } from 'next/router'
-import { Box, Stack, Title, Text, TextInput, PasswordInput, Button, Divider } from '@mantine/core'
+import { Alert, Box, Stack, Title, Text, TextInput, PasswordInput, Button, Divider } from '@mantine/core'
 import { useForm } from '@mantine/form'
 import { IconLock, IconFingerprint } from '@tabler/icons-react'
 import api from '@/lib/api'
@@ -18,6 +18,7 @@ import {
   authorizeDevice,
   deviceLoginWalletId,
   loginDevices,
+  loginDeviceAvailable,
   rememberPhoneWallet,
   supportsDeviceLogin,
 } from '@/lib/deviceTrust'
@@ -45,6 +46,17 @@ export default function LoginPage() {
   const [layoutHeight, setLayoutHeight] = useState<number>()
   const [canUsePhone, setCanUsePhone] = useState(false)
   const [welcomeName, setWelcomeName] = useState<string | null>(null)
+  const [pendingSecondFactor, setPendingSecondFactor] = useState<{
+    challengeId: string
+    challengeToken: string
+    expiresAt: string
+    tenantId: string
+    identifier: string
+    mustChangePin: boolean
+  } | null>(null)
+  const [otpPhone, setOtpPhone] = useState('')
+  const [otpCode, setOtpCode] = useState('')
+  const [otpSentTo, setOtpSentTo] = useState('')
   const submitting = useRef(false)
 
   useEffect(() => {
@@ -114,7 +126,15 @@ export default function LoginPage() {
     const email = identifier.includes('@') ? identifier : undefined
     const phone = email ? undefined : identifier
     const res = await api.post('/api/wallet/auth/login', { phone, email, pin })
+    if (res.data?.secondFactor) {
+      return {
+        secondFactor: res.data.secondFactor,
+        tenantId: String(res.data.tenantId || ''),
+        mustChangePin: res.data.mustChangePin === true,
+      }
+    }
     const { token } = res.data
+    if (!token) throw new Error('Sign-in did not return a session. Please try again.')
     const mustChangePin = res.data?.mustChangePin === true
 
     applyPersonalWalletContext(token)
@@ -146,7 +166,21 @@ export default function LoginPage() {
     setLoading(true)
     setError(null)
     try {
-      const { mustChangePin } = await signIn(values.identifier.trim(), values.pin)
+      const identifier = values.identifier.trim()
+      const result = await signIn(identifier, values.pin)
+      const mustChangePin = result.mustChangePin
+      if (result.secondFactor) {
+        setPendingSecondFactor({
+          ...result.secondFactor,
+          tenantId: result.tenantId,
+          identifier,
+          mustChangePin: result.mustChangePin,
+        })
+        setOtpPhone(identifier.includes('@') ? '' : identifier)
+        setOtpCode('')
+        setOtpSentTo('')
+        return
+      }
       const returnTo = router.query.returnTo as string | undefined
       if (mustChangePin) {
         router.replace(`/login/change-pin?returnTo=${encodeURIComponent(returnTo ?? '/inbox')}`)
@@ -158,6 +192,83 @@ export default function LoginPage() {
       setError(msg)
     } finally {
       submitting.current = false
+      setLoading(false)
+    }
+  }
+
+  const finishSecondFactor = async (session: { token?: string; tenantId?: string; mustChangePin?: boolean }) => {
+    if (!session.token || !session.tenantId) throw new Error('The sign-in confirmation did not return a session.')
+    applyPersonalWalletContext(session.token, session.tenantId)
+    rememberPhoneWallet(session.tenantId)
+    const { rememberCurrentAccount } = await import('@/lib/savedAccounts')
+    rememberCurrentAccount(pendingSecondFactor?.identifier)
+    setPendingSecondFactor(null)
+    if (session.mustChangePin) {
+      localStorage.setItem(PIN_CHANGE_FLAG, '1')
+      router.replace(`/login/change-pin?returnTo=${encodeURIComponent(String(router.query.returnTo || '/inbox'))}`)
+      return
+    }
+    localStorage.removeItem(PIN_CHANGE_FLAG)
+    await syncOrgContextFromServer()
+    void import('@/lib/offline/walletSnapshotSync')
+      .then(({ syncWalletSnapshot }) => syncWalletSnapshot())
+      .catch(() => undefined)
+    router.replace(String(router.query.returnTo || '/inbox'))
+  }
+
+  const handleSecondFactorDevice = async () => {
+    if (!pendingSecondFactor || submitting.current) return
+    submitting.current = true
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await authorizeDevice({
+        purpose: 'pin_second_factor',
+        walletId: pendingSecondFactor.tenantId,
+        secondFactorChallengeId: pendingSecondFactor.challengeId,
+        secondFactorChallengeToken: pendingSecondFactor.challengeToken,
+      })
+      await finishSecondFactor(result)
+    } catch (err: any) {
+      setError(friendlyRequestError(err, 'Could not confirm with this phone. You can use a text message code instead.'))
+    } finally {
+      submitting.current = false
+      setLoading(false)
+    }
+  }
+
+  const sendSecondFactorOtp = async () => {
+    if (!pendingSecondFactor) return
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.post('/api/wallet/auth/login/second-factor/otp/send', {
+        challengeId: pendingSecondFactor.challengeId,
+        challengeToken: pendingSecondFactor.challengeToken,
+        phone: otpPhone,
+      })
+      setOtpSentTo(response.data.sentTo)
+    } catch (err: any) {
+      setError(friendlyRequestError(err, 'Could not send a sign-in code.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const verifySecondFactorOtp = async () => {
+    if (!pendingSecondFactor) return
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await api.post('/api/wallet/auth/login/second-factor/otp/verify', {
+        challengeId: pendingSecondFactor.challengeId,
+        challengeToken: pendingSecondFactor.challengeToken,
+        code: otpCode,
+      })
+      await finishSecondFactor(response.data)
+    } catch (err: any) {
+      setError(friendlyRequestError(err, 'That code could not be verified.'))
+    } finally {
       setLoading(false)
     }
   }
@@ -226,6 +337,14 @@ export default function LoginPage() {
   }
 
   const guiding = tab === 'register' && setupStep < 3
+  let hasSecondFactorDevice = false
+  if (pendingSecondFactor) {
+    try {
+      hasSecondFactorDevice = loginDeviceAvailable(pendingSecondFactor.tenantId)
+    } catch {
+      hasSecondFactorDevice = false
+    }
+  }
 
   if (welcomeName !== null) {
     return <WelcomeScreen name={welcomeName} onContinue={finishWelcome} onCardLanded={tick} surface="phone" />
@@ -260,7 +379,69 @@ export default function LoginPage() {
           )}
           {error && <ErrorAlert message={error} />}
 
-          {tab === 'login' ? (
+          {pendingSecondFactor ? (
+            <Stack gap="md">
+              <Alert color="blue" title="Confirm it's you">
+                Your PIN is correct. Check your account card with the phone enrolled for sign-in, or use a one-time text
+                message code.
+              </Alert>
+              {hasSecondFactorDevice && (
+                <Button
+                  size="lg"
+                  fullWidth
+                  leftSection={<IconFingerprint size={22} />}
+                  loading={loading}
+                  onClick={() => void handleSecondFactorDevice()}
+                >
+                  Confirm with this phone
+                </Button>
+              )}
+              <Divider label="or use a text message code" />
+              {!otpSentTo ? (
+                <>
+                  {pendingSecondFactor.identifier.includes('@') && (
+                    <PhoneField
+                      surface="phone"
+                      label="Account phone number"
+                      value={otpPhone}
+                      onChange={setOtpPhone}
+                      required
+                    />
+                  )}
+                  <Button variant="light" loading={loading} onClick={() => void sendSecondFactorOtp()}>
+                    Send a code by text
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Text size="sm" c="dimmed">
+                    Code sent to {otpSentTo}.
+                  </Text>
+                  <TextInput
+                    label="6-digit code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(event) => setOtpCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 6))}
+                  />
+                  <Button
+                    loading={loading}
+                    disabled={otpCode.length !== 6}
+                    onClick={() => void verifySecondFactorOtp()}
+                  >
+                    Verify code
+                  </Button>
+                  <Button variant="subtle" loading={loading} onClick={() => void sendSecondFactorOtp()}>
+                    Send a new code
+                  </Button>
+                </>
+              )}
+              <Button variant="subtle" disabled={loading} onClick={() => setPendingSecondFactor(null)}>
+                Cancel sign-in
+              </Button>
+            </Stack>
+          ) : tab === 'login' ? (
             <form onSubmit={loginForm.onSubmit(handleLogin)}>
               <Stack gap="md">
                 <PhoneField

@@ -101,8 +101,6 @@ function getTenantScopedIdempotencyKey(signature: string, tenantId: string, cont
 export const API_BASE_URL = API_BASE
 export const api = axios.create({ baseURL: API_BASE, timeout: 20000 })
 
-let offlineNoted = false
-
 // Count server calls for the one progress bar under the header. Registered first, so it runs
 // after the guards below (axios runs request interceptors last-registered-first) and only
 // calls that are really sent are counted. `silentProgress: true` leaves a call out.
@@ -133,12 +131,6 @@ api.interceptors.response.use(
 )
 
 api.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined' && window.navigator.onLine === false) {
-    if (!offlineNoted) {
-      offlineNoted = true
-    }
-    return Promise.reject(Object.assign(new Error('offline'), { code: 'OFFLINE' }))
-  }
   if (typeof window !== 'undefined') {
     config.headers = (config.headers ?? {}) as typeof config.headers
     const requestBaseOrigin = (() => {

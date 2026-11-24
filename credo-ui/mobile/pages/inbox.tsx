@@ -1365,10 +1365,6 @@ export default function InboxPage() {
 
   fetchInboxRef.current = async (expectedScope): Promise<InboxItemData[]> => {
     if (useSessionStore.getState().scope !== expectedScope) throw new Error('Inbox context changed.');
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      // Keep what is on screen; the list is checked again when the network returns.
-      throw Object.assign(new Error('offline'), { code: 'OFFLINE' });
-    }
     const metaState = { read: metaReadRef.current, deleted: metaDeletedRef.current };
     setError(null);
     const startedAt = new Date().toISOString();
@@ -2622,8 +2618,11 @@ export default function InboxPage() {
       writeInboxSyncMeta(completedMeta);
       setSyncMeta(completedMeta);
 
-      if (holderOffersFailed && holderReceiptsFailed) {
-        const warning = 'Unable to load pending offers and receipts. Pull to refresh or retry after reconnection.';
+      if (personalInbox && (holderOffersFailed || holderReceiptsFailed)) {
+        const missing = holderOffersFailed && holderReceiptsFailed
+          ? 'pending offers and receipts'
+          : holderReceiptsFailed ? 'payment receipts' : 'pending offers';
+        const warning = `Could not check for ${missing}. Other inbox items are shown; pull to refresh to try again.`;
         setError(warning);
         feedback.warn(warning, {
           title: 'Some items did not load',

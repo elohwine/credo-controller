@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Checkbox, Group, NumberInput, Paper, Select, Stac
 import { IconBriefcase, IconFileText, IconMail, IconRefresh } from '@tabler/icons-react'
 
 import { JobScheduleFields } from './JobScheduleFields'
+import { enrolledJobMembers } from '../jobPeople'
 import { readableDate, type IntakeItem, type MailStatus, type OperationsApi } from './operationsApi'
 
 export interface IncomingJobsMember {
@@ -11,6 +12,7 @@ export interface IncomingJobsMember {
   displayName?: string
   phone?: string
   status?: string
+  invitePending?: boolean
 }
 
 const FIELD_ROLES = ['field_worker', 'technician', 'driver', 'inspector', 'dispatcher', 'supervisor']
@@ -69,8 +71,8 @@ export function IncomingJobs({
   )
   const workers = useMemo(
     () =>
-      members
-        .filter((member) => member.status !== 'inactive' && FIELD_ROLES.includes(member.role.toLowerCase()))
+      enrolledJobMembers(members)
+        .filter((member) => FIELD_ROLES.includes(member.role.toLowerCase()))
         .map((member) => ({ value: member.userId, label: `${names[member.userId]} (${member.role.replace(/_/g, ' ')})` })),
     [members, names],
   )

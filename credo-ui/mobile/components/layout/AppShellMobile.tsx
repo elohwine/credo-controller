@@ -89,7 +89,12 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
       syncing = false;
       refreshAuthState();
       // Saved accounts that were never opened since their name was known get it from their own identity card.
-      void loadSavedAccountNames(API_BASE_URL).then(() => { if (!cancelled) setAccounts(listSavedAccounts()); }).catch(() => undefined);
+      void loadSavedAccountNames(API_BASE_URL).then(() => {
+        if (!cancelled) {
+          setAccounts(listSavedAccounts());
+          setUserName(getUserName());
+        }
+      }).catch((error) => console.warn('Could not refresh account names', error));
       if (!cancelled && changed) {
         // One reload per change. If the server keeps disagreeing, reloading again would only loop.
         const lastReload = Number(sessionStorage.getItem(CONTEXT_RELOAD_KEY) || 0);
@@ -540,7 +545,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                   rightSection={!orgLabel ? <IconCheck size={14} color="#2188ca" /> : null}
                   onClick={switchToPersonal}
                 >
-                  Personal Account
+                  {accounts.find((account) => account.id === activeAccountId)?.label || userName || 'Personal account'}
                 </Menu.Item>
                 {switchableOrgs.length > 0 && <Menu.Divider />}
                 {switchableOrgs.map((org) => (
@@ -565,8 +570,8 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                   </>
                 )}
                 <Menu.Divider />
-                <Menu.Label>Accounts</Menu.Label>
-                {accounts.map((account) => {
+                {accounts.some((account) => account.id !== activeAccountId) && <Menu.Label>Other accounts</Menu.Label>}
+                {accounts.filter((account) => account.id !== activeAccountId).map((account) => {
                   const selected = account.id === activeAccountId;
                   return (
                     <Menu.Item
@@ -686,7 +691,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                 disabled={orgSwitching}
                 onClick={switchToPersonal}
               >
-                Personal account
+                {accounts.find((account) => account.id === activeAccountId)?.label || userName || 'Personal account'}
               </Button>
             )}
             {orgsLoading && orgs.length === 0 && (
@@ -723,9 +728,9 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
 
           <Stack gap="xs">
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} px="xs">
-              Sign-ins on this phone
+              Other accounts
             </Text>
-            {accounts.map((account) => {
+            {accounts.filter((account) => account.id !== activeAccountId).map((account) => {
               const selected = account.id === activeAccountId;
               return (
                 <Button
