@@ -2,6 +2,7 @@
  * Roles the Roles page should already show, taken from the setup answers and from
  * roles already given to people. Nothing here is typed in by hand.
  *
+ * Every organisation → Owner, Admin and Auditor.
  * Office + "Owner handles money" → Owner.
  * "Sends people out" → Field worker and Supervisor as well.
  * "Manager, then finance" / "Director confirms once" → the money roles that choice names.
@@ -32,6 +33,22 @@ const CATALOG: Record<string, StarterRole> = {
       'request.approve',
       'finance.release',
       'field.assign',
+      'audit.read',
+      'report.read',
+    ],
+  },
+  admin: {
+    membershipRole: 'admin',
+    name: 'Admin',
+    description:
+      'Runs the organisation day to day: invites people, changes roles, sets up work and approves. Can do what the owner does, but cannot remove the owner.',
+    permissions: [
+      'request.read',
+      'request.submit',
+      'request.approve',
+      'finance.release',
+      'field.assign',
+      'hr.approve',
       'audit.read',
       'report.read',
     ],
@@ -102,7 +119,8 @@ export interface StarterRoleAnswers {
 export function starterRolesFor(answers: StarterRoleAnswers, rolesInUse: readonly string[] = []): StarterRole[] {
   const kinds = new Set(answers.kinds)
   const preset = answers.approvalPresetId || 'owner_handles_money'
-  const chosen: StarterRole[] = [CATALOG.owner, CATALOG.auditor]
+  // Every organisation has an Admin role, so the owner can share the running of it from day one.
+  const chosen: StarterRole[] = [CATALOG.owner, CATALOG.admin, CATALOG.auditor]
 
   if (kinds.has('field')) {
     chosen.push(CATALOG.field_worker, CATALOG.supervisor)

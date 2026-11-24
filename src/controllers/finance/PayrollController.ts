@@ -9,6 +9,7 @@ import { getTenantById } from '../../persistence/TenantRepository'
 import { OrganizationService } from '../../services/OrganizationService'
 import { orgEntitlementService } from '../../services/OrgEntitlementService'
 import { payoutService } from '../../services/PayoutService'
+import { changedStaffCardDetails, staffCardDetails } from '../../services/OrgMembershipCredentialService'
 import { payrollService, Employee, PayrollRun, Payslip, TaxCompliance } from '../../services/PayrollService'
 import { IdempotencyGuard } from '../../utils/IdempotencyGuard'
 
@@ -99,7 +100,16 @@ export class PayrollController extends Controller {
   public async saveEmployee(@Request() request: ExRequest, @Body() body: CreateEmployeeRequest): Promise<Employee> {
     const tenantId = this.payrollTenant(request)
     try {
+      const existing = body.id ? (await payrollService.listEmployees(tenantId)).find((item) => item.id === body.id) : undefined
+      const before = existing?.userId ? staffCardDetails(tenantId, existing.userId) : undefined
       const employee = await payrollService.saveEmployee({ ...body, tenantId })
+      const linkedUserId = existing?.userId
+      if (before && linkedUserId && employee.userId === linkedUserId) {
+        const after = staffCardDetails(tenantId, linkedUserId)
+        if (changedStaffCardDetails(before, after).length > 0) {
+          new OrganizationService(undefined as any).staffCardDetailsChanged(tenantId, linkedUserId)
+        }
+      }
       this.setStatus(201)
       return employee
     } catch (error) {

@@ -71,6 +71,13 @@ export interface EmployeeCredentialClaims {
   orgAccess?: EmployeeOrgAccess
   /** Owners and admins: the request permissions their role carries. Absent for other members. */
   permissions?: string[]
+  /**
+   * The person's details from their employee record. A change to any of them sends a new card,
+   * which the person accepts in their inbox. Personal: never kept in the public register.
+   */
+  employeeName?: string
+  email?: string
+  staffNumber?: string
   issuedAt: string
   platformName: string
   fingerprint: string
@@ -96,6 +103,9 @@ export const EMPLOYEE_JSON_SCHEMA = {
         stageActions: { type: 'array', items: { type: 'string' } },
         orgAccess: { type: 'string', enum: ['manage', 'tasks'] },
         permissions: { type: 'array', items: { type: 'string' } },
+        employeeName: { type: 'string' },
+        email: { type: 'string' },
+        staffNumber: { type: 'string' },
         issuedAt: { type: 'string', format: 'date-time' },
         platformName: { type: 'string' },
         fingerprint: { type: 'string' },

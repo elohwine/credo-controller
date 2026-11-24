@@ -593,6 +593,8 @@ export function teamRolesFromCatalog(
     seen.add(value)
     fromSetup.push({ value, label: String(role.name || value).trim() || value })
   }
+  // Every organisation can have admins, even when its role list was set up before Admin existed.
+  if (fromSetup.length > 0 && !seen.has('admin')) fromSetup.push({ value: 'admin', label: 'Admin' })
   return fromSetup
 }
 

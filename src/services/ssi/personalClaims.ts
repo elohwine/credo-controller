@@ -28,6 +28,7 @@ export const PERSONAL_CLAIM_KEYS = new Set([
   'surname',
   'username',
   'employeeName',
+  'staffNumber',
   'customerName',
   'payerName',
   'holderName',

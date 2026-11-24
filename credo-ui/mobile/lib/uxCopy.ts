@@ -404,11 +404,13 @@ export function offerReplacement(claims: unknown): OfferReplacementNote | undefi
       ? 'Sent again'
       : why === 'role_changed'
         ? 'Replaces your current card: role changed'
-        : why === 'steps_changed'
-          ? 'Replaces your current card: steps changed'
-          : why === 'disclosure'
-            ? 'Replaces your current card: shares one step'
-            : 'Replaces your current card'
+        : why === 'details_changed'
+          ? 'Replaces your current card: details updated'
+          : why === 'steps_changed'
+            ? 'Replaces your current card: steps changed'
+            : why === 'disclosure'
+              ? 'Replaces your current card: shares one step'
+              : 'Replaces your current card'
   return { label, note: note || 'This replaces the one you already hold. Accept it to keep using it.' }
 }
 

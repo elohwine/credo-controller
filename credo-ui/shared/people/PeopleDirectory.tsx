@@ -20,7 +20,17 @@ import {
   Text,
   TextInput,
 } from '@mantine/core'
-import { IconCircleCheck, IconClock, IconMail, IconBrandWhatsapp, IconRefresh, IconSearch, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
+import {
+  IconCircleCheck,
+  IconClock,
+  IconMail,
+  IconBrandWhatsapp,
+  IconRefresh,
+  IconSearch,
+  IconSend,
+  IconTrash,
+  IconUserPlus,
+} from '@tabler/icons-react'
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
 import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
@@ -924,6 +934,8 @@ function PersonPanel({
     skills: employee?.skills || [],
   })
   const [qualifications, setQualifications] = useState<EmployeeQualification[]>(employee?.qualifications || [])
+  // Tax numbers stay out of the way unless the organisation records them.
+  const [showTax, setShowTax] = useState(Boolean(employee?.nssaNumber || employee?.tin))
 
   const invite = () =>
     run('invite', async () => {
@@ -952,30 +964,47 @@ function PersonPanel({
     })
 
   const payEmailError = pay.email.trim() && !looksLikeEmail(pay.email) ? 'Check the email address' : null
-  const savePay = () =>
-    run('pay', async () => {
+  const saveSection = (key: string, patch: Partial<EmployeeRecord>, done: string) =>
+    run(key, async () => {
       if (!api || !employee) return
-      const { firstName, lastName } = splitName(pay.name)
-      await api.saveEmployee({
-        ...employee,
-        firstName,
-        lastName,
-        phone: employee.userId ? employee.phone : pay.phone.trim() || undefined,
-        email: pay.email.trim() || undefined,
-        ...(showPay
-          ? {
-              baseSalary: Number(pay.salary) || 0,
-              currency: pay.currency,
-              nssaNumber: pay.nssa || undefined,
-              tin: pay.tin || undefined,
-            }
-          : {}),
-        status: pay.status,
-        ...(employee.userId ? {} : { staffNumber: pay.staffNumber.trim() || undefined, skills: pay.skills }),
-      })
-      notify('Saved', 'success')
+      await api.saveEmployee({ ...employee, ...patch })
+      notify(done, 'success')
       await onChanged()
     })
+  const contactChanged =
+    pay.name.trim() !== `${employee?.firstName || ''} ${employee?.lastName || ''}`.trim() ||
+    pay.email.trim().toLowerCase() !== (employee?.email || '').trim().toLowerCase()
+  const saveContact = () => {
+    const { firstName, lastName } = splitName(pay.name)
+    return saveSection(
+      'contact',
+      {
+        firstName,
+        lastName,
+        phone: employee?.userId ? employee.phone : pay.phone.trim() || undefined,
+        email: pay.email.trim() || undefined,
+      },
+      employee?.userId && member?.status === 'active' && contactChanged
+        ? 'Saved. A new staff card with these details is on its way to their app inbox.'
+        : 'Saved',
+    )
+  }
+  const saveWork = () =>
+    saveSection(
+      'work',
+      {
+        status: pay.status,
+        ...(employee?.userId ? {} : { staffNumber: pay.staffNumber.trim() || undefined, skills: pay.skills }),
+      },
+      'Saved',
+    )
+  const savePay = () => saveSection('pay', { baseSalary: Number(pay.salary) || 0, currency: pay.currency }, 'Pay saved')
+  const saveTax = () =>
+    saveSection(
+      'tax',
+      { nssaNumber: pay.nssa.trim() || undefined, tin: pay.tin.trim() || undefined },
+      'Tax numbers saved',
+    )
 
   const saveQualifications = () =>
     run('qualifications', async () => {
@@ -1006,341 +1035,446 @@ function PersonPanel({
       await onChanged()
     })
 
+  const section = (value: string, title: string, hint: string | null, body: React.ReactNode) => (
+    <Accordion.Item value={value}>
+      <Accordion.Control>
+        <Stack gap={0}>
+          <Text fw={500}>{title}</Text>
+          {hint && (
+            <Text size="xs" c="dimmed">
+              {hint}
+            </Text>
+          )}
+        </Stack>
+      </Accordion.Control>
+      <Accordion.Panel>{body}</Accordion.Panel>
+    </Accordion.Item>
+  )
+  const saveButton = (key: string, onClick: () => void, disabled = false, label = 'Save') => (
+    <Group justify="flex-end">
+      <Button size={size} radius="xl" loading={busy === key} disabled={disabled} onClick={onClick}>
+        {label}
+      </Button>
+    </Group>
+  )
+  const editDetails = Boolean(employee && canManage)
+  const accessHint = member
+    ? `${member.status === 'active' ? 'On the app' : member.status === 'suspended' ? 'Suspended' : 'Invited'} · ${roleLabel(member.role)}`
+    : 'Not on the app yet'
+
   return (
-    <Stack gap="md">
-      <Stack gap="xs">
-        <Text fw={500}>App access</Text>
-        {member ? (
-          <Paper withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <Group gap="xs">
-                <Badge variant="light" color={member.status === 'active' ? 'teal' : 'orange'}>
-                  {member.status === 'active' ? 'Active' : member.status === 'suspended' ? 'Suspended' : 'Invited'}
-                </Badge>
-                <Badge variant="outline" color={memberAccessBadge(member.role).color}>
-                  {memberAccessBadge(member.role).label}
-                </Badge>
-                {onboarding && (
-                  <Badge variant="light" color={SUMMARY_COLOR[onboarding.summary]}>
-                    {SUMMARY_LABEL[onboarding.summary]}
+    <Accordion multiple variant="separated" radius="md" defaultValue={['access', 'contact']}>
+      {section(
+        'access',
+        'App access and role',
+        accessHint,
+        <>
+          {member ? (
+            <Paper p={0}>
+              <Stack gap="sm">
+                <Group gap="xs">
+                  <Badge variant="light" color={member.status === 'active' ? 'teal' : 'orange'}>
+                    {member.status === 'active' ? 'Active' : member.status === 'suspended' ? 'Suspended' : 'Invited'}
                   </Badge>
+                  <Badge variant="outline" color={memberAccessBadge(member.role).color}>
+                    {memberAccessBadge(member.role).label}
+                  </Badge>
+                  {onboarding && (
+                    <Badge variant="light" color={SUMMARY_COLOR[onboarding.summary]}>
+                      {SUMMARY_LABEL[onboarding.summary]}
+                    </Badge>
+                  )}
+                </Group>
+                {member.role === 'owner' || !canManage ? (
+                  <Text size="sm">Role: {roleLabel(member.role)}</Text>
+                ) : (
+                  <Select
+                    size={size}
+                    label="Role"
+                    data={
+                      roleChoices.some((choice) => choice.value === member.role)
+                        ? roleChoices
+                        : [...roleChoices, { value: member.role, label: roleLabel(member.role) }]
+                    }
+                    value={member.role}
+                    disabled={busy === 'role'}
+                    allowDeselect={false}
+                    onChange={(value) =>
+                      value &&
+                      void run('role', async () => {
+                        await api?.changeRole(orgTenantId, member.userId, value)
+                        notify(`${roleLabel(value)}. A new staff card is on its way to their app inbox.`, 'success')
+                        await onChanged()
+                      })
+                    }
+                  />
                 )}
-              </Group>
-              {member.role === 'owner' || !canManage ? (
-                <Text size="sm">Role: {roleLabel(member.role)}</Text>
-              ) : (
-                <Select
-                  size={size}
-                  label="Role"
-                  data={
-                    roleChoices.some((choice) => choice.value === member.role)
-                      ? roleChoices
-                      : [...roleChoices, { value: member.role, label: roleLabel(member.role) }]
-                  }
-                  value={member.role}
-                  disabled={busy === 'role'}
-                  allowDeselect={false}
-                  onChange={(value) =>
-                    value &&
-                    void run('role', async () => {
-                      await api?.changeRole(orgTenantId, member.userId, value)
-                      notify(`${roleLabel(value)}. A new staff card is on its way to their app inbox.`, 'success')
-                      await onChanged()
-                    })
-                  }
-                />
-              )}
-              {member.invitePending && canManage && (
-                <InviteResend
-                  api={api}
-                  orgTenantId={orgTenantId}
-                  member={member}
-                  email={employee?.email || (member.inviteDelivery?.channel === 'email' ? member.inviteDelivery.to : '')}
-                  phone={employee?.phone || member.phone || ''}
-                  size={size}
-                  busy={busy}
-                  run={run}
-                  notify={notify}
-                  onChanged={onChanged}
-                />
-              )}
-              {onboarding && (
-                <Stack gap="xs">
-                  <Text size="sm">{onboarding.nextStep}</Text>
-                  {onboarding.cards.map((card) => (
-                    <Paper key={`${card.kind}:${card.workflowType || ''}`} withBorder radius="md" p="sm">
-                      <Group justify="space-between" wrap="nowrap" align="flex-start">
-                        <Group gap="sm" wrap="nowrap" align="flex-start" style={{ minWidth: 0, flex: 1 }}>
-                          {card.state === 'accepted' ? (
-                            <IconCircleCheck size={20} color="var(--mantine-color-teal-6)" />
-                          ) : (
-                            <IconClock size={20} color="var(--mantine-color-gray-6)" />
-                          )}
-                          <Stack gap={2} style={{ minWidth: 0 }}>
-                            <Text size="sm" fw={500}>
-                              {card.label}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {cardPurpose(card)}
-                            </Text>
-                            {cardResendHint(card) && (
-                              <Text size="xs" c="dimmed">
-                                {cardResendHint(card)}
+                {member.invitePending && canManage && (
+                  <InviteResend
+                    api={api}
+                    orgTenantId={orgTenantId}
+                    member={member}
+                    email={
+                      employee?.email || (member.inviteDelivery?.channel === 'email' ? member.inviteDelivery.to : '')
+                    }
+                    phone={employee?.phone || member.phone || ''}
+                    size={size}
+                    busy={busy}
+                    run={run}
+                    notify={notify}
+                    onChanged={onChanged}
+                  />
+                )}
+                {onboarding && (
+                  <Stack gap="xs">
+                    <Text size="sm">{onboarding.nextStep}</Text>
+                    {onboarding.cards.map((card) => (
+                      <Paper key={`${card.kind}:${card.workflowType || ''}`} withBorder radius="md" p="sm">
+                        <Group
+                          justify="space-between"
+                          wrap={surface === 'phone' ? 'wrap' : 'nowrap'}
+                          align="flex-start"
+                          gap="xs"
+                        >
+                          <Group
+                            gap="sm"
+                            wrap="nowrap"
+                            align="flex-start"
+                            style={{ minWidth: 0, flex: 1, flexBasis: surface === 'phone' ? '100%' : undefined }}
+                          >
+                            {card.state === 'accepted' ? (
+                              <IconCircleCheck size={20} color="var(--mantine-color-teal-6)" />
+                            ) : (
+                              <IconClock size={20} color="var(--mantine-color-gray-6)" />
+                            )}
+                            <Stack gap={2} style={{ minWidth: 0 }}>
+                              <Text size="sm" fw={500}>
+                                {card.label}
                               </Text>
+                              <Text size="xs" c="dimmed">
+                                {cardPurpose(card)}
+                              </Text>
+                              {cardResendHint(card) && (
+                                <Text size="xs" c="dimmed">
+                                  {cardResendHint(card)}
+                                </Text>
+                              )}
+                            </Stack>
+                          </Group>
+                          <Stack
+                            gap={4}
+                            align={surface === 'phone' ? 'flex-start' : 'flex-end'}
+                            style={{ flexShrink: 0, paddingLeft: surface === 'phone' ? 32 : 0 }}
+                          >
+                            <Badge
+                              size="sm"
+                              variant="light"
+                              color={CARD_STATE_COLOR[card.state]}
+                              style={{ flexShrink: 0 }}
+                            >
+                              {CARD_STATE_LABEL[card.state]}
+                            </Badge>
+                            {canManage && onboarding.hasApp && cardCanResend(card) && (
+                              <Button
+                                size="compact-sm"
+                                variant="subtle"
+                                loading={busy === `cards:${card.kind}`}
+                                onClick={() => void sendCards(card.kind)}
+                              >
+                                {card.state === 'not_sent' ? 'Send' : 'Send again'}
+                              </Button>
                             )}
                           </Stack>
                         </Group>
-                        <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
-                          <Badge
-                            size="sm"
-                            variant="light"
-                            color={CARD_STATE_COLOR[card.state]}
-                            style={{ flexShrink: 0 }}
-                          >
-                            {CARD_STATE_LABEL[card.state]}
-                          </Badge>
-                          {canManage && onboarding.hasApp && cardCanResend(card) && (
-                            <Button
-                              size="compact-sm"
-                              variant="subtle"
-                              loading={busy === `cards:${card.kind}`}
-                              onClick={() => void sendCards(card.kind)}
-                            >
-                              {card.state === 'not_sent' ? 'Send' : 'Send again'}
-                            </Button>
-                          )}
-                        </Stack>
-                      </Group>
-                    </Paper>
-                  ))}
-                  {canManage && onboarding.hasApp && onboarding.summary !== 'ready' && (
-                    <Button
-                      size={size}
-                      radius="xl"
-                      leftSection={<IconSend size={16} />}
-                      loading={busy === 'cards:all'}
-                      onClick={() => void sendCards('all')}
-                      style={{ alignSelf: 'flex-start' }}
-                    >
-                      Send everything missing
-                    </Button>
-                  )}
-                </Stack>
-              )}
-              {canManage && member.role !== 'owner' && (
-                <Button
-                  size={size}
-                  variant="subtle"
-                  color="red"
-                  radius="xl"
-                  leftSection={<IconTrash size={16} />}
-                  loading={busy === 'remove'}
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={() => {
-                    if (!window.confirm(`Take ${row.name} off the team? Their staff card stops working straight away.`))
-                      return
-                    void run('remove', async () => {
-                      await api?.removeMember(orgTenantId, member.userId)
-                      notify(`${row.name} is off the team.`, 'info')
-                      await onRemoved()
-                    })
-                  }}
-                >
-                  Take off the team
-                </Button>
-              )}
-            </Stack>
-          </Paper>
-        ) : canManage ? (
-          <Paper withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <Text size="sm" c="dimmed">
-                They are not on the app yet, so they cannot get jobs or approvals.
-              </Text>
-              <PhoneField
-                surface={surface}
-                label="Phone number"
-                description="Their sign-in number. A phone number or an email is enough for the invite."
-                value={phone}
-                onChange={setPhone}
-              />
-              <TextInput
-                size={size}
-                type="email"
-                label="Email"
-                description="When given, the invite link is emailed here. Without a phone, they add it when they join."
-                value={inviteEmail}
-                error={inviteEmail.trim() && !looksLikeEmail(inviteEmail) ? 'Check the email address' : null}
-                onChange={(event) => setInviteEmail(event.currentTarget.value)}
-              />
-              <Select
-                size={size}
-                label="Role"
-                data={roleChoices}
-                value={inviteRole}
-                onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
-                allowDeselect={false}
-              />
-              {invitePhone && (
-                <Checkbox
-                  size={size}
-                  checked={whatsapp}
-                  onChange={(event) => setWhatsapp(event.currentTarget.checked)}
-                  label="They agreed to get the invite on WhatsApp"
-                  description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
-                />
-              )}
-              <Text size="xs" c="dimmed">
-                They get a one-time link that works for 7 days and choose their own PIN. Nobody types a password for
-                them.
-              </Text>
-              <Group justify="flex-end">
-                <Button
-                  size={size}
-                  radius="xl"
-                  leftSection={<IconUserPlus size={18} />}
-                  loading={busy === 'invite'}
-                  disabled={
-                    (!invitePhone && !inviteEmail.trim()) || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))
-                  }
-                  onClick={() => void invite()}
-                >
-                  Invite to the app
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
-        ) : (
-          <Text size="sm" c="dimmed">
-            No app access.
-          </Text>
-        )}
-      </Stack>
-
-      {employee && (canManage || showPay) && (
-        <Stack gap="xs">
-          <Text fw={500}>{showPay ? 'Details and pay' : 'Details'}</Text>
-          <Paper withBorder radius="md" p="md">
-            <Stack gap="sm">
-              <TextInput
-                size={size}
-                label="Full name"
-                value={pay.name}
-                onChange={(event) => setPay({ ...pay, name: event.currentTarget.value })}
-              />
-              {employee.userId ? (
-                <TextInput
-                  size={size}
-                  label="Phone number"
-                  description="Their sign-in number. Only they can change it, from their app."
-                  value={pay.phone}
-                  readOnly
-                />
-              ) : (
+                      </Paper>
+                    ))}
+                    {canManage && onboarding.hasApp && onboarding.summary !== 'ready' && (
+                      <Button
+                        size={size}
+                        radius="xl"
+                        leftSection={<IconSend size={16} />}
+                        loading={busy === 'cards:all'}
+                        onClick={() => void sendCards('all')}
+                        style={{ alignSelf: 'flex-start' }}
+                      >
+                        Send everything missing
+                      </Button>
+                    )}
+                  </Stack>
+                )}
+                {canManage && member.role !== 'owner' && (
+                  <Button
+                    size={size}
+                    variant="subtle"
+                    color="red"
+                    radius="xl"
+                    leftSection={<IconTrash size={16} />}
+                    loading={busy === 'remove'}
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => {
+                      if (
+                        !window.confirm(`Take ${row.name} off the team? Their staff card stops working straight away.`)
+                      )
+                        return
+                      void run('remove', async () => {
+                        await api?.removeMember(orgTenantId, member.userId)
+                        notify(`${row.name} is off the team.`, 'info')
+                        await onRemoved()
+                      })
+                    }}
+                  >
+                    Take off the team
+                  </Button>
+                )}
+              </Stack>
+            </Paper>
+          ) : canManage ? (
+            <Paper p={0}>
+              <Stack gap="sm">
+                <Text size="sm" c="dimmed">
+                  They are not on the app yet, so they cannot get jobs or approvals.
+                </Text>
                 <PhoneField
                   surface={surface}
                   label="Phone number"
-                  value={pay.phone}
-                  onChange={(value) => setPay({ ...pay, phone: value })}
+                  description="Their sign-in number. A phone number or an email is enough for the invite."
+                  value={phone}
+                  onChange={setPhone}
                 />
-              )}
-              <TextInput
-                size={size}
-                type="email"
-                label="Email"
-                value={pay.email}
-                error={payEmailError}
-                onChange={(event) => setPay({ ...pay, email: event.currentTarget.value })}
-              />
-              {showPay && (
-                <>
-                  <Group grow align="flex-end">
-                    <NumberInput
-                      size={size}
-                      label="Base salary"
-                      min={0}
-                      decimalScale={2}
-                      value={pay.salary}
-                      onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })}
-                    />
-                    <Select
-                      size={size}
-                      label="Currency"
-                      data={['USD', 'ZWL', 'ZAR']}
-                      value={pay.currency}
-                      onChange={(value) => setPay({ ...pay, currency: value || 'USD' })}
-                      allowDeselect={false}
-                    />
-                  </Group>
-                  <Group grow>
-                    <TextInput
-                      size={size}
-                      label="NSSA number"
-                      value={pay.nssa}
-                      onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })}
-                    />
-                    <TextInput
-                      size={size}
-                      label="TIN"
-                      value={pay.tin}
-                      onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })}
-                    />
-                  </Group>
-                </>
-              )}
-              <Select
-                size={size}
-                label="Status"
-                data={[
-                  { value: 'active', label: 'Working' },
-                  { value: 'on_leave', label: 'On leave' },
-                  { value: 'terminated', label: 'Left' },
-                ]}
-                value={pay.status}
-                onChange={(value) => setPay({ ...pay, status: value || 'active' })}
-                allowDeselect={false}
-              />
-              {!employee.userId && (
-                <>
-                  <TextInput
-                    size={size}
-                    label="Staff number"
-                    value={pay.staffNumber}
-                    onChange={(event) => setPay({ ...pay, staffNumber: event.currentTarget.value })}
-                  />
-                  <TagsInput
-                    size={size}
-                    label="Skills"
-                    placeholder="Type a skill and press Enter"
-                    value={pay.skills}
-                    onChange={(skills) => setPay({ ...pay, skills })}
-                  />
-                </>
-              )}
-              {showPay && employee.baseSalary <= 0 && (
-                <Alert color="blue" variant="light">
-                  No salary yet, so payroll skips this person until you add one.
-                </Alert>
-              )}
-              <Group justify="flex-end">
-                <Button
+                <TextInput
                   size={size}
-                  radius="xl"
-                  loading={busy === 'pay'}
-                  disabled={pay.name.trim().length < 2 || Boolean(payEmailError)}
-                  onClick={() => void savePay()}
-                >
-                  Save
-                </Button>
-              </Group>
-            </Stack>
-          </Paper>
-        </Stack>
+                  type="email"
+                  label="Email"
+                  description="When given, the invite link is emailed here. Without a phone, they add it when they join."
+                  value={inviteEmail}
+                  error={inviteEmail.trim() && !looksLikeEmail(inviteEmail) ? 'Check the email address' : null}
+                  onChange={(event) => setInviteEmail(event.currentTarget.value)}
+                />
+                <Select
+                  size={size}
+                  label="Role"
+                  data={roleChoices}
+                  value={inviteRole}
+                  onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
+                  allowDeselect={false}
+                />
+                {invitePhone && (
+                  <Checkbox
+                    size={size}
+                    checked={whatsapp}
+                    onChange={(event) => setWhatsapp(event.currentTarget.checked)}
+                    label="They agreed to get the invite on WhatsApp"
+                    description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
+                  />
+                )}
+                <Text size="xs" c="dimmed">
+                  They get a one-time link that works for 7 days and choose their own PIN. Nobody types a password for
+                  them.
+                </Text>
+                <Group justify="flex-end">
+                  <Button
+                    size={size}
+                    radius="xl"
+                    leftSection={<IconUserPlus size={18} />}
+                    loading={busy === 'invite'}
+                    disabled={
+                      (!invitePhone && !inviteEmail.trim()) ||
+                      Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))
+                    }
+                    onClick={() => void invite()}
+                  >
+                    Invite to the app
+                  </Button>
+                </Group>
+              </Stack>
+            </Paper>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No app access.
+            </Text>
+          )}
+        </>,
       )}
 
-      {employee && (
-        <Stack gap="xs">
-          <Text fw={500}>Qualifications</Text>
+      {employee &&
+        (canManage || showPay) &&
+        section(
+          'contact',
+          'Contact details',
+          [pay.email, pay.phone].filter(Boolean).join(' · ') || null,
+          <Stack gap="sm">
+            <TextInput
+              size={size}
+              label="Full name"
+              value={pay.name}
+              readOnly={!editDetails}
+              onChange={(event) => setPay({ ...pay, name: event.currentTarget.value })}
+            />
+            {employee.userId || !editDetails ? (
+              <TextInput
+                size={size}
+                label="Phone number"
+                description={
+                  employee.userId ? 'Their sign-in number. Only they can change it, from their app.' : undefined
+                }
+                value={pay.phone}
+                readOnly
+              />
+            ) : (
+              <PhoneField
+                surface={surface}
+                label="Phone number"
+                value={pay.phone}
+                onChange={(value) => setPay({ ...pay, phone: value })}
+              />
+            )}
+            <TextInput
+              size={size}
+              type="email"
+              label="Email"
+              value={pay.email}
+              readOnly={!editDetails}
+              error={payEmailError}
+              onChange={(event) => setPay({ ...pay, email: event.currentTarget.value })}
+            />
+            {editDetails && employee.userId && (
+              <Text size="xs" c="dimmed">
+                Their name and email are on their staff card. Changing them sends a new card to their app inbox, which
+                they accept to replace the old one.
+              </Text>
+            )}
+            {editDetails &&
+              saveButton('contact', () => void saveContact(), pay.name.trim().length < 2 || Boolean(payEmailError))}
+          </Stack>,
+        )}
+
+      {employee &&
+        (canManage || showPay) &&
+        section(
+          'work',
+          'Work',
+          [
+            { active: 'Working', on_leave: 'On leave', terminated: 'Left' }[pay.status] || pay.status,
+            employee.staffNumber,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          <Stack gap="sm">
+            <Select
+              size={size}
+              label="Status"
+              data={[
+                { value: 'active', label: 'Working' },
+                { value: 'on_leave', label: 'On leave' },
+                { value: 'terminated', label: 'Left' },
+              ]}
+              value={pay.status}
+              disabled={!editDetails}
+              onChange={(value) => setPay({ ...pay, status: value || 'active' })}
+              allowDeselect={false}
+            />
+            {employee.userId ? (
+              <Text size="xs" c="dimmed">
+                Staff number and skills are under Their work. A new staff number sends them a new staff card.
+              </Text>
+            ) : (
+              <>
+                <TextInput
+                  size={size}
+                  label="Staff number"
+                  value={pay.staffNumber}
+                  readOnly={!editDetails}
+                  onChange={(event) => setPay({ ...pay, staffNumber: event.currentTarget.value })}
+                />
+                <TagsInput
+                  size={size}
+                  label="Skills"
+                  placeholder="Type a skill and press Enter"
+                  value={pay.skills}
+                  disabled={!editDetails}
+                  onChange={(skills) => setPay({ ...pay, skills })}
+                />
+              </>
+            )}
+            {editDetails && saveButton('work', () => void saveWork())}
+          </Stack>,
+        )}
+
+      {employee &&
+        showPay &&
+        section(
+          'pay',
+          'Pay',
+          employee.baseSalary > 0 ? `${employee.currency} ${employee.baseSalary}` : 'No salary yet',
+          <Stack gap="sm">
+            <Group grow align="flex-end">
+              <NumberInput
+                size={size}
+                label="Base salary"
+                min={0}
+                decimalScale={2}
+                value={pay.salary}
+                onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })}
+              />
+              <Select
+                size={size}
+                label="Currency"
+                data={Array.from(new Set(['GBP', 'USD', 'ZAR', 'ZWL', pay.currency]))}
+                value={pay.currency}
+                onChange={(value) => setPay({ ...pay, currency: value || 'USD' })}
+                allowDeselect={false}
+              />
+            </Group>
+            {employee.baseSalary <= 0 && (
+              <Alert color="blue" variant="light">
+                No salary yet, so payroll skips this person until you add one.
+              </Alert>
+            )}
+            {!showTax && (
+              <Button
+                size="compact-sm"
+                variant="subtle"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => setShowTax(true)}
+              >
+                Add tax numbers
+              </Button>
+            )}
+            {saveButton('pay', () => void savePay())}
+          </Stack>,
+        )}
+
+      {employee &&
+        showPay &&
+        showTax &&
+        section(
+          'tax',
+          'Tax numbers',
+          'Only if your payroll needs them',
+          <Stack gap="sm">
+            <Group grow>
+              <TextInput
+                size={size}
+                label="Social security number"
+                value={pay.nssa}
+                onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })}
+              />
+              <TextInput
+                size={size}
+                label="Tax number"
+                value={pay.tin}
+                onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })}
+              />
+            </Group>
+            {saveButton('tax', () => void saveTax())}
+          </Stack>,
+        )}
+
+      {employee &&
+        section(
+          'qualifications',
+          'Qualifications',
+          qualifications.length ? `${qualifications.length} recorded` : 'None recorded',
           <Paper withBorder radius="md" p="md">
             <Stack gap="sm">
               <Text size="sm" c="dimmed">
@@ -1430,13 +1564,14 @@ function PersonPanel({
                 </Group>
               )}
             </Stack>
-          </Paper>
-        </Stack>
-      )}
+          </Paper>,
+        )}
 
-      {row.userId && (
-        <Stack gap="xs">
-          <Text fw={500}>Their work</Text>
+      {row.userId &&
+        section(
+          'work-file',
+          'Their work',
+          'Staff number, skills, jobs, leave and incidents',
           <MemberWorkFile
             api={api}
             userId={row.userId}
@@ -1446,9 +1581,8 @@ function PersonPanel({
             notify={notify}
             onOpenJob={onOpenJob}
             onSaved={() => void onChanged()}
-          />
-        </Stack>
-      )}
-    </Stack>
+          />,
+        )}
+    </Accordion>
   )
 }

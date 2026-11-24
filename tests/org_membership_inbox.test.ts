@@ -104,6 +104,68 @@ describe('employee and delegation offers', () => {
     expect(pending(`wallet-${userId}`, 'org_employee')[0].credential_type).toBe('EmployeeCredential')
   })
 
+  test('a new staff card goes out when the name or staff number changes, not when nothing did', async () => {
+    const org = seedOrganization({ name: 'Details Ltd' })
+    const userId = `user-${randomUUID()}`
+    const walletTenantId = `wallet-${userId}`
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId, role: 'clerk' })
+    const db = DatabaseManager.getDatabase()
+    const employeeId = randomUUID()
+    db.prepare(
+      `INSERT INTO employees (id, tenant_id, first_name, last_name, email, base_salary, user_id, staff_number)
+       VALUES (?, ?, 'Ann', 'Moyo', 'ann@example.com', 0, ?, 'S-1')`,
+    ).run(employeeId, org.orgTenantId, userId)
+    const offer = (reason?: string) =>
+      orgMembershipCredentialService.ensureEmployeeCredential({
+        orgTenantId: org.orgTenantId,
+        userId,
+        role: 'clerk',
+        source: 'membership',
+        reason,
+      })
+    const accept = () =>
+      db
+        .prepare(
+          `UPDATE wallet_pending_offers SET accepted_at = ?, resolved_at = ?
+           WHERE tenant_id = ? AND source_type = 'org_employee' AND resolved_at IS NULL`,
+        )
+        .run(new Date().toISOString(), new Date().toISOString(), walletTenantId)
+
+    expect((await offer()).outcome).toBe('offered')
+    accept()
+    expect((await offer('details_changed')).outcome).toBe('already_accepted')
+
+    db.prepare(`UPDATE employees SET first_name = 'Anne', staff_number = 'S-2' WHERE id = ?`).run(employeeId)
+    expect((await offer('details_changed')).outcome).toBe('offered')
+    const row = db
+      .prepare(
+        `SELECT body, metadata FROM wallet_pending_offers
+         WHERE tenant_id = ? AND source_type = 'org_employee' AND resolved_at IS NULL`,
+      )
+      .get(walletTenantId) as { body: string; metadata: string }
+    const meta = JSON.parse(row.metadata)
+    expect(meta.employeeName).toBe('Anne Moyo')
+    expect(meta.staffNumber).toBe('S-2')
+    expect(meta.replaces?.why).toBe('details_changed')
+    expect(row.body).toContain('name, staff number')
+  })
+
+  test('a card accepted before details were on cards is not sent again on its own', async () => {
+    const org = seedOrganization({ name: 'Legacy Ltd' })
+    const userId = `user-${randomUUID()}`
+    addMember({ orgTenantId: org.orgTenantId, organizationId: org.organizationId, userId, role: 'clerk' })
+    const db = DatabaseManager.getDatabase()
+    const params = { orgTenantId: org.orgTenantId, userId, role: 'clerk', source: 'membership' as const }
+    expect((await orgMembershipCredentialService.ensureEmployeeCredential(params)).outcome).toBe('offered')
+    db.prepare(
+      `UPDATE wallet_pending_offers SET accepted_at = ?, resolved_at = ? WHERE tenant_id = ? AND source_type = 'org_employee'`,
+    ).run(new Date().toISOString(), new Date().toISOString(), `wallet-${userId}`)
+    db.prepare(
+      `INSERT INTO employees (id, tenant_id, first_name, last_name, base_salary, user_id) VALUES (?, ?, 'Tom', 'Dube', 0, ?)`,
+    ).run(randomUUID(), org.orgTenantId, userId)
+    expect((await orgMembershipCredentialService.ensureEmployeeCredential(params)).outcome).toBe('already_accepted')
+  })
+
   test('offers a delegation credential to the delegate wallet', async () => {
     const org = seedOrganization({ name: 'Delegate Ltd' })
     const delegatorUserId = `user-${randomUUID()}`

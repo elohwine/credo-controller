@@ -93,7 +93,7 @@ async function defaultOfferFactory(input: {
  * badge with the note, so the new offer does not look like a duplicate.
  */
 export interface OfferReplacement {
-  why: 'steps_changed' | 'role_changed' | 'sent_again' | 'scope_changed' | 'renewed' | 'disclosure'
+  why: 'steps_changed' | 'role_changed' | 'details_changed' | 'sent_again' | 'scope_changed' | 'renewed' | 'disclosure'
   /** Plain words shown to the person, e.g. "Added: signing off. Your earlier card stops working once you accept this one." */
   note: string
   added?: string[]
@@ -242,6 +242,74 @@ function matchingEmployeeOffer(
   return undefined
 }
 
+/** The person's details a staff card carries, from their employee record. */
+export interface StaffCardDetails {
+  employeeName?: string
+  email?: string
+  staffNumber?: string
+}
+
+const STAFF_CARD_DETAIL_WORDS: Record<keyof StaffCardDetails, string> = {
+  employeeName: 'name',
+  email: 'email',
+  staffNumber: 'staff number',
+}
+
+export function staffCardDetails(orgTenantId: string, userId: string): StaffCardDetails {
+  try {
+    const row = DatabaseManager.getDatabase()
+      .prepare(
+        `SELECT first_name, last_name, email, staff_number FROM employees
+         WHERE tenant_id = ? AND user_id = ? ORDER BY datetime(updated_at) DESC LIMIT 1`,
+      )
+      .get(orgTenantId, userId) as
+      | { first_name?: string; last_name?: string; email?: string; staff_number?: string }
+      | undefined
+    if (!row) return {}
+    const name = `${row.first_name || ''} ${row.last_name || ''}`.replace(/\s+/g, ' ').trim()
+    return {
+      ...(name ? { employeeName: name } : {}),
+      ...(row.email?.trim() ? { email: row.email.trim().toLowerCase() } : {}),
+      ...(row.staff_number?.trim() ? { staffNumber: row.staff_number.trim().toUpperCase() } : {}),
+    }
+  } catch {
+    // People & payroll may not be set up; the card still proves the role.
+    return {}
+  }
+}
+
+function staffCardDetailsKey(details: StaffCardDetails): string {
+  if (!details.employeeName && !details.email && !details.staffNumber) return ''
+  return fingerprintOf([details.employeeName, details.email, details.staffNumber])
+}
+
+/** Which details differ from the card the person holds, in plain words. */
+export function changedStaffCardDetails(held: StaffCardDetails | undefined, next: StaffCardDetails): string[] {
+  return (Object.keys(STAFF_CARD_DETAIL_WORDS) as Array<keyof StaffCardDetails>)
+    .filter((key) => (held?.[key] || '') !== (next[key] || ''))
+    .map((key) => STAFF_CARD_DETAIL_WORDS[key])
+}
+
+/** Details on the newest staff card the person accepted. Undefined on cards from before details. */
+function heldStaffCardDetails(walletTenantId: string, sourceId: string): StaffCardDetails | undefined {
+  const row = DatabaseManager.getDatabase()
+    .prepare(
+      `SELECT metadata FROM wallet_pending_offers
+       WHERE tenant_id = ? AND source_type = ? AND source_id = ? AND accepted_at IS NOT NULL
+         AND (last_error IS NULL OR last_error NOT LIKE 'withdrawn:%')
+       ORDER BY datetime(accepted_at) DESC LIMIT 1`,
+    )
+    .get(walletTenantId, EMPLOYEE_OFFER_SOURCE_TYPE, sourceId) as { metadata?: string } | undefined
+  if (!row) return undefined
+  try {
+    const meta = JSON.parse(row.metadata || '{}')
+    if (!meta.detailsKey) return undefined
+    return { employeeName: meta.employeeName, email: meta.email, staffNumber: meta.staffNumber }
+  } catch {
+    return undefined
+  }
+}
+
 /** Pending per-workflow role cards are replaced by the one staff card. */
 function retirePendingRoleCards(walletTenantId: string, orgTenantId: string): void {
   const now = new Date().toISOString()
@@ -304,6 +372,7 @@ export class OrgMembershipCredentialService {
      * withdrawn once the new one is accepted (the "send again" button on an accepted card).
      */
     replaceAccepted?: boolean
+    /** `details_changed`: the person's name, email or staff number was edited on the People page. */
     reason?: string
     /** Set when the role was changed on the People page; the inbox copy says so. */
     previousRole?: string
@@ -335,7 +404,9 @@ export class OrgMembershipCredentialService {
       params.userId,
     )
     const orgAccess = employeeOrgAccessForRole(role)
-    const fingerprint = fingerprintOf([
+    const details = staffCardDetails(params.orgTenantId, params.userId)
+    const detailsKey = staffCardDetailsKey(details)
+    const baseParts = [
       params.orgTenantId,
       params.userId,
       role.toLowerCase(),
@@ -351,9 +422,15 @@ export class OrgMembershipCredentialService {
       // A replacement of an accepted card is a new card even when nothing about the person changed.
       // Only added when resending, so cards issued before this existed keep their fingerprint.
       ...(params.replaceAccepted ? [`resend:${Date.now()}`] : []),
-    ])
+    ]
+    const fingerprint = fingerprintOf([...baseParts, ...(detailsKey ? [`details:${detailsKey}`] : [])])
     if (!force) {
-      const same = matchingEmployeeOffer(walletTenantId, sourceId, fingerprint)
+      // Cards from before details were on the card still count, until a detail is actually edited.
+      const same =
+        matchingEmployeeOffer(walletTenantId, sourceId, fingerprint) ||
+        (detailsKey && params.reason !== 'details_changed'
+          ? matchingEmployeeOffer(walletTenantId, sourceId, fingerprintOf(baseParts))
+          : undefined)
       if (same) {
         retirePendingRoleCards(walletTenantId, params.orgTenantId)
         return { outcome: same, walletTenantId }
@@ -373,6 +450,7 @@ export class OrgMembershipCredentialService {
       orgAccess,
       // Added without changing the fingerprint, so existing cards are not re-sent for it.
       ...(employeePermissionsForRole(role) ? { permissions: employeePermissionsForRole(role) } : {}),
+      ...details,
       issuedAt: new Date().toISOString(),
       platformName: process.env.PLATFORM_NAME || PRODUCT_NAME,
       fingerprint,
@@ -395,6 +473,22 @@ export class OrgMembershipCredentialService {
     const held = credentialLifecycleService.acceptedStaffCards(walletTenantId, params.orgTenantId, params.userId)
     // "Send again" from the People table: the card they hold is fine, a fresh one simply replaces it.
     const sentAgain = Boolean(params.replaceAccepted || params.reason === 'manual')
+    // Name, email or staff number edited: what differs from the card they hold.
+    const heldDetails = held.length > 0 ? heldStaffCardDetails(walletTenantId, sourceId) : undefined
+    const detailWords =
+      held.length === 0 || sentAgain
+        ? []
+        : heldDetails
+          ? changedStaffCardDetails(heldDetails, details)
+          : params.reason === 'details_changed'
+            ? changedStaffCardDetails({}, details)
+            : []
+    const heldStepSet = new Set(held[0]?.scope?.stageActions || [])
+    const stepsSame =
+      held.length > 0 &&
+      stageActions.length === heldStepSet.size &&
+      stageActions.every((item) => heldStepSet.has(String(item).trim().toLowerCase()))
+    const detailsOnly = detailWords.length > 0 && !params.previousRole && stepsSame
     let earlierCard: 'withdrawn_now' | 'kept_until_accepted' | 'nothing_to_withdraw' = 'nothing_to_withdraw'
     if (held.length > 0) {
       const rule = orgSetupProfileService.get(params.orgTenantId).staffCardChange
@@ -402,7 +496,9 @@ export class OrgMembershipCredentialService {
         ? `role changed from ${params.previousRole} to ${role}`
         : sentAgain
           ? 'card sent again'
-          : 'steps changed'
+          : detailsOnly
+            ? `details updated: ${detailWords.join(', ')}`
+            : 'steps changed'
       earlierCard = sentAgain
         ? 'kept_until_accepted'
         : credentialLifecycleService.applyStaffCardChangeRule({
@@ -423,7 +519,8 @@ export class OrgMembershipCredentialService {
         : heldAccess === 'manage' || (params.previousRole && employeeOrgAccessForRole(params.previousRole) === 'manage')
           ? ` You no longer open ${orgName}; your jobs and approvals come to your personal inbox.`
           : ''
-    const who = params.displayName ? `${params.displayName} works` : 'You work'
+    const whoName = params.displayName || details.employeeName
+    const who = whoName ? `${whoName} works` : 'You work'
     const heldSteps = new Set(held[0]?.scope?.stageActions || [])
     const nextSteps = new Set(stageActions.map((item) => String(item).trim().toLowerCase()))
     const stepsUnchanged =
@@ -436,7 +533,9 @@ export class OrgMembershipCredentialService {
       ? `Your role at ${orgName} changed from ${describeRole(params.previousRole)} to ${describeRole(role)}. `
       : sentAgain
         ? `${orgName} sent your staff card again. `
-        : stepsUnchanged
+        : detailsOnly
+          ? `${orgName} updated your details on your staff card: ${detailWords.join(', ')}. `
+          : stepsUnchanged
           ? `Your staff card at ${orgName} now shares only the step you are confirming. `
           : held.length > 0
             ? `The steps you confirm at ${orgName} changed. `
@@ -459,6 +558,7 @@ export class OrgMembershipCredentialService {
       const diff = [
         added.length > 0 ? `Added: ${added.join(', ')}.` : '',
         removed.length > 0 ? `Removed: ${removed.join(', ')}.` : '',
+        detailWords.length > 0 && !detailsOnly ? `Updated: ${detailWords.join(', ')}.` : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -467,9 +567,11 @@ export class OrgMembershipCredentialService {
           ? 'role_changed'
           : sentAgain
             ? 'sent_again'
-            : stepsUnchanged
-              ? 'disclosure'
-              : 'steps_changed',
+            : detailsOnly
+              ? 'details_changed'
+              : stepsUnchanged
+                ? 'disclosure'
+                : 'steps_changed',
         note: `${change}${diff ? `${diff} ` : ''}${earlier.trim()}`.trim(),
         added,
         removed,
@@ -491,6 +593,7 @@ export class OrgMembershipCredentialService {
         reason: params.reason,
         previousRole: params.previousRole,
         earlierCard,
+        ...(detailsKey ? { detailsKey } : {}),
         ...(replaces ? { replaces } : {}),
       },
       fingerprint,

@@ -938,6 +938,9 @@ export class OperationsRegisterService {
       if (name && !skillsByKey.has(name.toLowerCase())) skillsByKey.set(name.toLowerCase(), name)
     }
     const skills = Array.from(skillsByKey.values()).slice(0, SKILL_LIMIT)
+    const before = this.db
+      .prepare('SELECT staff_number AS staffNumber FROM employees WHERE tenant_id = ? AND user_id = ?')
+      .get(orgTenantId, userId) as { staffNumber?: string | null } | undefined
     const updated = this.db
       .prepare(
         `UPDATE employees SET staff_number = ?, skills_json = ?, updated_at = CURRENT_TIMESTAMP
@@ -945,6 +948,14 @@ export class OperationsRegisterService {
       )
       .run(staffNumber, JSON.stringify(skills), orgTenantId, userId)
     if (!updated.changes) throw new Error('That person has no record yet. Open People & payroll and try again.')
+    if ((before?.staffNumber || '') !== staffNumber) {
+      // The staff number is on their staff card, so they get a new one to accept.
+      void import('./OrganizationService')
+        .then(({ OrganizationService }) =>
+          new OrganizationService(undefined as any).staffCardDetailsChanged(orgTenantId, userId),
+        )
+        .catch(() => undefined)
+    }
     return this.listAttendants(orgTenantId).find((item) => item.userId === userId)!
   }
 

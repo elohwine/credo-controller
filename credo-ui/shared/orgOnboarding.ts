@@ -88,7 +88,7 @@ export function cardPurpose(card: MemberCard): string {
       ? ' Opens the organisation and its dashboard.'
       : card.orgAccess === 'tasks' ? ' Their jobs and approvals come to their personal inbox.' : ''
     const update = card.needsAccessUpdate ? ' Their card is from before admin access; send it again.' : ''
-    return `Shows they work here.${steps}${access}${update} Sent again when their role or their steps change.`
+    return `Shows they work here.${steps}${access}${update} Sent again when their role, steps, name, email or staff number change.`
   }
   if (card.covers && card.covers.length > 0) return `Lets them confirm: ${card.covers.join(', ')}.`
   return 'Lets them confirm the steps they handle.'

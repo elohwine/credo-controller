@@ -3482,6 +3482,17 @@ export class OrganizationService {
    * Check if a user has a specific role in an org.
    */
   /** Offer an EmployeeCredential into the member's wallet inbox. Non-blocking. */
+  /**
+   * The person's name, email or staff number changed on the People page. Their staff card shows
+   * these, so a new card goes to their inbox; they accept it to replace the one they hold.
+   * Nothing is sent when the card already shows the same details, or they are not on the app.
+   */
+  staffCardDetailsChanged(orgTenantId: string, userId: string): void {
+    const role = this.getUserOrgRole(userId, orgTenantId)
+    if (!role) return
+    this.offerEmployeeCredential(orgTenantId, userId, role, 'membership', { reason: 'details_changed' })
+  }
+
   private offerEmployeeCredential(
     orgTenantId: string,
     userId: string,
