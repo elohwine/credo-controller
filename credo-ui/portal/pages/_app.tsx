@@ -18,6 +18,7 @@ import { clearCurrentSession } from '@/lib/savedAccounts'
 import { clearStoredOrganizationContext, hasSignedInSession } from '@/utils/organizationContext'
 import { CONTEXT_UPDATED_EVENT } from '@/lib/portalContext'
 import { PIN_CHANGE_FLAG } from '../../shared/security/AccountSecurity'
+import { useKeyboardInset } from '../../shared/keyboardInset'
 
 const portalAxios = axios as typeof axios & { __pinChangeGuard?: boolean }
 if (typeof window !== 'undefined' && !portalAxios.__pinChangeGuard) {
@@ -42,6 +43,7 @@ export const CredentialsContext = React.createContext([[], (credentials: Availab
 ])
 
 export default function App({ Component, pageProps }: AppProps) {
+  useKeyboardInset()
   useActiveTabInView()
   const [AvailableCredentials, setAvailableCredentials] = React.useState<AvailableCredential[]>([])
   const [env, setEnv] = React.useState({} as { [key: string]: string })
