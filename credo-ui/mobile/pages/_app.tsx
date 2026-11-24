@@ -195,6 +195,7 @@ async function trackDeepLinkEntry(rawUrl: string, parsed: { route: string; query
 }
 
 export default function App({ Component, pageProps, router }: AppProps) {
+  const isPublicRoute = PUBLIC_ROUTES.includes(router.pathname) || router.pathname.startsWith('/login');
   useActiveTabInView();
   useKeyboardInset();
   const launchUrlHandled = useRef(false);
@@ -355,10 +356,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
     if (typeof window === 'undefined') return;
     const orgToken = getOrgToken();
     const hasToken = isAuthenticated();
-    const isPublic = PUBLIC_ROUTES.some(
-      (r) => router.pathname === r || router.pathname.startsWith('/login')
-    );
-    if (!hasToken && !isPublic) {
+    if (!hasToken && !isPublicRoute) {
       router.replace(`/login/?returnTo=${encodeURIComponent(router.asPath)}`);
       return;
     }
@@ -376,7 +374,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
     if (isPersonalRoute && contextMode === 'org') {
       router.replace(`/?contextRequired=personal&returnTo=${encodeURIComponent(router.asPath)}`);
     }
-  }, [router.pathname]);
+  }, [router.pathname, isPublicRoute]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !Capacitor.isNativePlatform()) return;
@@ -538,7 +536,7 @@ export default function App({ Component, pageProps, router }: AppProps) {
         }}
       >
         <Notifications position="bottom-center" limit={2} pauseResetOnHover="notification" autoClose={3000} zIndex={9999} style={{ marginBottom: 'calc(88px + var(--app-safe-bottom))' }} />
-        {mounted ? (
+        {mounted && (isPublicRoute || isAuthenticated()) ? (
           <Component {...pageProps} />
         ) : (
           <Center h="100dvh">

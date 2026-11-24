@@ -76,10 +76,15 @@ export const TIP_COPY: Record<TipKey, { title: string; body: string }> = {
     title: 'Scan to receive or share',
     body: `Point the camera at a QR code from ${PRODUCT_NAME}. You will always see who is asking before anything is shared.`,
   },
-  tip_operations: {
-    title: 'Work in progress',
-    body: 'Quotes, invoices, payments and jobs for the account in use are kept together here.',
-  },
+  tip_operations: editionHasPresetSetup()
+    ? {
+        title: 'Every job in one place',
+        body: 'New, imported and emailed jobs all land here. Open one to assign it, follow its timeline and sign it off.',
+      }
+    : {
+        title: 'Work in progress',
+        body: 'Quotes, invoices, payments and jobs for the account in use are kept together here.',
+      },
   tip_org_settings: editionHasPresetSetup()
     ? {
         title: 'Your organisation settings',

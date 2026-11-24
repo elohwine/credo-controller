@@ -65,3 +65,21 @@ Backfill and activate SGK-aligned capabilities for existing tenants without inte
    - tests/oidcMetadataExposure.spec.ts
 3. Verify tenant metadata exposure and routing behavior for one pilot org before broad enablement.
 4. Monitor reconciliation exceptions dashboard for first 48h and tune capability/policy metadata.
+
+## Jobs dashboard and UI checks
+
+- Deploy the API before the portal and app dashboard updates. Migrations 159 and 160 add
+  first-response targets, the location cache and employee qualifications. An older API
+  returns 404 for response targets; this is a deployment mismatch, not an unset target.
+- Response targets start blank. Only an explicit saved target enables first-response
+  alerts for that priority. Do not enable address sharing as part of a smoke test:
+  the jobs map requires the manager's explicit consent before contacting OpenStreetMap.
+- Check both table and card views with imported, emailed and manually created jobs.
+  Each opens the existing job details, progress timeline, history and assignment controls.
+  Lists use the same short status labels and colours in both apps; detailed waiting
+  instructions remain in the job itself.
+- Check narrow screens and both colour schemes. A failed list load must show an error
+  and retry, not "No jobs yet"; a failed refresh must keep previously loaded jobs visible.
+  The app's Jobs refresh must reload jobs, not just payment links.
+- Check a signed-out app load: show the loading state and redirect to sign-in without
+  briefly displaying the signed-in dashboard.

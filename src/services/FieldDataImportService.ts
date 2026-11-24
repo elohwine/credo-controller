@@ -779,11 +779,8 @@ function linkJobToStore(
 ): StoreLink {
   const clientRaw = cleanText(job.clientName || '')
   const place = placeName(job.location || '')
-  let storeNumber =
-    normalizeStoreNumber(job.storeNumber) || storeNumberInName(clientRaw) || storeNumberAtStart(place)
-  let contact = storeNumber
-    ? findContactByStoreNumber(orgTenantId, storeNumber)
-    : byName?.get(clientRaw.toLowerCase())
+  let storeNumber = normalizeStoreNumber(job.storeNumber) || storeNumberInName(clientRaw) || storeNumberAtStart(place)
+  let contact = storeNumber ? findContactByStoreNumber(orgTenantId, storeNumber) : byName?.get(clientRaw.toLowerCase())
   if (!storeNumber || contact?.storeNumber) storeNumber = contact?.storeNumber || storeNumber
   if (!storeNumber) {
     const externalId = String(job.externalId || '')
@@ -1462,7 +1459,13 @@ export class FieldDataImportService {
       const externalId = read(record, 'externalId').slice(0, 80)
       const { storeNumber, contact, clientName } = linkJobToStore(
         orgTenantId,
-        { storeNumber: read(record, 'storeNumber'), clientName: clientRaw, location: read(record, 'location'), externalId, reference },
+        {
+          storeNumber: read(record, 'storeNumber'),
+          clientName: clientRaw,
+          location: read(record, 'location'),
+          externalId,
+          reference,
+        },
         byName,
       )
       const clientPhone = phone || contact?.phone || ''
@@ -1569,8 +1572,8 @@ export class FieldDataImportService {
               ...(location ? { location } : {}),
               ...(scheduled ? { scheduledDate: scheduled } : {}),
               ...(vehicle ? { vehicleReference: vehicle } : {}),
-              ...(importFlag(read(record, 'callOut')) ||
-              /\b(urgent|emergency|out of hours)\b/i.test(read(record, 'priority'))
+              ...(!/\b(out[_\s-]?of[_\s-]?hours|ooh)\b/i.test(read(record, 'priority')) &&
+              (importFlag(read(record, 'callOut')) || /\b(urgent|emergency|high|p1)\b/i.test(read(record, 'priority')))
                 ? { callOut: true }
                 : {}),
               ...(worker ? { importedWorkerName: worker } : {}),
@@ -1683,7 +1686,9 @@ export class FieldDataImportService {
     const intakes = db
       .prepare(`SELECT id, payload_json AS json, workflow_run_id AS runId FROM job_intakes WHERE tenant_id = ?`)
       .all(orgTenantId) as Array<{ id: string; json: string; runId?: string | null }>
-    const saveIntake = db.prepare('UPDATE job_intakes SET payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    const saveIntake = db.prepare(
+      'UPDATE job_intakes SET payload_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    )
     const readRun = db.prepare('SELECT input, output FROM workflow_runs WHERE id = ?')
     const saveRun = db.prepare('UPDATE workflow_runs SET input = ?, output = ? WHERE id = ?')
 
@@ -1718,7 +1723,9 @@ export class FieldDataImportService {
         if (!Object.keys(patch).length) continue
         saveIntake.run(JSON.stringify({ ...payload, ...patch }), intake.id)
         updated += 1
-        const run = intake.runId ? (readRun.get(intake.runId) as { input?: string; output?: string } | undefined) : undefined
+        const run = intake.runId
+          ? (readRun.get(intake.runId) as { input?: string; output?: string } | undefined)
+          : undefined
         if (!run || !intake.runId) continue
         const output = parseJson(run.output)
         if (output.workflowInput && typeof output.workflowInput === 'object') Object.assign(output.workflowInput, patch)

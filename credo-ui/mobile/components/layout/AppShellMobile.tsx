@@ -499,7 +499,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                       {(orgLabel ?? 'C').charAt(0).toUpperCase()}
                     </Avatar>
                     <Box style={{ minWidth: 0, flex: 1 }}>
-                      <Text size="xs" c="dimmed" lh={1}>
+                      <Text size="xs" c="dimmed" lh={1} truncate>
                         {contextLine ?? (orgLabel ? 'Organisation' : 'Personal')}
                       </Text>
                       <Group gap={4} align="center" wrap="nowrap">

@@ -4,7 +4,12 @@ const assigned = { workflowInput: { assigneeId: 'worker-1' } }
 
 describe('fieldJobCategory: arrived on site', () => {
   it('is arrived once arrival proof is in and until the after photos are taken', () => {
-    const state = { ...assigned, workflowStage: 'IN_PROGRESS', pauseReason: 'await_site_inspection', checkpoints: { arrival: { status: 'completed' } } }
+    const state = {
+      ...assigned,
+      workflowStage: 'IN_PROGRESS',
+      pauseReason: 'await_site_inspection',
+      checkpoints: { arrival: { status: 'completed' } },
+    }
     expect(fieldJobCategory({ status: 'paused', output: state })).toBe('arrived')
 
     const finished = { ...state, pauseReason: 'await_completion_review', evidenceAfter: { evidenceHash: 'h' } }
@@ -12,7 +17,12 @@ describe('fieldJobCategory: arrived on site', () => {
   })
 
   it('counts before photos as arrival when arrival proof is switched off', () => {
-    const state = { ...assigned, workflowStage: 'IN_PROGRESS', checkpoints: { arrival: { status: 'waived' } }, evidenceBefore: { evidenceHash: 'h' } }
+    const state = {
+      ...assigned,
+      workflowStage: 'IN_PROGRESS',
+      checkpoints: { arrival: { status: 'waived' } },
+      evidenceBefore: { evidenceHash: 'h' },
+    }
     expect(fieldJobCategory({ status: 'running', output: state })).toBe('arrived')
   })
 
@@ -23,7 +33,9 @@ describe('fieldJobCategory: arrived on site', () => {
 
   it('lets a hold or a failed visit win over being on site', () => {
     const onSite = { ...assigned, workflowStage: 'IN_PROGRESS', checkpoints: { arrival: { status: 'completed' } } }
-    expect(fieldJobCategory({ status: 'paused', output: { ...onSite, pauseReason: 'await_handoff:materials' } })).toBe('on_hold')
+    expect(fieldJobCategory({ status: 'paused', output: { ...onSite, pauseReason: 'await_handoff:materials' } })).toBe(
+      'on_hold',
+    )
     expect(fieldJobCategory({ status: 'failed', output: onSite })).toBe('failed')
   })
 
@@ -35,14 +47,18 @@ describe('fieldJobCategory: arrived on site', () => {
       failedVisits: [{ status: 'rebooked', rebookedAt: '2026-01-02T10:00:00Z' }],
     }
     expect(fieldJobCategory({ status: 'paused', output: state })).toBe('active')
-    expect(fieldJobCategory({
+    expect(
+      fieldJobCategory({
       status: 'paused',
       output: { ...state, evidenceBefore: { evidenceHash: 'h', capturedAt: '2026-01-03T10:00:00Z' } },
-    })).toBe('arrived')
-    expect(fieldJobCategory({
+      }),
+    ).toBe('arrived')
+    expect(
+      fieldJobCategory({
       status: 'paused',
       output: { ...state, failedVisits: [{ status: 'rebooked' }] },
-    })).toBe('active')
+      }),
+    ).toBe('active')
   })
 })
 
@@ -59,6 +75,7 @@ describe('fieldJobUrgent', () => {
     expect(fieldJobUrgent({ input: { callOut: true } })).toBe(true)
     expect(fieldJobUrgent({ output: { workflowInput: { importedDetails: { priority: 'Emergency' } } } })).toBe(true)
     expect(fieldJobUrgent({ input: { importedDetails: { priority: 'Normal' } } })).toBe(false)
+    expect(fieldJobUrgent({ input: { callOut: true, priority: 'Out of hours' } })).toBe(false)
     expect(fieldJobUrgent({ input: {} })).toBe(false)
   })
 })

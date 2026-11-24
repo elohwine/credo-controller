@@ -26,7 +26,10 @@ import {
   fieldJobAssigneeId,
   fieldJobCategory,
   fieldJobInput,
+  fieldJobPriority,
+  fieldJobUrgent,
   type FieldJobCategory,
+  type FieldJobPriority,
 } from '../config/fieldJobCategory'
 import { failedVisitReasonLabel, failedVisitsOf, openFailedVisit } from '../config/failedVisit'
 import { fieldJobSourceOf, type FieldJobSource } from '../config/fieldJobSource'
@@ -68,6 +71,8 @@ export interface JobSummary {
   description: string
   location?: string
   scheduledDate?: string
+  branch?: string
+  priority?: FieldJobPriority
   category: FieldJobCategory
   callOut: boolean
   assigneeId?: string
@@ -110,6 +115,8 @@ export interface PendingIntakeSummary {
   reference: string
   description: string
   scheduledDate?: string
+  branch?: string
+  priority?: FieldJobPriority
   source: 'manual' | 'email' | 'import'
   duplicateOf?: string
   createdAt: string
@@ -309,7 +316,8 @@ export class OperationsRegisterService {
       // Jobs saved before store numbers had their own field put the store in the PO box.
       const po = clean(input.poNumber, 120)
       const storeNumber =
-        normalizeStoreNumber(input.storeNumber) || (storeNumbers.has(normalizeStoreNumber(po)) ? normalizeStoreNumber(po) : '')
+        normalizeStoreNumber(input.storeNumber) ||
+        (storeNumbers.has(normalizeStoreNumber(po)) ? normalizeStoreNumber(po) : '')
       const vanId = clean(input.vanId, 80)
       const visits = failedVisitsOf(run.output)
       const open = fieldJobCategory(run) === 'failed' ? openFailedVisit(run.output) : undefined
@@ -322,8 +330,10 @@ export class OperationsRegisterService {
         description: clean(input.description, 500),
         location: clean(input.location, 500) || undefined,
         scheduledDate: clean(input.scheduledDate, 20) || undefined,
+        branch: clean(input.branch || input.importedDetails?.branch, 100) || undefined,
+        priority: fieldJobPriority(run),
         category: fieldJobCategory(run),
-        callOut: input.callOut === true || input.callOut === 'true',
+        callOut: fieldJobUrgent(run),
         assigneeId: fieldJobAssigneeId(run) || undefined,
         vanId: vanId || undefined,
         vehicle: (vanId && vans.get(vanId)?.registration) || clean(input.vehicleReference, 120) || undefined,
@@ -335,7 +345,9 @@ export class OperationsRegisterService {
         createdAt: row.createdAt,
         completedAt: row.completedAt || undefined,
         workerName: clean(input.importedWorkerName || input.workerName, 160) || undefined,
-        ...(visits.length || RETURN_VISIT.test(String(input.importedDetails?.failureType || '')) ? { returnVisit: true } : {}),
+        ...(visits.length || RETURN_VISIT.test(String(input.importedDetails?.failureType || ''))
+          ? { returnVisit: true }
+          : {}),
         ...(open
           ? {
               failedVisit: {
@@ -412,7 +424,13 @@ export class OperationsRegisterService {
         `SELECT id, status, payload_json AS payloadJson, duplicate_of AS duplicateOf, created_at AS createdAt
            FROM job_intakes WHERE tenant_id = ? AND status <> 'assigned' ORDER BY created_at DESC`,
       )
-      .all(orgTenantId) as Array<{ id: string; status: string; payloadJson: string; duplicateOf?: string; createdAt: string }>
+      .all(orgTenantId) as Array<{
+      id: string
+      status: string
+      payloadJson: string
+      duplicateOf?: string
+      createdAt: string
+    }>
     return rows.map((row) => {
       const payload = parse(row.payloadJson) || {}
       return {
@@ -424,10 +442,12 @@ export class OperationsRegisterService {
         duplicateOf: row.duplicateOf || undefined,
         createdAt: row.createdAt,
         storeNumber: normalizeStoreNumber(payload.storeNumber) || undefined,
+        branch: clean(payload.branch || payload.importedDetails?.branch, 100) || undefined,
+        priority: fieldJobPriority({ input: payload }),
         clientName: clean(payload.clientName, 240) || undefined,
         location: clean(payload.location, 500) || undefined,
         poNumber: clean(payload.poNumber, 120) || undefined,
-        callOut: payload.callOut === true,
+        callOut: fieldJobUrgent({ input: payload }),
         status: row.status,
         workerName: clean(payload.importedWorkerName, 160) || undefined,
         details:
@@ -881,7 +901,13 @@ export class OperationsRegisterService {
         `SELECT id, event_id AS eventId, filename, media_type AS mediaType, size_bytes AS sizeBytes
            FROM org_van_event_photos WHERE org_tenant_id = ? ORDER BY created_at`,
       )
-      .all(orgTenantId) as Array<{ id: string; eventId: string; filename: string; mediaType: string; sizeBytes: number }>
+      .all(orgTenantId) as Array<{
+      id: string
+      eventId: string
+      filename: string
+      mediaType: string
+      sizeBytes: number
+    }>
     const photosOf = new Map<string, NonNullable<VanEvent['photos']>>()
     for (const { eventId, ...photo } of photos) photosOf.set(eventId, [...(photosOf.get(eventId) || []), photo])
     return rows.map(({ checklistJson, ...row }) => ({
@@ -904,7 +930,12 @@ export class OperationsRegisterService {
     orgTenantId: string,
     actorId: string,
     vanId: string,
-    input: { checks?: Array<{ item?: string; ok?: boolean; note?: string }>; mileage?: number; notes?: string; photos?: VanPhotoInput[] },
+    input: {
+      checks?: Array<{ item?: string; ok?: boolean; note?: string }>
+      mileage?: number
+      notes?: string
+      photos?: VanPhotoInput[]
+    },
   ): VanEvent {
     const van = this.getVan(orgTenantId, vanId)
     if (!van) throw new Error('Van not found')
@@ -918,7 +949,8 @@ export class OperationsRegisterService {
       return { item, ok: check.ok, ...(note ? { note } : {}) }
     })
     const mileage = input.mileage === undefined || input.mileage === null ? undefined : Number(input.mileage)
-    if (mileage !== undefined && (!Number.isInteger(mileage) || mileage < 0)) throw new Error('Mileage must be a whole number')
+    if (mileage !== undefined && (!Number.isInteger(mileage) || mileage < 0))
+      throw new Error('Mileage must be a whole number')
     const today = new Date().toISOString().slice(0, 10)
     const already = this.db
       .prepare(
@@ -959,7 +991,13 @@ export class OperationsRegisterService {
     const eventDate = cleanDate(input.eventDate, 'Date') || new Date().toISOString().slice(0, 10)
     const photos = this.decodePhotos(input.photos)
     const id = this.db.transaction(() => {
-      const eventId = this.insertEvent(orgTenantId, actorId, { vanId, kind: 'accident', userId: actorId, eventDate, notes })
+      const eventId = this.insertEvent(orgTenantId, actorId, {
+        vanId,
+        kind: 'accident',
+        userId: actorId,
+        eventDate,
+        notes,
+      })
       this.insertPhotos(orgTenantId, eventId, photos)
       return eventId
     })()
@@ -1026,7 +1064,9 @@ export class OperationsRegisterService {
     const warnings: string[] = []
     if (date && van.motDue && van.motDue < date) warnings.push(`${van.registration}'s MOT ran out on ${van.motDue}.`)
     if (date && van.serviceDay && DAY_NAMES[new Date(`${date}T12:00:00Z`).getUTCDay()] === van.serviceDay) {
-      warnings.push(`${van.registration} goes in for its service on ${van.serviceDay.charAt(0).toUpperCase()}${van.serviceDay.slice(1)}s.`)
+      warnings.push(
+        `${van.registration} goes in for its service on ${van.serviceDay.charAt(0).toUpperCase()}${van.serviceDay.slice(1)}s.`,
+      )
     }
     return warnings.length ? warnings.join(' ') : undefined
   }
@@ -1039,7 +1079,14 @@ export class OperationsRegisterService {
    */
   public scheduleCheck(
     orgTenantId: string,
-    input: { storeNumber?: string; date?: string; assigneeId?: string; vanId?: string; excludeRunId?: string; excludeIntakeId?: string },
+    input: {
+      storeNumber?: string
+      date?: string
+      assigneeId?: string
+      vanId?: string
+      excludeRunId?: string
+      excludeIntakeId?: string
+    },
   ): ScheduleCheck {
     const storeNumber = normalizeStoreNumber(input.storeNumber)
     const date = clean(input.date, 20)
@@ -1075,7 +1122,8 @@ export class OperationsRegisterService {
     const po = clean(poNumber, 120).toUpperCase()
     if (!store || !po) return undefined
     const job = this.listJobs(orgTenantId).find(
-      (item) => item.storeNumber === store && clean(item.poNumber).toUpperCase() === po && item.category !== 'cancelled',
+      (item) =>
+        item.storeNumber === store && clean(item.poNumber).toUpperCase() === po && item.category !== 'cancelled',
     )
     if (job) return { kind: 'job', id: job.runId, reference: job.reference }
     const intake = this.db
@@ -1083,7 +1131,9 @@ export class OperationsRegisterService {
         `SELECT id, json_extract(payload_json, '$.reference') AS reference FROM job_intakes
           WHERE tenant_id = ? AND dedupe_key = ? AND id <> ? ORDER BY created_at LIMIT 1`,
       )
-      .get(orgTenantId, intakeDedupeKey(store, po), excludeIntakeId || '') as { id: string; reference?: string } | undefined
+      .get(orgTenantId, intakeDedupeKey(store, po), excludeIntakeId || '') as
+      | { id: string; reference?: string }
+      | undefined
     return intake ? { kind: 'intake', id: intake.id, reference: intake.reference || intake.id } : undefined
   }
 }

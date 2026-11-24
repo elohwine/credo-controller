@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import axios from 'axios'
-import { Stack, TextInput, Textarea, NumberInput, Select, Group, Button, Alert, Text, Checkbox } from '@mantine/core'
+import {
+  Stack,
+  TextInput,
+  Textarea,
+  NumberInput,
+  Select,
+  Group,
+  Button,
+  Alert,
+  Text,
+  Checkbox,
+  Autocomplete,
+} from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { getOrgScopedToken, readActiveOrganization } from '@/utils/organizationContext'
 import { getPreferredTenantToken } from '@/utils/portalTenant'
@@ -20,6 +32,7 @@ import { IconBriefcase } from '@tabler/icons-react'
 import JobPaymentPlanFields, { jobPaymentPlanBody } from './JobPaymentPlanFields'
 import { usePortalOperations } from '@/lib/operations'
 import { JobScheduleFields } from '../../../shared/operations/JobScheduleFields'
+import { FIELD_BRANCH_OPTIONS, FIELD_PRIORITY_OPTIONS } from '../../../shared/operations/jobOptions'
 
 interface Member {
   userId: string
@@ -65,6 +78,8 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
   const { api: operations } = usePortalOperations()
   const [form, setForm] = useState({
     storeNumber: '',
+    branch: '',
+    priority: 'normal',
     vanId: '',
     callOut: false,
     poNumber: '',
@@ -220,7 +235,9 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
         requireConcealedWorkPhoto: form.requireConcealedWorkPhoto,
         poNumber: form.poNumber.trim(),
         ...(form.storeNumber.trim() ? { storeNumber: form.storeNumber.trim() } : {}),
-        ...(form.callOut ? { callOut: true } : {}),
+        ...(form.branch.trim() ? { branch: form.branch.trim() } : {}),
+        priority: form.priority,
+        ...(form.priority === 'urgent' ? { callOut: true } : {}),
         ...(form.problemType ? { problemType: form.problemType } : {}),
         ...(form.vanId ? { vanId: form.vanId } : {}),
         ...(form.vehicleReference.trim() ? { vehicleReference: form.vehicleReference.trim() } : {}),
@@ -246,6 +263,8 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
       setForm((prev) => ({
         ...prev,
         storeNumber: '',
+        branch: '',
+        priority: 'normal',
         vanId: '',
         callOut: false,
         poNumber: '',
@@ -295,6 +314,24 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
           value={form.description}
           onChange={(e) => setForm({ ...form, description: e.currentTarget.value })}
         />
+        <Group grow>
+          <Autocomplete
+            label="Branch"
+            placeholder="Choose or enter a branch"
+            data={FIELD_BRANCH_OPTIONS}
+            value={form.branch}
+            onChange={(branch) => setForm({ ...form, branch })}
+          />
+          <Select
+            label="Priority"
+            data={FIELD_PRIORITY_OPTIONS}
+            value={form.priority}
+            allowDeselect={false}
+            onChange={(priority) =>
+              setForm({ ...form, priority: priority || 'normal', callOut: priority === 'urgent' })
+            }
+          />
+        </Group>
         <Checkbox
           label="Require a photo before work is covered"
           description="Adds an in-progress, location-sealed photo step for wiring, pipework or other work that will be hidden."
@@ -394,11 +431,16 @@ export default function NewJobModal({ opened, onClose, onCreated, embedded = fal
             }))
           }
           vanId={form.vanId || null}
-          onVan={(van) => setForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))}
+          onVan={(van) =>
+            setForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))
+          }
           callOut={form.callOut}
           onCallOut={(callOut) => setForm((prev) => ({ ...prev, callOut }))}
+          showCallOut={false}
           date={form.scheduledDate}
-          assigneeId={form.assigneeId === STAGE_ACTOR || parseJobContactSelection(form.assigneeId) ? null : form.assigneeId}
+          assigneeId={
+            form.assigneeId === STAGE_ACTOR || parseJobContactSelection(form.assigneeId) ? null : form.assigneeId
+          }
           names={Object.fromEntries(members.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
         />
         <Select

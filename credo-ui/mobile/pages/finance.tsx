@@ -1,7 +1,7 @@
 import { PRODUCT_NAME } from '@/lib/orgProfile'
-import { feedback } from '@/lib/feedback';
-import { PhoneField } from '../../shared/PhoneField';
-import { milestone } from '@/components/feedback/Milestone';
+import { feedback } from '@/lib/feedback'
+import { PhoneField } from '../../shared/PhoneField'
+import { milestone } from '@/components/feedback/Milestone'
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Anchor,
@@ -20,6 +20,7 @@ import {
   Drawer,
   Divider,
   Button,
+  Autocomplete,
   TextInput,
   Select,
   ActionIcon,
@@ -85,14 +86,16 @@ import {
   IconShoppingCart,
   IconInbox,
   IconTruck,
+  IconDotsVertical,
+  IconBuildingStore,
 } from '@tabler/icons-react'
 import AppShellMobile from '@/components/layout/AppShellMobile'
 import FormCard from '@/components/shared/FormCard'
-import { SectionTip } from '@/components/guides/SectionGuides';
+import { SectionTip } from '@/components/guides/SectionGuides'
 import ErrorAlert from '@/components/shared/ErrorAlert'
 import JobHandoffsPanel, { FamilyStrip, useRelatedWorkNavigation } from '@/components/shared/JobHandoffsPanel'
 import { familyLinks, handoffLinks } from '../../shared/relatedWork'
-import { fieldJobUrgent } from '../../../src/config/fieldJobCategory'
+import { fieldJobCategory, fieldJobPriority, fieldJobUrgent } from '../../../src/config/fieldJobCategory'
 import { captureOrganizationSwitchContext, isBoundTaskPath } from '../../shared/taskContext'
 import JobAuditTrailPanel from '@/components/shared/JobAuditTrailPanel'
 import RecordActions from '@/components/shared/RecordActions'
@@ -105,7 +108,14 @@ import { ClientBillingDetails } from '@/components/shared/ClientBillingDetails'
 import { ContactPickerSelect } from '@/components/shared/ContactPickerSelect'
 import { fieldJobBillingExceptions, jobClientWait } from '../../shared/fieldJobOutcomes'
 import { assertFieldStepSucceeded } from '../../shared/fieldEvidence'
-import { FINANCE_TABLE_HEADERS, FinanceListRows, FinanceViewToggle, financeRowsToCells, useFinanceListView, type FinanceListRow } from '../../shared/FinanceList'
+import {
+  FINANCE_TABLE_HEADERS,
+  FinanceListRows,
+  FinanceViewToggle,
+  financeRowsToCells,
+  useFinanceListView,
+  type FinanceListRow,
+} from '../../shared/FinanceList'
 import { canExportReports, csvFrom, EXPORT_MIME, exportFileName, saveExport } from '@/lib/exportFile'
 import { StepHelp } from '@/components/help/StepHelp'
 import { StageActorTimeline } from '@/components/shared/StageActorTimeline'
@@ -133,7 +143,15 @@ import {
 import { relatedWorkLine, requestStatusWords } from '@/lib/uxCopy'
 import { formatTxnTime } from '@/lib/inboxAttention'
 import { captureHashedPhoto } from '@/lib/evidenceHash'
-import { FIELD_CHECKER_STAGE, FIELD_WORKER_STAGE, jobContactOption, jobPeopleOptions, OUTSIDE_CONTACT_NEEDS_APP, parseJobContactSelection, stageActorOption } from '@/lib/jobPeople'
+import {
+  FIELD_CHECKER_STAGE,
+  FIELD_WORKER_STAGE,
+  jobContactOption,
+  jobPeopleOptions,
+  OUTSIDE_CONTACT_NEEDS_APP,
+  parseJobContactSelection,
+  stageActorOption,
+} from '@/lib/jobPeople'
 import api, { API_BASE_URL, safeArray } from '@/lib/api'
 import { appRoute } from '@/lib/appPath'
 import { friendlyRequestError } from '@/lib/requestError'
@@ -156,7 +174,14 @@ import {
 } from '@/lib/auth'
 import { openOrganizationForTask, taskRefs, type OrgTaskPurpose } from '@/lib/orgTaskAccess'
 import { findTemplateForCapability, getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities'
-import { editionAllowsModule, readOrgProfile, persistOrgProfile, profileFromServer, SETUP_PROFILE_PATH, type OrgProfile } from '@/lib/orgProfile'
+import {
+  editionAllowsModule,
+  readOrgProfile,
+  persistOrgProfile,
+  profileFromServer,
+  SETUP_PROFILE_PATH,
+  type OrgProfile,
+} from '@/lib/orgProfile'
 import { requireSensitiveOrgReauth } from '@/lib/offline/localReauth'
 import { confirmWithDevice } from '@/lib/deviceTrust'
 import {
@@ -200,11 +225,12 @@ import {
 import JobPaymentPlanFields, { jobPaymentPlanBody } from '@/components/shared/JobPaymentPlanFields'
 import { usePhoneOperations } from '@/lib/operations'
 import { JobScheduleFields } from '../../shared/operations/JobScheduleFields'
+import { FIELD_BRANCH_OPTIONS, FIELD_PRIORITY_OPTIONS } from '../../shared/operations/jobOptions'
 import { FailedVisitPanel } from '../../shared/operations/FailedVisitPanel'
 import { JobBoard } from '../../shared/operations/JobBoard'
 import { ImportedJobDetails } from '../../shared/operations/ImportedJobDetails'
 import { JobOnSite } from '../../shared/operations/JobOnSite'
-import { ATTENTION_WORDS, operationsApi, type AttentionItem } from '../../shared/operations/operationsApi'
+import { ATTENTION_WORDS, JOB_CATEGORY_WORDS, operationsApi, type AttentionItem } from '../../shared/operations/operationsApi'
 import JobPriceSheet from '@/components/shared/JobPriceSheet'
 import { detailTabsFor, type DetailTabKey } from '../../shared/detailTabs'
 
@@ -651,7 +677,9 @@ function JobEvidenceTabs({
                 people={orgMembers}
                 assigneeName={assigneeName}
                 hasAssignee={Boolean(
-                  run?.output?.assignment?.assigneeId || run?.output?.workflowInput?.assigneeId || run?.input?.assigneeId,
+                  run?.output?.assignment?.assigneeId ||
+                    run?.output?.workflowInput?.assigneeId ||
+                    run?.input?.assigneeId,
                 )}
                 whoDid={whoDidStages(auditTrail)}
                 media={stageMedia(auditTrail)}
@@ -742,16 +770,28 @@ function JobEvidenceTabs({
             <Text size="xs" c="dimmed" mb="sm">
               Assignment records go to the worker. Organisation records stay in the organisation wallet.
             </Text>
-            {['owner', 'admin'].includes(getOrgRoleClaim() || '') && run.output?.issuedCredentials?.RequisitionVC && !run.output?.issuedCredentials?.JobAssignmentVC && (
-              <Button size="xs" mb="sm" variant="light" loading={replacing} onClick={async () => {
+            {['owner', 'admin'].includes(getOrgRoleClaim() || '') &&
+              run.output?.issuedCredentials?.RequisitionVC &&
+              !run.output?.issuedCredentials?.JobAssignmentVC && (
+                <Button
+                  size="xs"
+                  mb="sm"
+                  variant="light"
+                  loading={replacing}
+                  onClick={async () => {
                 setReplacing(true)
                 try {
                   await api.post(`/workflows/runs/${encodeURIComponent(run.id)}/assignment-record/replace`, {})
                   await onRefresh()
                 } catch (err: any) {
                   feedback.fromError(err, { fallback: 'Could not replace the assignment record' })
-                } finally { setReplacing(false) }
-              }}>Replace legacy assignment record</Button>
+                    } finally {
+                      setReplacing(false)
+                    }
+                  }}
+                >
+                  Replace legacy assignment record
+                </Button>
             )}
             {sheets.records.length === 0 ? (
               <Text size="sm" c="dimmed" fs="italic">
@@ -780,13 +820,7 @@ function JobEvidenceTabs({
           <JobAuditTrailPanel trail={buildJobAuditTrail(run, orgMembers)} compact embedded />
         </Tabs.Panel>
       </Tabs>
-      <Modal
-        opened={Boolean(preview)}
-        onClose={() => setPreview(null)}
-        title={preview?.label}
-        size="lg"
-        centered
-      >
+      <Modal opened={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.label} size="lg" centered>
         <Stack gap="sm">
           {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
           {preview?.lines?.map((line) => (
@@ -826,6 +860,7 @@ function DetailStatusCard({
   currency,
   lines,
   amountColor = 'indigo',
+  emptyAmountText,
   footer,
 }: {
   status: string
@@ -833,8 +868,11 @@ function DetailStatusCard({
   currency?: string
   lines: DetailStatusLine[]
   amountColor?: string
+  /** Shown instead of a zero amount when no price has been set. */
+  emptyAmountText?: string
   footer?: React.ReactNode
 }) {
+  const unpriced = Boolean(emptyAmountText) && !(Number(amount) > 0)
   return (
     <Paper p="md" radius="md" withBorder>
       <Group justify="space-between" align="center">
@@ -844,8 +882,8 @@ function DetailStatusCard({
           </Text>
           <Text fw={700}>{status}</Text>
         </Box>
-        <Text fw={700} c={amountColor}>
-          {fmt(amount, currency)}
+        <Text fw={unpriced ? 500 : 700} size={unpriced ? 'sm' : undefined} c={unpriced ? 'dimmed' : amountColor}>
+          {unpriced ? emptyAmountText : fmt(amount, currency)}
         </Text>
       </Group>
       <Stack gap={2} mt="sm">
@@ -957,13 +995,7 @@ function DetailTimelineList({
           </Group>
         </Paper>
       ))}
-      <Modal
-        opened={Boolean(preview)}
-        onClose={() => setPreview(null)}
-        title={preview?.label}
-        size="lg"
-        centered
-      >
+      <Modal opened={Boolean(preview)} onClose={() => setPreview(null)} title={preview?.label} size="lg" centered>
         <Stack gap="sm">
           {preview?.src && <Image src={preview.src} alt={preview.label} fit="contain" mah="70vh" />}
           {preview?.lines?.map((line) => (
@@ -1265,7 +1297,13 @@ function getPaymentFlowKind(link: PaymentLink): PaymentFlowKind {
 }
 
 function getPaymentFlowBadge(flow: PaymentFlowKind): { label: string; color: string } {
-  if (flow === 'checkout' || flow === 'invoice' || flow === 'instalment' || flow === 'recurring' || flow === 'one_time') {
+  if (
+    flow === 'checkout' ||
+    flow === 'invoice' ||
+    flow === 'instalment' ||
+    flow === 'recurring' ||
+    flow === 'one_time'
+  ) {
     return FINANCE_FLOW_WORDS[flow]
   }
   return FINANCE_FLOW_WORDS.customer_payment
@@ -1533,7 +1571,9 @@ function inferNextEvidencePhase(run: any): 'before' | 'concealed' | 'after' | 'r
       output?.evidence?.receipt?.evidenceHash,
   )
   const concealedDone = Boolean(output?.evidenceConcealed?.evidenceHash || output?.evidence?.concealed?.evidenceHash)
-  const concealedFlag = String(run?.input?.requireConcealedWorkPhoto ?? '').trim().toLowerCase()
+  const concealedFlag = String(run?.input?.requireConcealedWorkPhoto ?? '')
+    .trim()
+    .toLowerCase()
   const concealedRequired =
     Boolean(run?.input?.requireConcealedWorkPhoto) && !['false', '0', 'no', 'off'].includes(concealedFlag)
   // Before photos → receipts for materials (or none) → optional concealed-work photo → after photos.
@@ -1646,8 +1686,14 @@ function describeRequisitionEvent(event: NonNullable<RequisitionDetail['events']
 function billSentMessage(contact: { payerName: string }, notification: any, renew: boolean) {
   const queued = notification?.channels?.some((channel: any) => channel.status === 'queued')
   if (notification?.accepted || queued)
-    return { color: 'teal', message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their ${PRODUCT_NAME} inbox if they use the app.` }
-  return { color: 'orange', message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.` }
+    return {
+      color: 'teal',
+      message: `${renew ? 'New link sent' : 'Bill sent'} to ${contact.payerName}. It is also in their ${PRODUCT_NAME} inbox if they use the app.`,
+    }
+  return {
+    color: 'orange',
+    message: `Saved, but no message went out to ${contact.payerName} (${(notification?.channels || []).map((channel: any) => `${channel.channel}: ${channel.status}`).join(', ') || 'no channel'}). Copy the payment link and share it directly.`,
+  }
 }
 
 export default function FinancePage() {
@@ -1656,12 +1702,13 @@ export default function FinancePage() {
   const currentInboxTask = typeof window !== 'undefined' ? getTaskContext() : null
   const taskUrl = currentInboxTask ? new URL(window.location.href) : null
   const itemTaskActive = Boolean(taskUrl)
-  const canLoadFinance = typeof window !== 'undefined' && getContextMode() === 'org' &&
-    (!currentInboxTask || isBoundTaskPath(currentInboxTask, `${appRoute(window.location.pathname)}${window.location.search}`))
+  const canLoadFinance =
+    typeof window !== 'undefined' &&
+    getContextMode() === 'org' &&
+    (!currentInboxTask ||
+      isBoundTaskPath(currentInboxTask, `${appRoute(window.location.pathname)}${window.location.search}`))
   const fieldTaskRunId =
-    taskUrl?.searchParams.get('tab') === 'field'
-      ? normalizeRunId(taskUrl.searchParams.get('runId'))
-      : null
+    taskUrl?.searchParams.get('tab') === 'field' ? normalizeRunId(taskUrl.searchParams.get('runId')) : null
   useEffect(() => {
     if (getContextMode() !== 'org') {
       router.replace('/inbox')
@@ -1676,8 +1723,8 @@ export default function FinancePage() {
   const [operationProfile, setOperationProfile] = useState<OrgProfile | null>(null)
   const [workflowConfigReady, setWorkflowConfigReady] = useState(false)
   const [workflowConfigError, setWorkflowConfigError] = useState('')
-  const activeSessionOrg = useSessionStore(state => state.orgId)
-  const operationScope = useSessionStore(state => state.scope)
+  const activeSessionOrg = useSessionStore((state) => state.orgId)
+  const operationScope = useSessionStore((state) => state.scope)
   const [links, setLinks] = useState<PaymentLink[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -1793,8 +1840,8 @@ export default function FinancePage() {
   const [requisitionLifecycleNote, setRequisitionLifecycleNote] = useState('Goods/services received and confirmed.')
   const [orgContextBundle, setOrgContextBundle] = useState<OrgContextBundleCacheEntry | null>(null)
   const [showFieldRun, setShowFieldRun] = useState(false)
-  const [showJobBoard, setShowJobBoard] = useState(false)
-  const [jobBoardView, setJobBoardView] = useState<'list' | 'reports'>('list')
+  // Calendar and report are other views of the same jobs, so they sit as tabs beside the list.
+  const [fieldView, setFieldView] = useState<'jobs' | 'calendar' | 'reports'>('jobs')
   const [fieldRunsLimit, setFieldRunsLimit] = useState(50)
   const { api: phoneOperations, notify: phoneNotify } = usePhoneOperations()
   // A worker acts on their own job with whichever profile they are in, so not only the org token.
@@ -1816,6 +1863,8 @@ export default function FinancePage() {
   const [creatingFieldRun, setCreatingFieldRun] = useState(false)
   const [fieldRunForm, setFieldRunForm] = useState({
     storeNumber: '',
+    branch: '',
+    priority: 'normal',
     vanId: '',
     callOut: false,
     poNumber: '',
@@ -1860,7 +1909,12 @@ export default function FinancePage() {
         orgMembers.filter((member) => member.status === 'active'),
         contacts
           .filter((contact) => contact.phone)
-          .map((contact) => ({ name: contact.name, phone: contact.phone || '', contactScope: contact.contactScope, storeNumber: contact.storeNumber })),
+          .map((contact) => ({
+            name: contact.name,
+            phone: contact.phone || '',
+            contactScope: contact.contactScope,
+            storeNumber: contact.storeNumber,
+          })),
       ),
     [orgMembers, contacts],
   )
@@ -2003,7 +2057,9 @@ export default function FinancePage() {
   const hasFieldExecution = hasFieldExecutionConfigured && isEmployeeOrgRole()
   const hasApPayables = capabilityFlags.apPayables
   const orgKinds = scopedProfile?.kinds || []
-  const hasCommerce = editionAllowsModule('commerce') && (capabilityFlags.cashCounter || capabilityFlags.ecommerce || orgKinds.includes('shop'))
+  const hasCommerce =
+    editionAllowsModule('commerce') &&
+    (capabilityFlags.cashCounter || capabilityFlags.ecommerce || orgKinds.includes('shop'))
   const requisitionRows = requisitions
   const selectedRequisitionRow = selectedRequisitionId
     ? requisitions.find((row) => row.id === selectedRequisitionId) || null
@@ -2041,7 +2097,9 @@ export default function FinancePage() {
     (link: PaymentLink) => {
       const routeToken = getLinkRouteToken(link)
       if (!routeToken) {
-        feedback.error('This payment link is missing a checkout reference. Refresh and try again.', { title: 'Payment link unavailable' })
+        feedback.error('This payment link is missing a checkout reference. Refresh and try again.', {
+          title: 'Payment link unavailable',
+        })
         return
       }
 
@@ -2364,7 +2422,10 @@ export default function FinancePage() {
   const sessionScope = useSessionStore((state) => state.scope)
   const fieldRunsEnabled = Boolean(canLoadFinance && hasFieldExecution && !(itemTaskActive && !fieldTaskRunId))
   const fieldRunsKey = useMemo(
-    () => (fieldTaskRunId ? queryKeys.fieldRun(sessionScope, fieldTaskRunId) : [...queryKeys.fieldRuns(sessionScope), fieldRunsLimit]),
+    () =>
+      fieldTaskRunId
+        ? queryKeys.fieldRun(sessionScope, fieldTaskRunId)
+        : [...queryKeys.fieldRuns(sessionScope), fieldRunsLimit],
     [sessionScope, fieldTaskRunId, fieldRunsLimit],
   )
   const fieldRunsQuery = useQuery<any[]>({
@@ -2376,10 +2437,13 @@ export default function FinancePage() {
       const token = getPreferredToken()
       if (!token) return []
       try {
-        const res = await api.get(fieldTaskRunId ? `/workflows/runs/${encodeURIComponent(fieldTaskRunId)}` : '/workflows/runs', {
+        const res = await api.get(
+          fieldTaskRunId ? `/workflows/runs/${encodeURIComponent(fieldTaskRunId)}` : '/workflows/runs',
+          {
           params: fieldTaskRunId ? undefined : { limit: fieldRunsLimit },
           headers: { Authorization: `Bearer ${token}` },
-        })
+          },
+        )
         const raw = fieldTaskRunId ? [res.data] : safeArray(res.data)
         return raw.filter((run: any) => {
           const wfId = String(run.workflowId || run.workflow_id || '').toLowerCase()
@@ -2409,27 +2473,27 @@ export default function FinancePage() {
     },
   })
   const fieldRuns = useMemo<any[]>(
-    () => (fieldRunsEnabled ? fieldRunsQuery.data ?? [] : []),
+    () => (fieldRunsEnabled ? (fieldRunsQuery.data ?? []) : []),
     [fieldRunsEnabled, fieldRunsQuery.data],
   )
   // Stuck jobs are flagged in the jobs list itself, not listed a second time elsewhere.
   const [fieldAttention, setFieldAttention] = useState<Map<string, AttentionItem>>(new Map())
   const [fieldAttentionOnly, setFieldAttentionOnly] = useState(false)
+  const [fieldUrgentOnly, setFieldUrgentOnly] = useState(false)
   useEffect(() => {
     if (!router.isReady) return
     if (router.query.attention === '1') setFieldAttentionOnly(true)
-    if (router.query.report === '1') {
-      setJobBoardView('reports')
-      setShowJobBoard(true)
-    }
-  }, [router.isReady, router.query.attention, router.query.report])
+    if (router.query.urgent === '1') setFieldUrgentOnly(true)
+    if (router.query.report === '1') setFieldView('reports')
+  }, [router.isReady, router.query.attention, router.query.urgent, router.query.report])
   useEffect(() => {
     if (!phoneOperations || !fieldRunsEnabled) return
     let cancelled = false
     phoneOperations
       .attention()
       .then((items) => {
-        if (!cancelled) setFieldAttention(new Map(items.filter((item) => item.runId).map((item) => [String(item.runId), item])))
+        if (!cancelled)
+          setFieldAttention(new Map(items.filter((item) => item.runId).map((item) => [String(item.runId), item])))
       })
       .catch(() => {
         /* rows just show no flag */
@@ -2461,7 +2525,8 @@ export default function FinancePage() {
     await queryClient.refetchQueries({ queryKey: fieldRunsKey, exact: true }).catch(() => undefined)
     // A change to one job also changes the list and the job opened on its own.
     void queryClient.invalidateQueries({
-      predicate: (query) => query.queryKey[0] === sessionScope && (query.queryKey[1] === 'field-runs' || query.queryKey[1] === 'field-run'),
+      predicate: (query) =>
+        query.queryKey[0] === sessionScope && (query.queryKey[1] === 'field-runs' || query.queryKey[1] === 'field-run'),
       refetchType: 'none',
     })
   }, [fieldRunsEnabled, queryClient, fieldRunsKey, sessionScope])
@@ -2541,7 +2606,10 @@ export default function FinancePage() {
       })
       setSupplierStatement(res.data)
     } catch (err: any) {
-      feedback.fromError(err, { title: 'Could not load statement', retry: () => void fetchSupplierStatement(supplierId) })
+      feedback.fromError(err, {
+        title: 'Could not load statement',
+        retry: () => void fetchSupplierStatement(supplierId),
+      })
     } finally {
       setStatementLoading(false)
     }
@@ -2656,7 +2724,9 @@ export default function FinancePage() {
     async (transactionId: string, options?: { planId?: string | null; orgTenantId?: string | null }) => {
       const token = getWalletToken() || getPreferredToken()
       if (!token) {
-        feedback.warn('Switch into the debtor organization context to launch this wallet proof.', { title: 'Organization session required' })
+        feedback.warn('Switch into the debtor organization context to launch this wallet proof.', {
+          title: 'Organization session required',
+        })
         return
       }
 
@@ -2768,7 +2838,9 @@ export default function FinancePage() {
         const escalationHint = decision.suggestedEscalationRole
           ? ` Escalate to ${decision.suggestedEscalationRole}.`
           : ''
-        feedback.error(`${decision.reason || 'Action blocked by org policy.'}${escalationHint}`, { title: 'Policy Check Failed' })
+        feedback.error(`${decision.reason || 'Action blocked by org policy.'}${escalationHint}`, {
+          title: 'Policy Check Failed',
+        })
         return false
       }
 
@@ -2778,7 +2850,11 @@ export default function FinancePage() {
   )
 
   const ensureOrgContextForRequisition = useCallback(
-    async (orgTenantId: string | null | undefined, purpose: OrgTaskPurpose, refs: Array<string | null | undefined>): Promise<boolean> => {
+    async (
+      orgTenantId: string | null | undefined,
+      purpose: OrgTaskPurpose,
+      refs: Array<string | null | undefined>,
+    ): Promise<boolean> => {
       if (!orgTenantId) return true
 
       const normalizedOrgId = String(orgTenantId).trim()
@@ -2799,10 +2875,15 @@ export default function FinancePage() {
           beginTaskContext({ orgId: normalizedOrgId, target: window.location.pathname + window.location.search })
         }
 
-        feedback.info(opened.taskPass ? 'Open for this item only.' : 'Switched to the organization.', { title: opened.taskPass ? `Working on a task for ${opened.orgName}` : 'Organization context active' })
+        feedback.info(opened.taskPass ? 'Open for this item only.' : 'Switched to the organization.', {
+          title: opened.taskPass ? `Working on a task for ${opened.orgName}` : 'Organization context active',
+        })
         return true
       } catch (error: any) {
-        feedback.error(error?.response?.data?.message || (error instanceof Error ? error.message : 'Please try again.'), { title: 'Could not open this task' })
+        feedback.error(
+          error?.response?.data?.message || (error instanceof Error ? error.message : 'Please try again.'),
+          { title: 'Could not open this task' },
+        )
         return false
       } finally {
         setContextSwitching(false)
@@ -2846,7 +2927,9 @@ export default function FinancePage() {
         if (orgTenantId) {
           const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [targetId])
           if (!switched) {
-            feedback.warn('Please switch to the correct organization context to action this requisition.', { title: 'Context switch required' })
+            feedback.warn('Please switch to the correct organization context to action this requisition.', {
+              title: 'Context switch required',
+            })
           }
         }
 
@@ -2895,7 +2978,8 @@ export default function FinancePage() {
         }
       }
 
-      const existing = fieldRuns.find((run) => String(run.id || '') === normalizedRunId) ||
+      const existing =
+        fieldRuns.find((run) => String(run.id || '') === normalizedRunId) ||
         queryClient.getQueryData<any[]>(queryKeys.fieldRun(sessionScope, normalizedRunId))?.[0]
       if (existing) {
         setSelectedFieldRun(existing)
@@ -2940,7 +3024,9 @@ export default function FinancePage() {
         }
       } catch (err: any) {
         setFieldDeepLinkFailed(normalizedRunId)
-        feedback.error(friendlyRequestError(err, 'Check your connection and try again from the inbox.'), { title: 'Could not open the job' })
+        feedback.error(friendlyRequestError(err, 'Check your connection and try again from the inbox.'), {
+          title: 'Could not open the job',
+        })
       }
     },
     [ensureOrgContextForRequisition, fieldRuns, queryClient, sessionScope],
@@ -3031,9 +3117,14 @@ export default function FinancePage() {
       const orgTenantId = typeof router.query.orgTenantId === 'string' ? router.query.orgTenantId : null
 
       if (orgTenantId) {
-        const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [requisitionIdFromQuery, requestId])
+        const switched = await ensureOrgContextForRequisition(orgTenantId, 'requisition', [
+          requisitionIdFromQuery,
+          requestId,
+        ])
         if (!switched && !cancelled) {
-          feedback.warn('Sign in and switch to your organisation to act on this purchase request.', { title: 'Context switch required' })
+          feedback.warn('Sign in and switch to your organisation to act on this purchase request.', {
+            title: 'Context switch required',
+          })
         }
       }
 
@@ -3082,7 +3173,8 @@ export default function FinancePage() {
       })
   }, [])
 
-  const decideChainRequest = useCallback(async (decision: 'approve' | 'reject') => {
+  const decideChainRequest = useCallback(
+    async (decision: 'approve' | 'reject') => {
     if (!chainRequest?.id) return
     const reason = chainDecisionReason.trim()
     if (decision === 'reject' && !reason) {
@@ -3096,9 +3188,12 @@ export default function FinancePage() {
     }
     const permissionKey = decision === 'approve' ? 'canApprove' : 'canReject'
     if (!chainRequest.decision?.[permissionKey]) {
-      feedback.warn(chainRequest.decision?.actorLabel
+        feedback.warn(
+          chainRequest.decision?.actorLabel
           ? `This step is assigned to ${chainRequest.decision.actorLabel}.`
-          : 'Your current organization role cannot decide this request.', { title: 'Request is not assigned to you' })
+            : 'Your current organization role cannot decide this request.',
+          { title: 'Request is not assigned to you' },
+        )
       return
     }
 
@@ -3118,12 +3213,14 @@ export default function FinancePage() {
       )
       const res = await api.get(`/api/platform/requests/${encodeURIComponent(chainRequest.id)}`, { headers })
       assertCurrent()
-      if (res.data?.id !== chainRequest.id) throw new Error('The request response did not match the item you decided.')
+        if (res.data?.id !== chainRequest.id)
+          throw new Error('The request response did not match the item you decided.')
       setChainRequest(res.data)
       setChainDecisionReason('')
       notifications.show({
         title: decision === 'approve' ? 'Request approved' : 'Request declined',
-        message: decision === 'approve'
+          message:
+            decision === 'approve'
           ? 'Approval is recorded. The linked job remains on hold until the purchase or required fulfillment is recorded.'
           : 'The request was declined.',
         color: decision === 'approve' ? 'green' : 'orange',
@@ -3133,7 +3230,9 @@ export default function FinancePage() {
     } finally {
       setChainDecisionLoading(false)
     }
-  }, [chainDecisionReason, chainRequest])
+    },
+    [chainDecisionReason, chainRequest],
+  )
 
   useEffect(() => {
     if (!canLoadFinance) return
@@ -3180,7 +3279,14 @@ export default function FinancePage() {
       const transactionId = typeof router.query.transactionId === 'string' ? router.query.transactionId : null
       void ensureOrgContextForRequisition(orgTenantId, 'payable', [transactionId])
     }
-  }, [router.query.tab, router.query.orgTenantId, router.query.transactionId, hasApPayables, ensureOrgContextForRequisition, canLoadFinance])
+  }, [
+    router.query.tab,
+    router.query.orgTenantId,
+    router.query.transactionId,
+    hasApPayables,
+    ensureOrgContextForRequisition,
+    canLoadFinance,
+  ])
 
   // The inbox's "Opening the job…" screen hands over to this screen's own one as soon as it draws.
   const unblockScreen = useUiStore((state) => state.unblock)
@@ -3769,7 +3875,9 @@ export default function FinancePage() {
     if (!canIssueInvoice) return
 
     if (!invoiceForm.studentName.trim() || !invoiceForm.studentId.trim() || !invoiceForm.parentPhone.trim()) {
-      feedback.warn('Add the student name, student ID and the parent phone. The pay link goes to that phone.', { title: 'Missing details' })
+      feedback.warn('Add the student name, student ID and the parent phone. The pay link goes to that phone.', {
+        title: 'Missing details',
+      })
       return
     }
 
@@ -3839,7 +3947,9 @@ export default function FinancePage() {
       setSelectedInvoiceContact(null)
       await fetchFeeRuns()
     } catch (err: any) {
-      feedback.error(err.response?.data?.error ?? err.response?.data?.message ?? err.message, { title: 'Fee not saved' })
+      feedback.error(err.response?.data?.error ?? err.response?.data?.message ?? err.message, {
+        title: 'Fee not saved',
+      })
     } finally {
       setCreatingInvoice(false)
     }
@@ -3932,7 +4042,9 @@ export default function FinancePage() {
         poNumber: fieldRunForm.poNumber.trim(),
         ...(fieldRunForm.storeNumber.trim() ? { storeNumber: fieldRunForm.storeNumber.trim() } : {}),
         ...(fieldRunForm.vanId ? { vanId: fieldRunForm.vanId } : {}),
-        callOut: fieldRunForm.callOut,
+        callOut: fieldRunForm.priority === 'urgent',
+        priority: fieldRunForm.priority,
+        ...(fieldRunForm.branch.trim() ? { branch: fieldRunForm.branch.trim() } : {}),
         ...(fieldRunForm.problemType ? { problemType: fieldRunForm.problemType } : {}),
         ...(fieldRunForm.vehicleReference.trim() ? { vehicleReference: fieldRunForm.vehicleReference.trim() } : {}),
         requireConcealedWorkPhoto: fieldRunForm.requireConcealedWorkPhoto,
@@ -3959,6 +4071,8 @@ export default function FinancePage() {
       setShowFieldRun(false)
       setFieldRunForm({
         storeNumber: '',
+        branch: '',
+        priority: 'normal',
         vanId: '',
         callOut: false,
         poNumber: '',
@@ -4077,7 +4191,9 @@ export default function FinancePage() {
         // Keep existing drawer state if refresh fails.
       }
     } catch (err: any) {
-      feedback.error(String(err?.response?.data?.error || err?.message || 'Please try again.'), { title: 'Could not resume this job' })
+      feedback.error(String(err?.response?.data?.error || err?.message || 'Please try again.'), {
+        title: 'Could not resume this job',
+      })
     } finally {
       setFeptActionLoading(false)
     }
@@ -4142,19 +4258,23 @@ export default function FinancePage() {
       assertCurrent()
       const token = getPreferredToken()
       if (!token) throw new Error('Missing active context session')
-      const fresh = await refreshFieldRun(queryClient, scope, runId, async () => {
+      const fresh = await refreshFieldRun(
+        queryClient,
+        scope,
+        runId,
+        async () => {
         const response = await api.get(`/workflows/runs/${encodeURIComponent(runId)}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         return response.data
-      }, assertCurrent)
+        },
+        assertCurrent,
+      )
       setSelectedFieldRun(fresh)
       setCheckpointRun(null)
       setFieldStepSavedRunId(null)
     } catch (err) {
-      setFieldStepRefreshError(
-        err instanceof Error && !isAxiosError(err) ? err.message : friendlyRequestError(err),
-      )
+      setFieldStepRefreshError(err instanceof Error && !isAxiosError(err) ? err.message : friendlyRequestError(err))
     } finally {
       setFieldStepRefreshing(false)
     }
@@ -4185,9 +4305,12 @@ export default function FinancePage() {
       if (String(res?.data?.status || '').toLowerCase() === 'failed') {
         throw new Error(String(res?.data?.error || 'Could not save the receipts step'))
       }
-      feedback.success(source === 'purchase'
+      feedback.success(
+        source === 'purchase'
             ? 'Purchase receipts added. Take the after photos when the work is done.'
-            : 'No materials bought. Take the after photos when the work is done.', { title: 'Noted' })
+          : 'No materials bought. Take the after photos when the work is done.',
+        { title: 'Noted' },
+      )
       await openSavedFieldStep(normalizedRunId)
     } catch (err: any) {
       feedback.fromError(err, { title: 'Could not carry on' })
@@ -4210,12 +4333,16 @@ export default function FinancePage() {
       const escalationHint = runPolicyCheck.suggestedEscalationRole
         ? ` Escalate to ${runPolicyCheck.suggestedEscalationRole}.`
         : ''
-      feedback.error(`${runPolicyCheck.reason || 'Capture evidence is blocked by org policy.'}${escalationHint}`, { title: 'Policy Check Failed' })
+      feedback.error(`${runPolicyCheck.reason || 'Capture evidence is blocked by org policy.'}${escalationHint}`, {
+        title: 'Policy Check Failed',
+      })
       return
     }
 
     const pausePhase = getFieldPauseReason(run).replace('await_evidence_', '')
-    const phase = ['before', 'concealed', 'after', 'receipt'].includes(pausePhase) ? pausePhase : inferNextEvidencePhase(run)
+    const phase = ['before', 'concealed', 'after', 'receipt'].includes(pausePhase)
+      ? pausePhase
+      : inferNextEvidencePhase(run)
     void router.push(
       `/activity?ref=${encodeURIComponent(normalizedRunId)}&capture=1&phase=${encodeURIComponent(phase)}`,
     )
@@ -4254,7 +4381,9 @@ export default function FinancePage() {
     const note = holdResolveNote.trim()
     if (!normalizedRunId || !holdId) return
     if (!note) {
-      feedback.warn('Write a short note on how the issue was sorted before you mark it resolved.', { title: 'Say what was done' })
+      feedback.warn('Write a short note on how the issue was sorted before you mark it resolved.', {
+        title: 'Say what was done',
+      })
       return
     }
     const token = getPreferredToken()
@@ -4320,7 +4449,9 @@ export default function FinancePage() {
           return
         }
         if (cpDecision === 'not_safe' && (!cpHoldReason.trim() || !cpHoldPhoto)) {
-          feedback.warn('Say why it is not safe and take a photo of it before you put the job on hold.', { title: 'Reason and photo needed' })
+          feedback.warn('Say why it is not safe and take a photo of it before you put the job on hold.', {
+            title: 'Reason and photo needed',
+          })
           return
         }
         payload = {
@@ -4368,7 +4499,9 @@ export default function FinancePage() {
       // A stop-work call is saved as a hold, so the server answers with the hold message. Not an error.
       const heldOnPurpose = reason === 'await_risk_assessment' && cpDecision === 'not_safe' && /on hold/i.test(message)
       if (heldOnPurpose) {
-        feedback.warn(cpFixBy === 'worker' ? SAFETY_HOLD_COPY.savedMessageWorker : SAFETY_HOLD_COPY.savedMessage, { title: SAFETY_HOLD_COPY.savedTitle })
+        feedback.warn(cpFixBy === 'worker' ? SAFETY_HOLD_COPY.savedMessageWorker : SAFETY_HOLD_COPY.savedMessage, {
+          title: SAFETY_HOLD_COPY.savedTitle,
+        })
         await openSavedFieldStep(normalizedRunId)
       } else {
         feedback.error(friendlyRequestError(err), { title: 'Could not save this step' })
@@ -4519,7 +4652,9 @@ export default function FinancePage() {
 
   const handleOpenApprovalInApp = () => {
     if (!selectedRequisitionId || !approvalRequestUrl) {
-      feedback.error('Generate the approval request before opening it in the mobile wallet.', { title: 'Approval Request Missing' })
+      feedback.error('Generate the approval request before opening it in the mobile wallet.', {
+        title: 'Approval Request Missing',
+      })
       return
     }
 
@@ -4540,7 +4675,9 @@ export default function FinancePage() {
 
   const handleOpenReleaseInApp = () => {
     if (!selectedRequisitionId || !releaseRequestUrl) {
-      feedback.error('Generate the release request before opening it in the mobile wallet.', { title: 'Release Request Missing' })
+      feedback.error('Generate the release request before opening it in the mobile wallet.', {
+        title: 'Release Request Missing',
+      })
       return
     }
 
@@ -4584,7 +4721,10 @@ export default function FinancePage() {
       setReleaseRequestUrl(data.presentationRequestUrl)
       setReleasePurposeLine(String(data.purposeLine || ''))
     } catch (err: any) {
-      feedback.fromError(err, { title: 'Release Setup Failed', fallback: 'Could not generate secure verification request.' })
+      feedback.fromError(err, {
+        title: 'Release Setup Failed',
+        fallback: 'Could not generate secure verification request.',
+      })
       setShowReleaseModal(false)
     } finally {
       setCreatingReleaseRequest(false)
@@ -4621,7 +4761,11 @@ export default function FinancePage() {
         },
       )
       if (ackRes.data?.error) throw new Error(ackRes.data.error)
-      milestone.show({ kind: 'workflow_complete', title: 'Delivery confirmed', detail: 'This requisition is now closed.' })
+      milestone.show({
+        kind: 'workflow_complete',
+        title: 'Delivery confirmed',
+        detail: 'This requisition is now closed.',
+      })
       setSelectedRequisitionId(null)
       setSelectedRequisition(null)
       await fetchRequisitions()
@@ -5021,22 +5165,20 @@ export default function FinancePage() {
   ]
 
   const fieldRunNeedsAttention = (run: any) =>
-    fieldAttention.has(String(run?.id)) || ['failed', 'disputed'].includes(String(run?.output?.workflowStage || run?.status || '').toLowerCase())
-  const fieldListRows: FinanceListRow[] = (fieldAttentionOnly ? fieldRuns.filter(fieldRunNeedsAttention) : fieldRuns).map((run: any) => {
+    fieldAttention.has(String(run?.id)) ||
+    ['failed', 'disputed'].includes(String(run?.output?.workflowStage || run?.status || '').toLowerCase())
+  const fieldRunIsUrgent = (run: any) => {
+    if (['completed', 'reconciled', 'cancelled'].includes(String(run?.status || '').toLowerCase())) return false
+    const priority = fieldJobPriority(run)
+    return priority === 'urgent' || (!priority && fieldJobUrgent(run))
+  }
+  const fieldUrgentCount = fieldRuns.filter(fieldRunIsUrgent).length
+  const fieldListRows: FinanceListRow[] = fieldRuns
+    .filter((run: any) => !fieldAttentionOnly || fieldRunNeedsAttention(run))
+    .filter((run: any) => !fieldUrgentOnly || fieldRunIsUrgent(run))
+    .map((run: any) => {
     const stage = String(run.output?.workflowStage || run.output?.stage || run.status || '').toUpperCase()
-    const FEPT_STAGE_COLOR: Record<string, string> = {
-      REQUEST_CREATED: 'blue',
-      ASSIGNED: 'indigo',
-      IN_PROGRESS: 'orange',
-      EVIDENCE_CAPTURED: 'violet',
-      ACKNOWLEDGED: 'teal',
-      PAYMENT_TRIGGERED: 'yellow',
-      RECEIPT_ISSUED: 'green',
-      RECONCILED: 'cyan',
-      COMPLETED: 'dark',
-      DISPUTED: 'red',
-      CANCELLED: 'gray',
-    }
+    const words = JOB_CATEGORY_WORDS[fieldJobCategory(run)]
     const input = run.output?.workflowInput || run.input || {}
     const wait = jobClientWait(run.output)
     const closed = !wait && ['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase())
@@ -5045,10 +5187,13 @@ export default function FinancePage() {
       title: jobHeading(input).title,
       flowLabel: FINANCE_FLOW_WORDS.job.label,
       flowColor: FINANCE_FLOW_WORDS.job.color,
-      status: fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output),
-      statusColor: wait ? (wait.failed ? 'red' : 'orange') : FEPT_STAGE_COLOR[stage] || 'gray',
+      status: wait ? fieldJobStatusLabel(run.status, stage, run.output?.pauseReason, run.output) : words.label,
+      statusColor: wait ? (wait.failed ? 'red' : 'orange') : words.color,
       flag: (() => {
-        if (fieldJobUrgent(run) && !closed) return { label: 'Urgent', color: 'red' }
+        const priority = fieldJobPriority(run)
+        if (!closed && (priority === 'urgent' || (!priority && fieldJobUrgent(run))))
+          return { label: 'Urgent', color: 'red' }
+        if (!closed && priority === 'out_of_hours') return { label: 'Out of hours', color: 'violet' }
         const stuck = fieldAttention.get(String(run.id))
         if (!stuck) return undefined
         const words = ATTENTION_WORDS[stuck.kind]
@@ -5056,7 +5201,12 @@ export default function FinancePage() {
       })(),
       dateLabel: formatTxnTime(run.updatedAt || run.updated_at || run.createdAt || run.created_at) || undefined,
       note:
-        [input.storeNumber ? `Store ${input.storeNumber}` : '', input.reference || input.poNumber, input.callOut ? 'Call-out' : '', input.location]
+        [
+          input.storeNumber ? `Store ${input.storeNumber}` : '',
+          input.reference || input.poNumber,
+          input.callOut ? 'Call-out' : '',
+          input.location,
+        ]
           .filter(Boolean)
           .join(' · ') || undefined,
       amountLabel: input.amount ? fmt(Number(input.amount), input.currency || 'USD') : undefined,
@@ -5125,7 +5275,11 @@ export default function FinancePage() {
           setHistoryItem({
             title: `Supplier bill ${row.invoice_ref || ''}`.trim(),
             trail: trailFromSupplierBill({ ...row, supplierName: supplier?.supplier_name }),
-            record: { kind: 'supplier_bill', id: String(row.id), canCancel: !['paid', 'cancelled'].includes(String(row.status)) },
+            record: {
+              kind: 'supplier_bill',
+              id: String(row.id),
+              canCancel: !['paid', 'cancelled'].includes(String(row.status)),
+            },
           })
         },
       }
@@ -5216,18 +5370,74 @@ export default function FinancePage() {
         {/* Header */}
         <Group justify="space-between" align="center">
           <Box>
-            <Title order={3}>{area === 'operations' ? 'Operations' : 'Money'}</Title>
+            <Title order={3}>{area === 'operations' ? tab === 'field' ? 'Jobs' : 'Operations' : 'Money'}</Title>
             <Text size="sm" c="dimmed">
               {area === 'operations'
-                ? 'Run jobs, purchases, school fees and services.'
+                ? tab === 'field'
+                  ? 'Schedule visits, assign your team and follow every job.'
+                  : 'Manage your organisation’s day-to-day work.'
                 : 'Track what clients owe and what the organisation owes suppliers.'}
             </Text>
           </Box>
           <Group gap={4} wrap="nowrap">
-            <FinanceViewToggle view={listView} onChange={setListView} onExport={exportVisible} canExport={canExportReports} />
-            <ActionIcon variant="subtle" color="gray" size="lg" onClick={fetchLinks} loading={loading}>
+            <FinanceViewToggle
+              view={listView}
+              onChange={setListView}
+              onExport={exportVisible}
+              canExport={canExportReports}
+            />
+            <ActionIcon
+              aria-label={tab === 'field' ? 'Refresh jobs' : 'Refresh operations'}
+              variant="subtle"
+              color="gray"
+              size="lg"
+              onClick={() => void (tab === 'field' ? fetchFieldRuns() : fetchLinks())}
+              loading={tab === 'field' ? fieldRunsQuery.isFetching : loading}
+            >
               <IconRefresh size={18} />
             </ActionIcon>
+            {(() => {
+              // Places the office opens now and then live in the top bar's overflow menu, not as buttons over the list.
+              const orgRole = String(getOrgRoleClaim() || '').toLowerCase()
+              const canBookWaiting = ['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(orgRole)
+              const fieldOps = area === 'operations' && hasFieldExecution
+              const items = [
+                fieldOps && canBookWaiting
+                  ? { label: 'Mailbox & repeats', icon: IconInbox, href: '/intake' }
+                  : null,
+                fieldOps && (canBookWaiting || orgRole === 'field_worker')
+                  ? { label: 'Stores & vans', icon: IconTruck, href: '/registers' }
+                  : null,
+                area === 'operations' && hasCommerce
+                  ? { label: 'Shop & services', icon: IconBuildingStore, href: '/shop' }
+                  : null,
+                ['owner', 'admin'].includes(orgRole)
+                  ? { label: 'Organisation records', icon: IconWallet, href: '/proofs' }
+                  : null,
+              ].filter(Boolean) as Array<{ label: string; icon: typeof IconInbox; href: string }>
+              if (!items.length) return null
+              return (
+                <Menu position="bottom-end" withinPortal shadow="md" width={220}>
+                  <Menu.Target>
+                    <ActionIcon aria-label="More" variant="subtle" color="gray" size="lg">
+                      <IconDotsVertical size={18} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    {items.map((item) => (
+                      <Menu.Item
+                        key={item.href}
+                        leftSection={<item.icon size={16} />}
+                        mih={44}
+                        onClick={() => void router.push(item.href)}
+                      >
+                        {item.label}
+                      </Menu.Item>
+                    ))}
+                  </Menu.Dropdown>
+                </Menu>
+              )
+            })()}
           </Group>
         </Group>
 
@@ -5263,14 +5473,13 @@ export default function FinancePage() {
         </Group>
         )}
 
-        {workflowConfigError && <Alert color="red" title="Could not load work areas">
+        {workflowConfigError && (
+          <Alert color="red" title="Could not load work areas">
           {workflowConfigError}
-          <Button variant="subtle" size="xs" onClick={() => void fetchWorkflowConfig()}>Retry</Button>
-        </Alert>}
-        {['owner', 'admin'].includes(getOrgRoleClaim() || '') && (
-          <Button variant="default" leftSection={<IconWallet size={16} />} onClick={() => router.push('/proofs')}>
-            Organisation records
-          </Button>
+            <Button variant="subtle" size="xs" onClick={() => void fetchWorkflowConfig()}>
+              Retry
+            </Button>
+          </Alert>
         )}
         {hasOperationsArea && hasMoneyArea && (
         <SegmentedControl
@@ -5299,37 +5508,6 @@ export default function FinancePage() {
           }}
         />
         )}
-        {area === 'operations' && hasCommerce && (
-          <Group grow>
-            {hasCommerce && (
-              <Button variant="light" onClick={() => router.push('/shop')}>
-                Shop & services
-              </Button>
-            )}
-          </Group>
-        )}
-        {area === 'operations' && hasFieldExecution && (() => {
-          const orgRole = String(getOrgRoleClaim() || '').toLowerCase()
-          const canBookWaiting = ['owner', 'admin', 'manager', 'dispatcher', 'supervisor'].includes(orgRole)
-          const canOpenVans = canBookWaiting || orgRole === 'field_worker'
-          if (!canOpenVans) return null
-          return (
-            <Group grow>
-              {canBookWaiting && (
-                <Button variant="light" size="md" radius="xl" leftSection={<IconInbox size={18} />} onClick={() => router.push('/intake')}>
-                  Mailbox & repeats
-                </Button>
-              )}
-              <Button variant="light" size="md" radius="xl" leftSection={<IconTruck size={18} />} onClick={() => router.push('/registers')}>
-                Stores & vans
-              </Button>
-              <Button variant="light" size="md" radius="xl" leftSection={<IconCalendar size={18} />} onClick={() => { setJobBoardView('list'); setShowJobBoard(true) }}>
-                Calendar
-              </Button>
-            </Group>
-          )
-        })()}
-
         <Tabs value={tab} onChange={setTab}>
           <Tabs.List grow>
             {area === 'money' && hasArModule && (
@@ -5592,23 +5770,113 @@ export default function FinancePage() {
                 />
               </Group>
 
-              {fieldAttention.size > 0 && (
-                <Group mb="sm">
-                  <Button
-                    size="sm"
-                    radius="xl"
-                    variant={fieldAttentionOnly ? 'filled' : 'light'}
-                    color="red"
-                    onClick={() => setFieldAttentionOnly((value) => !value)}
-                  >
-                    {fieldAttentionOnly ? 'Showing jobs that need attention' : `Needs attention (${fieldAttention.size})`}
-                  </Button>
-                  {fieldAttentionOnly && (
-                    <Button size="sm" radius="xl" variant="subtle" onClick={() => setFieldAttentionOnly(false)}>
+              {['owner', 'admin', 'manager', 'dispatcher', 'supervisor', 'field_worker'].includes(
+                String(getOrgRoleClaim() || '').toLowerCase(),
+              ) && (
+                <SegmentedControl
+                  fullWidth
+                  mb="md"
+                  aria-label="Show jobs as"
+                  value={fieldView}
+                  onChange={(value) => setFieldView(value as 'jobs' | 'calendar' | 'reports')}
+                  data={[
+                    { value: 'jobs', label: 'Jobs' },
+                    { value: 'calendar', label: 'Calendar' },
+                    { value: 'reports', label: 'Report' },
+                  ]}
+                />
+              )}
+
+              {fieldView !== 'jobs' && (
+                <JobBoard
+                  api={phoneOperations}
+                  surface="phone"
+                  names={Object.fromEntries(
+                    orgMembers.map((member) => [member.userId, member.displayName || member.phone || 'Team member']),
+                  )}
+                  members={orgMembers
+                    .filter((member) => member.userId)
+                    .map((member) => ({
+                      userId: member.userId,
+                      role: member.role || 'member',
+                      displayName: member.displayName,
+                      phone: member.phone,
+                      status: member.status,
+                    }))}
+                  canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(
+                    String(getOrgRoleClaim() || '').toLowerCase(),
+                  )}
+                  canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(
+                    String(getOrgRoleClaim() || '').toLowerCase(),
+                  )}
+                  notify={phoneNotify}
+                  refreshKey={fieldRuns.length}
+                  lockedView={fieldView === 'calendar' ? 'calendar' : 'reports'}
+                  onOpenJob={(runId) => {
+                    void api
+                      .get(`/workflows/runs/${encodeURIComponent(runId)}`)
+                      .then((fresh) => {
+                        setFieldJobTab('details')
+                        setSelectedFieldRun(fresh.data)
+                      })
+                      .catch(() => phoneNotify('That job could not be opened.', 'error'))
+                  }}
+                />
+              )}
+
+              <Box style={fieldView === 'jobs' ? undefined : { display: 'none' }}>
+              {(fieldAttention.size > 0 || fieldUrgentCount > 0) && (
+                <Group mb="sm" gap="xs">
+                  {fieldAttention.size > 0 && (
+                    <Button
+                      size="sm"
+                      radius="xl"
+                      variant={fieldAttentionOnly ? 'filled' : 'light'}
+                      color="red"
+                      onClick={() => setFieldAttentionOnly((value) => !value)}
+                    >
+                      Needs attention ({fieldAttention.size})
+                    </Button>
+                  )}
+                  {fieldUrgentCount > 0 && (
+                    <Button
+                      size="sm"
+                      radius="xl"
+                      variant={fieldUrgentOnly ? 'filled' : 'light'}
+                      color="orange"
+                      onClick={() => setFieldUrgentOnly((value) => !value)}
+                    >
+                      Urgent ({fieldUrgentCount})
+                    </Button>
+                  )}
+                  {(fieldAttentionOnly || fieldUrgentOnly) && (
+                    <Button
+                      size="sm"
+                      radius="xl"
+                      variant="subtle"
+                      onClick={() => {
+                        setFieldAttentionOnly(false)
+                        setFieldUrgentOnly(false)
+                      }}
+                    >
                       Show all jobs
                     </Button>
                   )}
                 </Group>
+              )}
+              {fieldRunsQuery.isError && (
+                <Alert color="red" title="Jobs could not be loaded" mb="md">
+                  <Stack gap="sm">
+                    <Text size="sm">
+                      {fieldRuns.length > 0
+                        ? 'The latest jobs could not be refreshed. Previously loaded jobs are still shown below.'
+                        : 'The job list is unavailable. Try again to load your jobs.'}
+                    </Text>
+                    <Button variant="light" onClick={() => void fetchFieldRuns()} loading={fieldRunsQuery.isFetching}>
+                      Try again
+                    </Button>
+                  </Stack>
+                </Alert>
               )}
               <FinanceListRows
                 rows={fieldListRows}
@@ -5616,16 +5884,18 @@ export default function FinancePage() {
                 noteLabel="Reference and place"
                 loading={fieldRunsLoading}
                 empty={
-                  <Center py="xl">
+                  fieldRunsQuery.isError ? null : <Center py="xl">
                     <Stack align="center" gap="sm">
                       <ThemeIcon size={56} radius="xl" variant="light" color="teal">
                         <IconReceipt size={28} />
                       </ThemeIcon>
                       <Text fw={600} c="dimmed">
-                        No jobs yet
+                        {fieldAttentionOnly || fieldUrgentOnly ? 'No jobs match this filter' : 'No jobs yet'}
                       </Text>
                       <Text size="sm" c="dimmed" ta="center">
-                        Jobs assigned to you, or created by your organization, will show up here.
+                        {fieldAttentionOnly || fieldUrgentOnly
+                          ? 'Choose “Show all jobs” to return to the full list.'
+                          : 'Jobs assigned to you, or created by your organization, will show up here.'}
                       </Text>
                     </Stack>
                   </Center>
@@ -5633,41 +5903,16 @@ export default function FinancePage() {
               />
               {fieldRuns.length >= fieldRunsLimit && (
                 <Group justify="center" mt="md">
-                  <Button variant="default" loading={fieldRunsQuery.isFetching} onClick={() => setFieldRunsLimit((current) => current + 50)}>
+                  <Button
+                    variant="default"
+                    loading={fieldRunsQuery.isFetching}
+                    onClick={() => setFieldRunsLimit((current) => current + 50)}
+                  >
                     Show more jobs
                   </Button>
                 </Group>
               )}
-              <Modal opened={showJobBoard} onClose={() => setShowJobBoard(false)} title="Calendar & report" fullScreen>
-                {showJobBoard && (
-                  <JobBoard
-                    api={phoneOperations}
-                    surface="phone"
-                    names={Object.fromEntries(orgMembers.map((member) => [member.userId, member.displayName || member.phone || 'Team member']))}
-                    members={orgMembers
-                      .filter((member) => member.userId)
-                      .map((member) => ({
-                        userId: member.userId,
-                        role: member.role || 'member',
-                        displayName: member.displayName,
-                        phone: member.phone,
-                        status: member.status,
-                      }))}
-                    canBook={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
-                    canExport={['owner', 'admin', 'manager', 'dispatcher'].includes(String(getOrgRoleClaim() || '').toLowerCase())}
-                    notify={phoneNotify}
-                    refreshKey={fieldRuns.length}
-                    initialView={jobBoardView}
-                    onOpenJob={(runId) => {
-                      void api.get(`/workflows/runs/${encodeURIComponent(runId)}`).then((fresh) => {
-                        setShowJobBoard(false)
-                        setFieldJobTab('details')
-                        setSelectedFieldRun(fresh.data)
-                      }).catch(() => phoneNotify('That job could not be opened.', 'error'))
-                    }}
-                  />
-                )}
-              </Modal>
+              </Box>
             </Tabs.Panel>
           )}
 
@@ -5716,7 +5961,8 @@ export default function FinancePage() {
                     {pendingApProofActions.slice(0, 2).map((item) => (
                       <Group key={`proof-${item.id}`} justify="space-between" wrap="nowrap">
                         <Text size="xs" style={{ minWidth: 0 }} truncate>
-                          {item.invoice_ref || item.invoice_description || 'Supplier bill'} · {formatLedgerLabel(item.required_action, 'Next step')}
+                          {item.invoice_ref || item.invoice_description || 'Supplier bill'} ·{' '}
+                          {formatLedgerLabel(item.required_action, 'Next step')}
                         </Text>
                         {item.myActionRequired && (
                           <Button
@@ -5944,7 +6190,8 @@ export default function FinancePage() {
                             const link = (await api.get(`/api/payment-links/${encodeURIComponent(createdLink.id)}`))
                               .data?.link
                             assertContext()
-                            if (!link || link.id !== createdLink.id) throw new Error('The client billing record is unavailable.')
+                            if (!link || link.id !== createdLink.id)
+                              throw new Error('The client billing record is unavailable.')
                             const run = link.sourceRunId
                               ? (await api.get(`/workflows/runs/${encodeURIComponent(link.sourceRunId)}`)).data
                               : undefined
@@ -6521,7 +6768,12 @@ export default function FinancePage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <div className="sheet-handle" aria-hidden />
-        <FormCard title="Record a supplier bill" subtitle="What the organisation owes a supplier. It shows under Money out until it is paid." icon={<IconCash size={24} />} issuer={getActiveOrgLabel() || undefined}>
+        <FormCard
+          title="Record a supplier bill"
+          subtitle="What the organisation owes a supplier. It shows under Money out until it is paid."
+          icon={<IconCash size={24} />}
+          issuer={getActiveOrgLabel() || undefined}
+        >
           <ContactPickerSelect
             contacts={contacts}
             requirePhone={false}
@@ -6637,7 +6889,9 @@ export default function FinancePage() {
                     headers: { Authorization: `Bearer ${token}` },
                   },
                 )
-                feedback.success(`Invoice ${apInvoiceForm.invoiceRef} registered successfully.`, { title: 'Invoice Recorded' })
+                feedback.success(`Invoice ${apInvoiceForm.invoiceRef} registered successfully.`, {
+                  title: 'Invoice Recorded',
+                })
                 setShowRecordApInvoice(false)
                 fetchApSuppliers()
                 fetchApWorkflowActions()
@@ -6900,7 +7154,16 @@ export default function FinancePage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <div className="sheet-handle" aria-hidden />
-        <FormCard title="Collect a client payment" subtitle={hasArCollections ? 'The client gets a pay link by text. Choose one payment, instalments or a recurring amount.' : 'The client gets a pay link by text.'} icon={<IconReceipt size={24} />} issuer={getActiveOrgLabel() || undefined}>
+        <FormCard
+          title="Collect a client payment"
+          subtitle={
+            hasArCollections
+              ? 'The client gets a pay link by text. Choose one payment, instalments or a recurring amount.'
+              : 'The client gets a pay link by text.'
+          }
+          icon={<IconReceipt size={24} />}
+          issuer={getActiveOrgLabel() || undefined}
+        >
           <Alert color="blue" variant="light" icon={<IconAlertCircle size={16} />}>
             {hasArCollections
               ? 'Create a one-time link, instalment plan, or recurring billing schedule — all tracked under Payments.'
@@ -6995,7 +7258,11 @@ export default function FinancePage() {
                 onPick={(picked) => {
                   if (!picked) return
                   setSelectedContact(picked)
-                  setForm({ ...form, payerName: picked.name || form.payerName, payerPhone: picked.phone || form.payerPhone })
+                  setForm({
+                    ...form,
+                    payerName: picked.name || form.payerName,
+                    payerPhone: picked.phone || form.payerPhone,
+                  })
                 }}
               />
               <TextInput
@@ -7088,7 +7355,12 @@ export default function FinancePage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <div className="sheet-handle" aria-hidden />
-        <FormCard title="New school fee" subtitle="The parent gets a pay link by text." icon={<IconSchool size={24} />} issuer={getActiveOrgLabel() || undefined}>
+        <FormCard
+          title="New school fee"
+          subtitle="The parent gets a pay link by text."
+          icon={<IconSchool size={24} />}
+          issuer={getActiveOrgLabel() || undefined}
+        >
           <TextInput
             label="Student name"
             required
@@ -7278,7 +7550,9 @@ export default function FinancePage() {
             />
             {schoolFeeRelated(selectedFeeRun).length > 0 && (
               <Stack gap={6}>
-                <Text fw={500} size="sm">Related work</Text>
+                <Text fw={500} size="sm">
+                  Related work
+                </Text>
                 {schoolFeeRelated(selectedFeeRun).map((item) => (
                   <Button
                     key={item.id}
@@ -7343,7 +7617,12 @@ export default function FinancePage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <div className="sheet-handle" aria-hidden />
-        <FormCard title="New purchase request" subtitle="Ask for something to be bought. It goes to the person who approves purchases." icon={<IconShoppingCart size={24} />} issuer={getActiveOrgLabel() || undefined}>
+        <FormCard
+          title="New purchase request"
+          subtitle="Ask for something to be bought. It goes to the person who approves purchases."
+          icon={<IconShoppingCart size={24} />}
+          issuer={getActiveOrgLabel() || undefined}
+        >
           <Select
             label="Department"
             value={requisitionForm.department}
@@ -7459,6 +7738,7 @@ export default function FinancePage() {
 
       <Drawer
         opened={showFieldRun}
+        closeButtonProps={{ 'aria-label': 'Close new job' }}
         onClose={() => setShowFieldRun(false)}
         position="bottom"
         size="85%"
@@ -7466,7 +7746,12 @@ export default function FinancePage() {
         styles={{ content: { borderRadius: '16px 16px 0 0' } }}
       >
         <div className="sheet-handle" aria-hidden />
-        <FormCard title="New job" subtitle="Create a job and send it to the worker. The sign-off person is notified when the work is done." icon={<IconBriefcase size={24} />} issuer={getActiveOrgLabel() || undefined}>
+        <FormCard
+          title="New job"
+          subtitle="Create a job and send it to the worker. The sign-off person is notified when the work is done."
+          icon={<IconBriefcase size={24} />}
+          issuer={getActiveOrgLabel() || undefined}
+        >
           <TextInput
             label="What is the job?"
             placeholder="e.g. Site maintenance at SGK Construction"
@@ -7481,6 +7766,25 @@ export default function FinancePage() {
             value={fieldRunForm.poNumber}
             onChange={(e) => setFieldRunForm({ ...fieldRunForm, poNumber: e.currentTarget.value })}
           />
+
+          <Group grow>
+            <Autocomplete
+              label="Branch"
+              placeholder="Choose or enter a branch"
+              data={FIELD_BRANCH_OPTIONS}
+              value={fieldRunForm.branch}
+              onChange={(branch) => setFieldRunForm({ ...fieldRunForm, branch })}
+            />
+            <Select
+              label="Priority"
+              data={FIELD_PRIORITY_OPTIONS}
+              value={fieldRunForm.priority}
+              allowDeselect={false}
+              onChange={(priority) =>
+                setFieldRunForm({ ...fieldRunForm, priority: priority || 'normal', callOut: priority === 'urgent' })
+              }
+            />
+          </Group>
 
           <Select
             label="Problem type"
@@ -7552,9 +7856,14 @@ export default function FinancePage() {
           </Grid>
 
           <details>
-          <summary style={{ minHeight: 48, cursor: 'pointer', paddingTop: 12 }}>Payment schedule & worker payout</summary>
+            <summary style={{ minHeight: 48, cursor: 'pointer', paddingTop: 12 }}>
+              Payment schedule & worker payout
+            </summary>
           <Stack gap="md" mt="sm">
-          <JobPaymentPlanFields value={fieldRunForm} onChange={(plan) => setFieldRunForm({ ...fieldRunForm, ...plan })} />
+              <JobPaymentPlanFields
+                value={fieldRunForm}
+                onChange={(plan) => setFieldRunForm({ ...fieldRunForm, ...plan })}
+              />
 
           <TextInput
             label="Worker payout (optional)"
@@ -7615,11 +7924,18 @@ export default function FinancePage() {
               }))
             }
             vanId={fieldRunForm.vanId || null}
-            onVan={(van) => setFieldRunForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))}
+            onVan={(van) =>
+              setFieldRunForm((prev) => ({ ...prev, vanId: van?.id || '', vehicleReference: van?.registration || '' }))
+            }
             callOut={fieldRunForm.callOut}
             onCallOut={(callOut) => setFieldRunForm((prev) => ({ ...prev, callOut }))}
+            showCallOut={false}
             date={fieldRunForm.scheduledDate}
-            assigneeId={fieldRunForm.assigneeId === 'stage-actor' || parseJobContactSelection(fieldRunForm.assigneeId) ? null : fieldRunForm.assigneeId}
+            assigneeId={
+              fieldRunForm.assigneeId === 'stage-actor' || parseJobContactSelection(fieldRunForm.assigneeId)
+                ? null
+                : fieldRunForm.assigneeId
+            }
             names={Object.fromEntries(orgMembers.map((m) => [m.userId, m.displayName || m.phone || 'Team member']))}
           />
 
@@ -7647,7 +7963,9 @@ export default function FinancePage() {
 
       <Modal
         opened={Boolean(checkpointRun)}
-        onClose={() => { if (!feptActionLoading && !fieldStepSavedRunId) setCheckpointRun(null) }}
+        onClose={() => {
+          if (!feptActionLoading && !fieldStepSavedRunId) setCheckpointRun(null)
+        }}
         closeOnClickOutside={!feptActionLoading && !fieldStepSavedRunId}
         closeOnEscape={!feptActionLoading && !fieldStepSavedRunId}
         withCloseButton={!feptActionLoading && !fieldStepSavedRunId}
@@ -7905,7 +8223,9 @@ export default function FinancePage() {
               : 'This step is already saved. You do not need to submit it again.'}
           </Text>
           {fieldStepRefreshError && (
-            <Alert color="red" title="Could not load the next step">{fieldStepRefreshError}</Alert>
+            <Alert color="red" title="Could not load the next step">
+              {fieldStepRefreshError}
+            </Alert>
           )}
           {!fieldStepRefreshing && fieldStepSavedRunId && (
             <Button onClick={() => void openSavedFieldStep(fieldStepSavedRunId)}>Load next step</Button>
@@ -7944,7 +8264,13 @@ export default function FinancePage() {
               <Text size="sm" c="dimmed" ta="center">
                 Loading the job details and its steps. This can take a few seconds on a slow connection.
               </Text>
-              <Button variant="subtle" size="xs" onClick={() => { if (!returnToInbox()) setFieldDeepLinkFailed(pendingRunId) }}>
+              <Button
+                variant="subtle"
+                size="xs"
+                onClick={() => {
+                  if (!returnToInbox()) setFieldDeepLinkFailed(pendingRunId)
+                }}
+              >
                 Back to inbox
               </Button>
             </Stack>
@@ -7955,6 +8281,7 @@ export default function FinancePage() {
       {/* ── FEPT Field Run Detail Drawer (independent from requisitions) ── */}
       <Drawer
         opened={Boolean(selectedFieldRun)}
+        closeButtonProps={{ 'aria-label': 'Close job details' }}
         closeOnClickOutside={!feptActionLoading && !fieldStepSavedRunId}
         closeOnEscape={!feptActionLoading && !fieldStepSavedRunId}
         withCloseButton={!feptActionLoading && !fieldStepSavedRunId}
@@ -8063,10 +8390,19 @@ export default function FinancePage() {
                     status={stageLabel}
                     amount={amount}
                     currency={currency}
+                    emptyAmountText="No price yet"
                     lines={[]}
                     footer={
-                      fieldJobUrgent(run) && !['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase()) ? (
-                        <Badge color="red" variant="filled" mt="xs">Urgent</Badge>
+                      !['completed', 'reconciled', 'cancelled'].includes(String(run.status || '').toLowerCase()) ? (
+                        fieldJobPriority(run) === 'out_of_hours' ? (
+                          <Badge color="violet" variant="light" mt="xs">
+                            Out of hours
+                          </Badge>
+                        ) : fieldJobUrgent(run) ? (
+                          <Badge color="red" variant="filled" mt="xs">
+                            Urgent
+                          </Badge>
+                        ) : undefined
                       ) : undefined
                     }
                   />
@@ -8273,9 +8609,12 @@ export default function FinancePage() {
                               ))}
                             {canDoFieldSteps &&
                               (stage === 'IN_PROGRESS' || stage === 'EVIDENCE_CAPTURED') &&
-                              (['await_evidence_before', 'await_evidence_concealed', 'await_evidence_after', 'await_evidence_receipt'].includes(
-                                pauseReason,
-                              ) ||
+                              ([
+                                'await_evidence_before',
+                                'await_evidence_concealed',
+                                'await_evidence_after',
+                                'await_evidence_receipt',
+                              ].includes(pauseReason) ||
                                 (stage === 'IN_PROGRESS' && !knownPause)) && (
                                 <Button
                                   color="orange"
@@ -8436,7 +8775,9 @@ export default function FinancePage() {
                                 </Text>
                                 <Group gap="xs" wrap="nowrap">
                                   <Text size="sm">{String(input.customerMsisdn || input.clientPhone)}</Text>
-                                  <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>Call</Anchor>
+                                  <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>
+                                    Call
+                                  </Anchor>
                                   <Anchor
                                     size="sm"
                                     href={`https://wa.me/${String(input.customerMsisdn || input.clientPhone).replace(/\D/g, '')}`}
@@ -8500,7 +8841,11 @@ export default function FinancePage() {
                                 </Text>
                                 <Anchor
                                   size="sm"
-                                  onClick={() => void router.push(`/registers?store=${encodeURIComponent(String(input.storeNumber))}`)}
+                                  onClick={() =>
+                                    void router.push(
+                                      `/registers?store=${encodeURIComponent(String(input.storeNumber))}`,
+                                    )
+                                  }
                                 >
                                   {String(input.storeNumber)}
                                   {input.callOut ? ' · Call-out' : ''}
@@ -8671,8 +9016,12 @@ export default function FinancePage() {
             <Paper withBorder radius="md" p="sm">
               <Stack gap="xs">
                 <Group justify="space-between" align="center">
-                  <Text size="sm" fw={700}>Current step</Text>
-                  <Badge color="blue" variant="light">{chainRequest.decision?.stageLabel || 'Review and decide'}</Badge>
+                    <Text size="sm" fw={700}>
+                      Current step
+                    </Text>
+                    <Badge color="blue" variant="light">
+                      {chainRequest.decision?.stageLabel || 'Review and decide'}
+                    </Badge>
                 </Group>
                 <Text size="sm" c="dimmed">
                   Chosen for this step: {chainRequest.decision?.actorLabel || 'the person named under Who does what'}.
@@ -8710,7 +9059,11 @@ export default function FinancePage() {
                   </>
                 )}
                 {!chainRequest.decision?.canApprove && !chainRequest.decision?.canReject && (
-                  <Alert color={chainRequest.decision?.canAct ? 'yellow' : 'blue'} variant="light" icon={<IconShieldCheck size={16} />}>
+                    <Alert
+                      color={chainRequest.decision?.canAct ? 'yellow' : 'blue'}
+                      variant="light"
+                      icon={<IconShieldCheck size={16} />}
+                    >
                     {requestDecisionBlockText(chainRequest.decision)}
                   </Alert>
                 )}
@@ -8741,7 +9094,9 @@ export default function FinancePage() {
             <RecordActions
               kind="request"
               id={String(chainRequest.id)}
-              canCancel={['draft', 'submitted', 'in_review'].includes(String(chainRequest.status || '').toLowerCase())}
+                canCancel={['draft', 'submitted', 'in_review'].includes(
+                  String(chainRequest.status || '').toLowerCase(),
+                )}
               onCancelled={() => {
                 setChainRequest(null)
                 void fetchRequisitions()
@@ -9331,7 +9686,9 @@ export default function FinancePage() {
                         <Group gap="xs" wrap="wrap">
                           <Badge size="sm" color="grape" variant="light">
                             {selectedPlanDetails.debtor_org_name ||
-                              (selectedPlanDetails.debtor_org_id ? 'Another organisation' : 'Not linked to an organisation')}
+                              (selectedPlanDetails.debtor_org_id
+                                ? 'Another organisation'
+                                : 'Not linked to an organisation')}
                           </Badge>
                           {latestWorkflow?.source_payment_link_id && (
                             <Badge size="sm" color="cyan" variant="light">
@@ -9368,7 +9725,9 @@ export default function FinancePage() {
                         </Text>
                         <Text size="xs" c="dimmed">
                           Confirmed:{' '}
-                          {selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id ? 'Yes' : 'Not yet'}
+                          {selectedPlanDetails.proof_response_id || latestWorkflow?.proof_response_id
+                            ? 'Yes'
+                            : 'Not yet'}
                         </Text>
                         <Text size="xs" c="dimmed">
                           Consent:{' '}
@@ -9563,7 +9922,9 @@ export default function FinancePage() {
                                     headers: { Authorization: `Bearer ${token}` },
                                   },
                                 )
-                                feedback.warn('Plan marked as disputed. The customer will be told.', { title: 'Dispute raised' })
+                                feedback.warn('Plan marked as disputed. The customer will be told.', {
+                                  title: 'Dispute raised',
+                                })
                                 setSelectedPlanId(null)
                                 setSelectedPlanDetails(null)
                                 void fetchLinks()

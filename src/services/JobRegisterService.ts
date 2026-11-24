@@ -7,7 +7,13 @@
  */
 
 import type { ImportedJobDetails } from '../config/fieldDataImport'
-import { FIELD_JOB_CATEGORY_LABELS, type FieldJobCategory } from '../config/fieldJobCategory'
+import {
+  FIELD_JOB_CATEGORY_LABELS,
+  fieldJobPriority,
+  fieldJobUrgent,
+  type FieldJobCategory,
+  type FieldJobPriority,
+} from '../config/fieldJobCategory'
 import { fieldJobSourceLabel, isFieldJobSource, type FieldJobSource } from '../config/fieldJobSource'
 import { pageLimit, pageOffset, pageRows, sortRows, type ListPage, type SortValue } from '../config/listPage'
 import { DatabaseManager } from '../persistence/DatabaseManager'
@@ -32,6 +38,8 @@ export interface JobRegisterRow {
   location?: string
   problemType?: string
   scheduledDate?: string
+  branch?: string
+  priority?: FieldJobPriority
   assigneeId?: string
   vehicle?: string
   callOut: boolean
@@ -53,6 +61,7 @@ export interface JobRegisterFilter {
   category?: string
   storeNumber?: string
   assigneeId?: string
+  branch?: string
   /** First and last day, on the date the job is booked for (or was received when it has none). */
   from?: string
   to?: string
@@ -76,7 +85,29 @@ export interface JobReport {
   /** Busiest stores first: most open jobs, then most jobs overall. */
   byStore: Array<{ storeNumber: string; name?: string; open: number; completed: number; total: number }>
   /** Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set). */
-  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number; oldSystem?: boolean }>
+  byWorker: Array<{
+    userId: string
+    name: string
+    open: number
+    completed: number
+    failed: number
+    oldSystem?: boolean
+    /** Open imported jobs naming this old-system worker but not yet assigned in LDK. */
+    toAssign?: number
+  }>
+  /** Each branch's open jobs split by stage, so the office can see where a branch is stuck. */
+  byBranch: Array<{
+    branch: string
+    open: number
+    completed: number
+    total: number
+    unassigned: number
+    assigned: number
+    inProgress: number
+    onHold: number
+    failed: number
+    urgent: number
+  }>
   byProblemType: Array<{ problemType: string; open: number; total: number }>
   /** Days from receiving a job to completing it, over completed jobs. */
   averageDaysToComplete?: number
@@ -96,6 +127,7 @@ export interface JobReport {
     unassigned: number
     /** Open call-outs. */
     urgent: number
+    outOfHours: number
     receivedLast7Days: number
     completedLast7Days: number
     completedLast30Days: number
@@ -187,6 +219,8 @@ export class JobRegisterService {
       location: job.location,
       problemType: job.problemType,
       scheduledDate: job.scheduledDate,
+      branch: job.branch,
+      priority: job.priority,
       assigneeId: job.assigneeId,
       vehicle: job.vehicle,
       callOut: job.callOut,
@@ -209,14 +243,18 @@ export class JobRegisterService {
       description: intake.description,
       location: intake.location,
       scheduledDate: intake.scheduledDate,
-      callOut: intake.callOut === true,
+      callOut: fieldJobUrgent({ input: intake }),
       // An imported job sorts by when the old system received it, not when the file was brought in.
       createdAt: intake.details?.receivedAt || intake.createdAt,
       possibleRepeat: Boolean(intake.duplicateOf),
       workerName: intake.workerName,
       details: intake.details,
+      branch: intake.branch || intake.details?.branch,
+      priority: intake.priority,
     }))
-    const q = String(filter.q || '').trim().toLowerCase()
+    const q = String(filter.q || '')
+      .trim()
+      .toLowerCase()
     const source = isFieldJobSource(filter.source) ? filter.source : undefined
     const category = filter.category && filter.category !== 'all' ? filter.category : undefined
     return [...waiting, ...jobs, ...this.history(orgTenantId)]
@@ -224,6 +262,7 @@ export class JobRegisterService {
       .filter((row) => !category || row.category === category)
       .filter((row) => !filter.storeNumber || row.storeNumber === filter.storeNumber)
       .filter((row) => !filter.assigneeId || row.assigneeId === filter.assigneeId)
+      .filter((row) => !filter.branch || (row.branch || 'Unassigned') === filter.branch)
       .filter((row) => !from || dayOf(row) >= from)
       .filter((row) => !to || dayOf(row) <= to)
       .filter(
@@ -240,12 +279,18 @@ export class JobRegisterService {
    * One page of the list in the asked order, with how many rows match in all. Without a page
    * size every matching row comes back (the calendar asks for one week at a time).
    */
-  public page(orgTenantId: string, filter: JobRegisterFilter = {}, paging: JobRegisterPaging = {}): ListPage<JobRegisterRow> {
+  public page(
+    orgTenantId: string,
+    filter: JobRegisterFilter = {},
+    paging: JobRegisterPaging = {},
+  ): ListPage<JobRegisterRow> {
     const limit = pageLimit(paging.limit)
     const offset = pageOffset(paging.offset)
     if (paging.sort && !JOB_REGISTER_SORTS[paging.sort]) throw new Error(`Jobs cannot be sorted by "${paging.sort}"`)
     const rows = this.rows(orgTenantId, filter)
-    const sorted = paging.sort ? sortRows(rows, JOB_REGISTER_SORTS, { key: paging.sort, dir: paging.dir === 'asc' ? 'asc' : 'desc' }) : rows
+    const sorted = paging.sort
+      ? sortRows(rows, JOB_REGISTER_SORTS, { key: paging.sort, dir: paging.dir === 'asc' ? 'asc' : 'desc' })
+      : rows
     return pageRows(sorted, offset, limit)
   }
 
@@ -261,7 +306,10 @@ export class JobRegisterService {
              FROM job_history WHERE org_tenant_id = ? AND workflow_run_id IS NULL ORDER BY COALESCE(completed_date, scheduled_date, created_at) DESC`,
         )
         .all(orgTenantId) as Array<Record<string, any>>
-      return rows.map((row) => ({
+      return rows
+        .map((row) => {
+          const details = parseDetails(row.detailsJson)
+          return {
         kind: 'history' as const,
         id: String(row.id),
         reference: String(row.reference),
@@ -279,6 +327,8 @@ export class JobRegisterService {
         location: row.location || undefined,
         problemType: row.problemType || undefined,
         scheduledDate: row.scheduledDate || undefined,
+            branch: details?.branch || undefined,
+            priority: fieldJobPriority({ input: { priority: details?.priority } }),
         callOut: false,
         amount: row.amount === null || row.amount === undefined ? undefined : Number(row.amount),
         currency: row.currency || undefined,
@@ -286,10 +336,13 @@ export class JobRegisterService {
         createdAt: String(row.completedDate || row.scheduledDate || row.createdAt),
         completedAt: row.completedDate || undefined,
         workerName: row.workerName || undefined,
-        details: parseDetails(row.detailsJson),
-      })).map((row) => (RETURN_VISIT.test(String(row.details?.failureType || '')) ? { ...row, returnVisit: true } : row))
+            details,
+          }
+        })
+        .map((row) => (RETURN_VISIT.test(String(row.details?.failureType || '')) ? { ...row, returnVisit: true } : row))
     } catch (error) {
-      const message = error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? error)
+      const message =
+        error instanceof Error ? error.message : String((error as { message?: unknown } | null)?.message ?? error)
       if (/no such table/i.test(message)) return []
       throw error
     }
@@ -308,6 +361,8 @@ export class JobRegisterService {
       'Location',
       'Problem',
       'Booked for',
+      'Branch',
+      'Priority',
       'Worker',
       'Van',
       'Call-out',
@@ -328,6 +383,8 @@ export class JobRegisterService {
         row.location,
         row.problemType,
         row.scheduledDate,
+        row.branch,
+        row.priority === 'out_of_hours' ? 'Out of hours' : row.priority,
         row.assigneeId ? names.get(row.assigneeId) || 'Team member' : row.workerName,
         row.vehicle,
         row.callOut ? 'Yes' : 'No',
@@ -359,7 +416,19 @@ export class JobRegisterService {
     } as Record<JobRegisterCategory, number>
     const sources = new Map<FieldJobSource, number>()
     const stores = new Map<string, { name?: string; open: number; completed: number; total: number }>()
-    const workers = new Map<string, { userId: string; name: string; oldSystem?: boolean; open: number; completed: number; failed: number }>()
+    const workers = new Map<
+      string,
+      {
+        userId: string
+        name: string
+        oldSystem?: boolean
+        open: number
+        completed: number
+        failed: number
+        toAssign?: number
+      }
+    >()
+    const branches = new Map<string, Omit<JobReport['byBranch'][number], 'branch'>>()
     const problems = new Map<string, { problemType: string; open: number; total: number }>()
     const durations: number[] = []
     let fixed = 0
@@ -371,6 +440,30 @@ export class JobRegisterService {
       counts[row.category] += 1
       sources.set(row.source, (sources.get(row.source) || 0) + 1)
       const open = isOpen(row.category)
+      const branchName = String(row.branch || '').trim() || 'Unassigned'
+      const branch = branches.get(branchName) || {
+        open: 0,
+        completed: 0,
+        total: 0,
+        unassigned: 0,
+        assigned: 0,
+        inProgress: 0,
+        onHold: 0,
+        failed: 0,
+        urgent: 0,
+      }
+      branch.total += 1
+      if (open) {
+        branch.open += 1
+        if (row.category === 'pending' || row.category === 'not_booked') branch.unassigned += 1
+        else if (row.category === 'assigned') branch.assigned += 1
+        else if (row.category === 'active' || row.category === 'arrived') branch.inProgress += 1
+        else if (row.category === 'on_hold') branch.onHold += 1
+        else if (row.category === 'failed') branch.failed += 1
+        if (row.priority === 'urgent' || (!row.priority && row.callOut)) branch.urgent += 1
+      }
+      if (DONE.has(row.category)) branch.completed += 1
+      branches.set(branchName, branch)
       if (row.storeNumber) {
         const store = stores.get(row.storeNumber) || { open: 0, completed: 0, total: 0 }
         store.total += 1
@@ -385,9 +478,18 @@ export class JobRegisterService {
         const worker =
           workers.get(workerKey) ||
           (row.assigneeId
-            ? { userId: row.assigneeId, name: names.get(row.assigneeId) || 'Team member', open: 0, completed: 0, failed: 0 }
-            : { userId: '', name: workerName!, oldSystem: true, open: 0, completed: 0, failed: 0 })
-        if (OPEN.has(row.category)) worker.open += 1
+            ? {
+                userId: row.assigneeId,
+                name: names.get(row.assigneeId) || 'Team member',
+                open: 0,
+                completed: 0,
+                failed: 0,
+              }
+            : { userId: '', name: workerName!, oldSystem: true, open: 0, completed: 0, failed: 0, toAssign: 0 })
+        if (OPEN.has(row.category)) {
+          if (row.assigneeId) worker.open += 1
+          else worker.toAssign = (worker.toAssign || 0) + 1
+        }
         if (DONE.has(row.category)) worker.completed += 1
         if (row.category === 'failed') worker.failed += 1
         workers.set(workerKey, worker)
@@ -427,7 +529,13 @@ export class JobRegisterService {
         })
         .sort((a, b) => b.open - a.open || b.total - a.total)
         .slice(0, 20),
-      byWorker: [...workers.values()].sort((a, b) => b.open - a.open || b.completed - a.completed),
+      byWorker: [...workers.values()].sort(
+        (a, b) =>
+          b.open - a.open || (b.toAssign || 0) - (a.toAssign || 0) || b.completed - a.completed,
+      ),
+      byBranch: [...branches.entries()]
+        .map(([branch, values]) => ({ branch, ...values }))
+        .sort((a, b) => b.open - a.open || b.total - a.total || a.branch.localeCompare(b.branch)),
       byProblemType: [...problems.values()].sort((a, b) => b.open - a.open || b.total - a.total).slice(0, 10),
       ...(durations.length
         ? { averageDaysToComplete: Math.round((durations.reduce((a, b) => a + b, 0) / durations.length) * 10) / 10 }
@@ -476,7 +584,17 @@ function nowFigures(rows: JobRegisterRow[], now = Date.now()): Pick<JobReport, '
     completed: 0,
   }))
   const firstWeek = thisWeek - 7 * 7 * DAY
-  const figures = { date: today, scheduled: 0, overdue: 0, unassigned: 0, urgent: 0, receivedLast7Days: 0, completedLast7Days: 0, completedLast30Days: 0 }
+  const figures = {
+    date: today,
+    scheduled: 0,
+    overdue: 0,
+    unassigned: 0,
+    urgent: 0,
+    outOfHours: 0,
+    receivedLast7Days: 0,
+    completedLast7Days: 0,
+    completedLast30Days: 0,
+  }
   let oldest = NaN
   for (const row of rows) {
     const received = receivedAt(row)
@@ -492,7 +610,8 @@ function nowFigures(rows: JobRegisterRow[], now = Date.now()): Pick<JobReport, '
     }
     if (!isOpen(row.category)) continue
     if (row.category === 'pending' || row.category === 'not_booked') figures.unassigned += 1
-    if (row.callOut) figures.urgent += 1
+    if (row.priority === 'urgent' || (!row.priority && row.callOut)) figures.urgent += 1
+    if (row.priority === 'out_of_hours') figures.outOfHours += 1
     const booked = String(row.scheduledDate || '').slice(0, 10)
     if (DATE.test(booked)) {
       if (booked === today) figures.scheduled += 1

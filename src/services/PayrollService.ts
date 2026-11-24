@@ -24,6 +24,21 @@ function employeeFromRow(row: any): Employee {
   } catch {
     skills = []
   }
+  let qualifications: EmployeeQualification[] = []
+  try {
+    const parsed = JSON.parse(row.qualifications_json || '[]')
+    qualifications = Array.isArray(parsed)
+      ? parsed
+          .filter((item) => item && typeof item.name === 'string')
+          .map((item) => ({
+            name: item.name,
+            ...(item.expiresAt ? { expiresAt: String(item.expiresAt) } : {}),
+            ...(item.issuer ? { issuer: String(item.issuer) } : {}),
+          }))
+      : []
+  } catch {
+    qualifications = []
+  }
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -38,12 +53,19 @@ function employeeFromRow(row: any): Employee {
     tin: row.tin,
     staffNumber: row.staff_number || undefined,
     skills,
+    qualifications,
     userId: row.user_id || undefined,
     branch: row.branch || undefined,
     legacyUsername: row.legacy_username || undefined,
     status: row.status,
     createdAt: row.created_at,
   }
+}
+
+export interface EmployeeQualification {
+  name: string
+  expiresAt?: string
+  issuer?: string
 }
 
 export interface Employee {
@@ -61,6 +83,7 @@ export interface Employee {
   /** The attendant's number. Unique in the organisation. */
   staffNumber?: string
   skills?: string[]
+  qualifications?: EmployeeQualification[]
   /** The team account this employee uses, so their jobs, leave and van can be listed. */
   userId?: string
   branch?: string
@@ -130,15 +153,20 @@ export class PayrollService {
     const now = new Date().toISOString()
     const tenantId = employee.tenantId || 'default'
     // Editing a record keeps the date it was first added.
-    const existing = db.prepare('SELECT created_at FROM employees WHERE id = ? AND tenant_id = ?').get(id, tenantId) as
-      | { created_at?: string }
-      | undefined
+    const existing = db
+      .prepare('SELECT created_at, qualifications_json FROM employees WHERE id = ? AND tenant_id = ?')
+      .get(id, tenantId) as { created_at?: string; qualifications_json?: string } | undefined
     if (employee.id && !existing) {
-      const other = db.prepare('SELECT tenant_id FROM employees WHERE id = ?').get(id) as { tenant_id: string } | undefined
+      const other = db.prepare('SELECT tenant_id FROM employees WHERE id = ?').get(id) as
+        | { tenant_id: string }
+        | undefined
       if (other && other.tenant_id !== tenantId) throw new Error('That employee belongs to another organisation')
     }
 
-    const staffNumber = String(employee.staffNumber || '').trim().toUpperCase() || null
+    const staffNumber =
+      String(employee.staffNumber || '')
+        .trim()
+        .toUpperCase() || null
     const userId = String(employee.userId || '').trim() || null
     if (staffNumber) {
       const taken = db
@@ -158,10 +186,21 @@ export class PayrollService {
     }
     const skillsByKey = new Map<string, string>()
     for (const skill of employee.skills || []) {
-      const name = String(skill || '').trim().slice(0, 60)
+      const name = String(skill || '')
+        .trim()
+        .slice(0, 60)
       if (name && !skillsByKey.has(name.toLowerCase())) skillsByKey.set(name.toLowerCase(), name)
     }
     const skills = Array.from(skillsByKey.values()).slice(0, 20)
+    const previousQualifications = (() => {
+      try {
+        const parsed = JSON.parse(existing?.qualifications_json || '[]')
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    })()
+    const qualifications = this.normalizeQualifications(employee.qualifications ?? previousQualifications)
 
     const record = {
       id,
@@ -177,6 +216,7 @@ export class PayrollService {
       tin: employee.tin || null,
       staff_number: staffNumber,
       skills_json: JSON.stringify(skills),
+      qualifications_json: JSON.stringify(qualifications),
       user_id: userId,
       status: employee.status || 'active',
       created_at: existing?.created_at || now,
@@ -186,14 +226,49 @@ export class PayrollService {
     db.prepare(
       `
             INSERT OR REPLACE INTO employees 
-            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, staff_number, skills_json, user_id, status, created_at, updated_at)
-            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @staff_number, @skills_json, @user_id, @status, @created_at, @updated_at)
+            (id, tenant_id, did, first_name, last_name, email, phone, base_salary, currency, nssa_number, tin, staff_number, skills_json, qualifications_json, user_id, status, created_at, updated_at)
+            VALUES (@id, @tenant_id, @did, @first_name, @last_name, @email, @phone, @base_salary, @currency, @nssa_number, @tin, @staff_number, @skills_json, @qualifications_json, @user_id, @status, @created_at, @updated_at)
         `,
     ).run(record)
 
     const saved = await this.getEmployee(id)
     if (!saved) throw new Error('Failed to save employee')
     return saved
+  }
+
+  private normalizeQualifications(input: unknown): EmployeeQualification[] {
+    if (!Array.isArray(input)) throw new Error('Qualifications must be a list')
+    if (input.length > 20) throw new Error('Add no more than 20 qualifications')
+    const qualifications = new Map<string, EmployeeQualification>()
+    for (const value of input) {
+      if (!value || typeof value !== 'object') throw new Error('Each qualification needs a name')
+      const item = value as Record<string, unknown>
+      const name = String(item.name || '')
+        .trim()
+        .slice(0, 100)
+      if (!name) throw new Error('Each qualification needs a name')
+      const expiresAt = String(item.expiresAt || '').trim()
+      if (expiresAt) {
+        const parsed = new Date(`${expiresAt}T00:00:00.000Z`)
+        if (
+          !/^\d{4}-\d{2}-\d{2}$/.test(expiresAt) ||
+          Number.isNaN(parsed.getTime()) ||
+          parsed.toISOString().slice(0, 10) !== expiresAt
+        ) {
+          throw new Error(`The expiry date for ${name} must be a valid YYYY-MM-DD date`)
+        }
+      }
+      const issuer = String(item.issuer || '')
+        .trim()
+        .slice(0, 100)
+      const qualification = {
+        name,
+        ...(expiresAt ? { expiresAt } : {}),
+        ...(issuer ? { issuer } : {}),
+      }
+      qualifications.set(`${name.toLowerCase()}:${expiresAt}`, qualification)
+    }
+    return [...qualifications.values()]
   }
 
   async getEmployee(id: string): Promise<Employee | null> {
@@ -229,9 +304,11 @@ export class PayrollService {
     members: Array<{ userId: string; displayName?: string; phone?: string; status?: string }>,
   ): number {
     const db = DatabaseManager.getDatabase()
-    const rows = db
-      .prepare('SELECT id, phone, user_id FROM employees WHERE tenant_id = ?')
-      .all(tenantId) as Array<{ id: string; phone?: string | null; user_id?: string | null }>
+    const rows = db.prepare('SELECT id, phone, user_id FROM employees WHERE tenant_id = ?').all(tenantId) as Array<{
+      id: string
+      phone?: string | null
+      user_id?: string | null
+    }>
     const linked = new Set(rows.filter((row) => row.user_id).map((row) => String(row.user_id)))
     const loose = rows.filter((row) => !row.user_id)
     let added = 0
@@ -240,15 +317,27 @@ export class PayrollService {
       const phoneKey = normalizeContactPhone(member.phone || '')
       const match = phoneKey ? loose.find((row) => normalizeContactPhone(row.phone || '') === phoneKey) : undefined
       if (match) {
-        db.prepare('UPDATE employees SET user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(member.userId, match.id)
+        db.prepare('UPDATE employees SET user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(
+          member.userId,
+          match.id,
+        )
         loose.splice(loose.indexOf(match), 1)
       } else {
-        const name = String(member.displayName || member.phone || 'Team member').replace(/\s+/g, ' ').trim()
+        const name = String(member.displayName || member.phone || 'Team member')
+          .replace(/\s+/g, ' ')
+          .trim()
         const [first, ...rest] = name.split(' ')
         db.prepare(
           `INSERT INTO employees (id, tenant_id, first_name, last_name, phone, base_salary, currency, status, user_id)
            VALUES (?, ?, ?, ?, ?, 0, 'USD', 'active', ?)`,
-        ).run(`EMP-${randomUUID()}`, tenantId, first || 'Team member', rest.join(' '), member.phone || null, member.userId)
+        ).run(
+          `EMP-${randomUUID()}`,
+          tenantId,
+          first || 'Team member',
+          rest.join(' '),
+          member.phone || null,
+          member.userId,
+        )
         added += 1
       }
       linked.add(member.userId)

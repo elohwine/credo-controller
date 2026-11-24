@@ -323,10 +323,10 @@ export function IncomingJobs({
           </Paper>
         )
       })}
-      {loaded && !loading && !mailboxOnly && !focusId && items.length === 0 && (
-        <Paper withBorder radius="md" p="lg" ta="center">
-          <Text c="dimmed">Nothing to check. New jobs from email, imports and by hand go straight onto the Jobs list.</Text>
-        </Paper>
+      {loaded && !loading && !mailboxOnly && !focusId && items.length === 0 && mail?.connected && (
+        <Text size="sm" c="dimmed">
+          Nothing to check. New jobs from email, imports and by hand go straight onto the Jobs list.
+        </Text>
       )}
     </Stack>
   )

@@ -28,6 +28,7 @@ export interface CreateEmployeeRequest {
   /** Attendant number, unique in the organisation. */
   staffNumber?: string
   skills?: string[]
+  qualifications?: Employee['qualifications']
   /** Team account, so this employee's jobs, leave and van can be listed. */
   userId?: string
 }

@@ -220,6 +220,8 @@ export class DatabaseManager {
       { version: 156, file: '156_job_history_imports.sql', name: 'job_history_imports' },
       { version: 157, file: '157_old_system_import_details.sql', name: 'old_system_import_details' },
       { version: 158, file: '158_job_history_runs.sql', name: 'job_history_runs' },
+      { version: 159, file: '159_job_dashboard_settings.sql', name: 'job_dashboard_settings' },
+      { version: 160, file: '160_employee_qualifications.sql', name: 'employee_qualifications' },
     ]
 
     for (const migration of migrationFiles) {

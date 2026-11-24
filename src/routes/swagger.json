@@ -1825,6 +1825,24 @@
         "type": "object",
         "additionalProperties": false
       },
+      "EmployeeQualification": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
       "Employee": {
         "properties": {
           "id": {
@@ -1868,6 +1886,12 @@
           "skills": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "qualifications": {
+            "items": {
+              "$ref": "#/components/schemas/EmployeeQualification"
             },
             "type": "array"
           },
@@ -1956,6 +1980,12 @@
           "skills": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "qualifications": {
+            "items": {
+              "$ref": "#/components/schemas/EmployeeQualification"
             },
             "type": "array"
           },
@@ -18055,6 +18085,14 @@
         "type": "object",
         "additionalProperties": false
       },
+      "FieldJobPriority": {
+        "type": "string",
+        "enum": [
+          "urgent",
+          "out_of_hours",
+          "normal"
+        ]
+      },
       "FieldJobCategory": {
         "type": "string",
         "enum": [
@@ -18100,6 +18138,12 @@
           },
           "scheduledDate": {
             "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/FieldJobPriority"
           },
           "category": {
             "$ref": "#/components/schemas/FieldJobCategory"
@@ -18257,6 +18301,12 @@
           },
           "scheduledDate": {
             "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/FieldJobPriority"
           },
           "source": {
             "type": "string",
@@ -18989,7 +19039,9 @@
           "overdue",
           "unassigned",
           "stalled",
-          "waiting"
+          "waiting",
+          "response_at_risk",
+          "response_breached"
         ]
       },
       "AttentionItem": {
@@ -19032,6 +19084,14 @@
           },
           "detail": {
             "type": "string"
+          },
+          "elapsedMinutes": {
+            "type": "number",
+            "format": "double"
+          },
+          "targetMinutes": {
+            "type": "number",
+            "format": "double"
           }
         },
         "required": [
@@ -19042,6 +19102,125 @@
           "days",
           "headline",
           "detail"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "Record_ResponsePriority.number-or-null_": {
+        "properties": {
+          "normal": {
+            "type": "number",
+            "format": "double"
+          },
+          "urgent": {
+            "type": "number",
+            "format": "double"
+          },
+          "out_of_hours": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "normal",
+          "urgent",
+          "out_of_hours"
+        ],
+        "type": "object",
+        "description": "Construct a type with a set of properties K of type T"
+      },
+      "JobResponseTargets": {
+        "$ref": "#/components/schemas/Record_ResponsePriority.number-or-null_"
+      },
+      "Partial_JobResponseTargets_": {
+        "properties": {
+          "normal": {
+            "type": "number",
+            "format": "double"
+          },
+          "urgent": {
+            "type": "number",
+            "format": "double"
+          },
+          "out_of_hours": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "type": "object",
+        "description": "Make all properties in T optional"
+      },
+      "ResponsePriority": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "urgent",
+          "out_of_hours"
+        ]
+      },
+      "TodayMapJob": {
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "storeNumber": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/ResponsePriority"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "runId",
+          "reference",
+          "description",
+          "location"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "TodayJobsMap": {
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/TodayMapJob"
+            },
+            "type": "array"
+          },
+          "pendingLocations": {
+            "type": "number",
+            "format": "double"
+          },
+          "notFoundLocations": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "date",
+          "jobs",
+          "pendingLocations",
+          "notFoundLocations"
         ],
         "type": "object",
         "additionalProperties": false
@@ -19152,6 +19331,12 @@
           },
           "scheduledDate": {
             "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/FieldJobPriority"
           },
           "assigneeId": {
             "type": "string"
@@ -19366,6 +19551,11 @@
           "byWorker": {
             "items": {
               "properties": {
+                "toAssign": {
+                  "type": "number",
+                  "format": "double",
+                  "description": "Open imported jobs naming this old-system worker but not yet assigned in LDK."
+                },
                 "oldSystem": {
                   "type": "boolean"
                 },
@@ -19399,6 +19589,66 @@
             },
             "type": "array",
             "description": "Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set)."
+          },
+          "byBranch": {
+            "items": {
+              "properties": {
+                "urgent": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "failed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "onHold": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "inProgress": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "assigned": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "unassigned": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "total": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "completed": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "open": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "branch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "urgent",
+                "failed",
+                "onHold",
+                "inProgress",
+                "assigned",
+                "unassigned",
+                "total",
+                "completed",
+                "open",
+                "branch"
+              ],
+              "type": "object"
+            },
+            "type": "array",
+            "description": "Each branch's open jobs split by stage, so the office can see where a branch is stuck."
           },
           "byProblemType": {
             "items": {
@@ -19470,6 +19720,10 @@
                 "type": "number",
                 "format": "double"
               },
+              "outOfHours": {
+                "type": "number",
+                "format": "double"
+              },
               "urgent": {
                 "type": "number",
                 "format": "double",
@@ -19498,6 +19752,7 @@
               "completedLast30Days",
               "completedLast7Days",
               "receivedLast7Days",
+              "outOfHours",
               "urgent",
               "unassigned",
               "overdue",
@@ -19539,6 +19794,7 @@
           "bySource",
           "byStore",
           "byWorker",
+          "byBranch",
           "byProblemType",
           "firstTimeFix",
           "today",
@@ -50899,6 +51155,204 @@
         "parameters": []
       }
     },
+    "/api/platform/operations/response-targets": {
+      "get": {
+        "operationId": "ResponseTargets",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "targets": {
+                      "$ref": "#/components/schemas/JobResponseTargets"
+                    }
+                  },
+                  "required": [
+                    "targets"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      },
+      "put": {
+        "operationId": "SaveResponseTargets",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "targets": {
+                      "$ref": "#/components/schemas/JobResponseTargets"
+                    }
+                  },
+                  "required": [
+                    "targets"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "targets": {
+                    "$ref": "#/components/schemas/Partial_JobResponseTargets_"
+                  }
+                },
+                "required": [
+                  "targets"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/platform/operations/map/today": {
+      "get": {
+        "operationId": "TodayJobsMap",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayJobsMap"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": []
+      }
+    },
+    "/api/platform/operations/map/today/geocode": {
+      "post": {
+        "operationId": "GeocodeTodayJobs",
+        "responses": {
+          "200": {
+            "description": "Ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayJobsMap"
+                }
+              }
+            },
+            "headers": {
+              "x-correlation-id": {
+                "description": "Correlation ID for tracing across systems",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Operations registers"
+        ],
+        "security": [
+          {
+            "jwt": [
+              "tenant"
+            ]
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "limit": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "confirmed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "confirmed"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/platform/operations/schedule-check": {
       "get": {
         "operationId": "ScheduleCheck",
@@ -51077,6 +51531,14 @@
           },
           {
             "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
@@ -51198,6 +51660,14 @@
           {
             "in": "query",
             "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
             "required": false,
             "schema": {
               "type": "string"

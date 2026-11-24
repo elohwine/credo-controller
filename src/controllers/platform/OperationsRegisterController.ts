@@ -9,6 +9,7 @@ import type { JobSheetItem } from '../../config/jobSheet'
 import { fieldDataImportService } from '../../services/FieldDataImportService'
 import { fieldJobSheetService } from '../../services/FieldJobSheetService'
 import { jobAttentionService } from '../../services/JobAttentionService'
+import { jobDashboardSettingsService, type JobResponseTargets } from '../../services/JobDashboardSettingsService'
 import { jobHistoryPromotionService } from '../../services/JobHistoryPromotionService'
 import { jobIntakeOpeningService } from '../../services/JobIntakeOpeningService'
 import { jobRegisterService } from '../../services/JobRegisterService'
@@ -201,7 +202,9 @@ export class OperationsRegisterController {
     },
   ) {
     const principal = principalOf(request, true)
-    return asBadRequest(() => operationsRegisterService.saveVan(principal.tenantId, principal.subjectId, { ...body, id: undefined }))
+    return asBadRequest(() =>
+      operationsRegisterService.saveVan(principal.tenantId, principal.subjectId, { ...body, id: undefined }),
+    )
   }
 
   @Put('/vans/{vanId}')
@@ -223,7 +226,9 @@ export class OperationsRegisterController {
     },
   ) {
     const principal = principalOf(request, true)
-    return asBadRequest(() => operationsRegisterService.saveVan(principal.tenantId, principal.subjectId, { ...body, id: vanId }))
+    return asBadRequest(() =>
+      operationsRegisterService.saveVan(principal.tenantId, principal.subjectId, { ...body, id: vanId }),
+    )
   }
 
   @Get('/vans/{vanId}')
@@ -239,10 +244,19 @@ export class OperationsRegisterController {
   public addVanEvent(
     @Request() request: ExRequest,
     @Path() vanId: string,
-    @Body() body: { kind: 'service' | 'mot' | 'accident'; eventDate?: string; userId?: string; notes?: string; nextDue?: string },
+    @Body()
+    body: {
+      kind: 'service' | 'mot' | 'accident'
+      eventDate?: string
+      userId?: string
+      notes?: string
+      nextDue?: string
+    },
   ) {
     const principal = principalOf(request, true)
-    return asBadRequest(() => operationsRegisterService.addVanEvent(principal.tenantId, principal.subjectId, vanId, body || {}))
+    return asBadRequest(() =>
+      operationsRegisterService.addVanEvent(principal.tenantId, principal.subjectId, vanId, body || {}),
+    )
   }
 
   /**
@@ -257,6 +271,42 @@ export class OperationsRegisterController {
       items: MANAGERS.includes(principal.role)
         ? items
         : items.filter((item) => item.assigneeId === principal.subjectId),
+    }
+  }
+
+  @Get('/response-targets')
+  public responseTargets(@Request() request: ExRequest) {
+    const principal = principalOf(request, true)
+    return { targets: jobDashboardSettingsService.responseTargets(principal.tenantId) }
+  }
+
+  @Put('/response-targets')
+  public saveResponseTargets(@Request() request: ExRequest, @Body() body: { targets: Partial<JobResponseTargets> }) {
+    const principal = principalOf(request, true)
+    return asBadRequest(() => ({
+      targets: jobDashboardSettingsService.saveResponseTargets(principal.tenantId, body?.targets || {}),
+    }))
+  }
+
+  @Get('/map/today')
+  public todayJobsMap(@Request() request: ExRequest) {
+    const principal = principalOf(request, true)
+    return jobDashboardSettingsService.todayJobsMap(principal.tenantId)
+  }
+
+  @Post('/map/today/geocode')
+  public async geocodeTodayJobs(@Request() request: ExRequest, @Body() body: { confirmed: boolean; limit?: number }) {
+    const principal = principalOf(request, true)
+    try {
+      return await jobDashboardSettingsService.geocodeTodayJobs(
+        principal.tenantId,
+        body?.confirmed === true,
+        body?.limit,
+      )
+    } catch (error) {
+      return asBadRequest(() => {
+        throw error
+      })
     }
   }
 
@@ -297,6 +347,7 @@ export class OperationsRegisterController {
     @Query() from?: string,
     @Query() to?: string,
     @Query() q?: string,
+    @Query() branch?: string,
     @Query() sort?: string,
     @Query() dir?: string,
     @Query() limit?: number,
@@ -307,7 +358,7 @@ export class OperationsRegisterController {
     return asBadRequest(() =>
       jobRegisterService.page(
         principal.tenantId,
-        { source, category, storeNumber, assigneeId: manager ? assigneeId : principal.subjectId, from, to, q },
+        { source, category, storeNumber, assigneeId: manager ? assigneeId : principal.subjectId, branch, from, to, q },
         { sort, dir, limit, offset },
       ),
     )
@@ -324,10 +375,11 @@ export class OperationsRegisterController {
     @Query() from?: string,
     @Query() to?: string,
     @Query() q?: string,
+    @Query() branch?: string,
   ) {
     const principal = principalOf(request, true)
     const csv = asBadRequest(() =>
-      jobRegisterService.csv(principal.tenantId, { source, category, storeNumber, assigneeId, from, to, q }),
+      jobRegisterService.csv(principal.tenantId, { source, category, storeNumber, assigneeId, from, to, q, branch }),
     )
     const res = (request as any).res
     if (res) {
@@ -341,7 +393,12 @@ export class OperationsRegisterController {
 
   /** Active, completed, waiting and on-hold jobs, by source, store and worker. */
   @Get('/reports')
-  public reports(@Request() request: ExRequest, @Query() from?: string, @Query() to?: string, @Query() source?: string) {
+  public reports(
+    @Request() request: ExRequest,
+    @Query() from?: string,
+    @Query() to?: string,
+    @Query() source?: string,
+  ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => jobRegisterService.report(principal.tenantId, { from, to, source }))
   }
@@ -367,7 +424,9 @@ export class OperationsRegisterController {
     },
   ) {
     const principal = principalOf(request, false)
-    return asBadRequest(() => operationsRegisterService.recordDailyCheck(principal.tenantId, principal.subjectId, vanId, body || {}))
+    return asBadRequest(() =>
+      operationsRegisterService.recordDailyCheck(principal.tenantId, principal.subjectId, vanId, body || {}),
+    )
   }
 
   /** A driver reports an accident with photos. */
@@ -378,11 +437,18 @@ export class OperationsRegisterController {
     @Body() body: { eventDate?: string; notes: string; photos?: VanPhotoInput[] },
   ) {
     const principal = principalOf(request, false)
-    return asBadRequest(() => operationsRegisterService.reportAccident(principal.tenantId, principal.subjectId, vanId, body || ({} as any)))
+    return asBadRequest(() =>
+      operationsRegisterService.reportAccident(principal.tenantId, principal.subjectId, vanId, body || ({} as any)),
+    )
   }
 
   @Get('/vans/{vanId}/events/{eventId}/photos/{photoId}')
-  public vanEventPhoto(@Request() request: ExRequest, @Path() vanId: string, @Path() eventId: string, @Path() photoId: string) {
+  public vanEventPhoto(
+    @Request() request: ExRequest,
+    @Path() vanId: string,
+    @Path() eventId: string,
+    @Path() photoId: string,
+  ) {
     const principal = principalOf(request, false)
     const photo = operationsRegisterService.vanEventPhoto(principal.tenantId, vanId, eventId, photoId)
     if (!photo) throw new StatusException('Photo not found', 404)
@@ -408,7 +474,15 @@ export class OperationsRegisterController {
   public updateRateCard(
     @Request() request: ExRequest,
     @Path() rateCardId: string,
-    @Body() body: { name?: string; unit?: string; unitPrice?: number; currency?: string; problemType?: string; active?: boolean },
+    @Body()
+    body: {
+      name?: string
+      unit?: string
+      unitPrice?: number
+      currency?: string
+      problemType?: string
+      active?: boolean
+    },
   ) {
     const principal = principalOf(request, true)
     return asBadRequest(() => fieldJobSheetService.saveRateCard(principal.tenantId, { ...body, id: rateCardId }))
@@ -418,7 +492,10 @@ export class OperationsRegisterController {
   @Get('/job-sheets')
   public jobSheets(@Request() request: ExRequest) {
     const principal = principalOf(request, false)
-    return { items: fieldJobSheetService.listSheets(principal.tenantId), general: fieldJobSheetService.sheetFor(principal.tenantId).items }
+    return {
+      items: fieldJobSheetService.listSheets(principal.tenantId),
+      general: fieldJobSheetService.sheetFor(principal.tenantId).items,
+    }
   }
 
   @Put('/job-sheets')

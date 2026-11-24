@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Badge, Button, ColorSwatch, Drawer, Group, Paper, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput } from '@mantine/core'
+import {
+  Badge,
+  Button,
+  ColorSwatch,
+  Drawer,
+  Group,
+  Paper,
+  SegmentedControl,
+  Select,
+  SimpleGrid,
+  Stack,
+  Text,
+  TextInput,
+} from '@mantine/core'
 import { IconCalendar, IconDownload, IconMail, IconSearch } from '@tabler/icons-react'
 
 import { IMPORTED_JOB_DETAIL_LABELS } from '../../../src/config/fieldDataImport'
@@ -20,7 +33,6 @@ import {
   storeLabel,
   type OperationsApi,
 } from './operationsApi'
-
 
 const STATUSES = [
   { value: 'all', label: 'All jobs' },
@@ -106,6 +118,7 @@ export function JobBoard({
   onOpenJob,
   refreshKey,
   initialView = 'list',
+  lockedView,
 }: {
   api: OperationsApi | null
   surface: 'portal' | 'phone'
@@ -118,13 +131,18 @@ export function JobBoard({
   refreshKey?: number
   /** `reports` opens on the report, as the home dashboard's "Full report" link does. */
   initialView?: 'list' | 'calendar' | 'reports'
+  /** Shows only this view, without the switch, when the page already has its own tabs for it. */
+  lockedView?: 'list' | 'calendar' | 'reports'
 }) {
   const [rows, setRows] = useState<JobRegisterRow[]>([])
   const [total, setTotal] = useState(0)
   const [calendarRows, setCalendarRows] = useState<JobRegisterRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [view, setView] = useState<string>(initialView)
+  const [view, setView] = useState<string>(lockedView || initialView)
+  useEffect(() => {
+    if (lockedView) setView(lockedView)
+  }, [lockedView])
   const [layout, setLayout] = useState<'table' | 'cards'>(surface === 'phone' ? 'cards' : 'table')
   const [source, setSource] = useState<string | null>('all')
   const [category, setCategory] = useState<string | null>('all')
@@ -278,16 +296,42 @@ export function JobBoard({
 
   const action = (row: JobRegisterRow) =>
     row.kind === 'job' ? (
-      <Button size={size} variant="light" radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); onOpenJob(row.id) }}>
+      <Button
+        size={size}
+        variant="light"
+        radius="xl"
+        style={{ minHeight: surface === 'phone' ? 48 : 36 }}
+        onClick={(event) => {
+          event.stopPropagation()
+          onOpenJob(row.id)
+        }}
+      >
         Open
       </Button>
     ) : row.kind === 'history' ? (
-      <Button size={size} variant="default" radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); setViewing(row) }}>
+      <Button
+        size={size}
+        variant="default"
+        radius="xl"
+        style={{ minHeight: surface === 'phone' ? 48 : 36 }}
+        onClick={(event) => {
+          event.stopPropagation()
+          setViewing(row)
+        }}
+      >
         Details
       </Button>
     ) : (
       canBook && (
-        <Button size={size} radius="xl" style={{ minHeight: surface === 'phone' ? 48 : 36 }} onClick={(event) => { event.stopPropagation(); setBooking(booking === row.id ? null : row.id) }}>
+        <Button
+          size={size}
+          radius="xl"
+          style={{ minHeight: surface === 'phone' ? 48 : 36 }}
+          onClick={(event) => {
+            event.stopPropagation()
+            setBooking(booking === row.id ? null : row.id)
+          }}
+        >
           Book
         </Button>
       )
@@ -309,11 +353,22 @@ export function JobBoard({
         <Badge variant="default" leftSection={row.source === 'email' ? <IconMail size={12} /> : undefined}>
           {fieldJobSourceLabel(row.source)}
         </Badge>
-        {row.callOut && (
+        {row.priority === 'urgent' && (
+          <Badge variant="light" color="red">
+            Urgent
+          </Badge>
+        )}
+        {row.priority === 'out_of_hours' && (
+          <Badge variant="light" color="violet">
+            Out of hours
+          </Badge>
+        )}
+        {!row.priority && row.callOut && (
           <Badge variant="light" color="orange">
             Call-out
           </Badge>
         )}
+        {row.branch && <Badge variant="default">{row.branch}</Badge>}
         {row.possibleRepeat && (
           <Badge variant="light" color="red">
             Possible repeat
@@ -343,10 +398,33 @@ export function JobBoard({
     },
     { key: 'status', title: 'Status', sortable: true, minWidth: 180, render: badges },
     { key: 'store', title: 'Store', sortable: true, nowrap: true, render: (row) => row.storeNumber || '—' },
-    { key: 'client', title: 'Client', sortable: true, minWidth: 140, render: (row) => <Text size="sm" lineClamp={2}>{row.clientName || row.location || '—'}</Text> },
-    { key: 'date', title: 'Booked for', sortable: true, nowrap: true, render: (row) => (row.scheduledDate ? readableDate(row.scheduledDate) : 'No date') },
+    {
+      key: 'client',
+      title: 'Client',
+      sortable: true,
+      minWidth: 140,
+      render: (row) => (
+        <Text size="sm" lineClamp={2}>
+          {row.clientName || row.location || '—'}
+        </Text>
+      ),
+    },
+    {
+      key: 'date',
+      title: 'Booked for',
+      sortable: true,
+      nowrap: true,
+      render: (row) => (row.scheduledDate ? readableDate(row.scheduledDate) : 'No date'),
+    },
     { key: 'worker', title: 'Worker', nowrap: true, render: (row) => workerLine(row, names) || '—' },
-    { key: 'received', title: 'Received', sortable: true, firstDir: 'desc', nowrap: true, render: (row) => readableDate(String(row.createdAt).slice(0, 10)) },
+    {
+      key: 'received',
+      title: 'Received',
+      sortable: true,
+      firstDir: 'desc',
+      nowrap: true,
+      render: (row) => readableDate(String(row.createdAt).slice(0, 10)),
+    },
     { key: 'action', title: '', align: 'right', render: action },
   ]
 
@@ -392,7 +470,14 @@ export function JobBoard({
   return (
     <Stack gap="sm">
       <Group gap="sm" align="flex-end" grow={surface === 'phone'}>
-        <Select<string> size={size} label="Source" data={FIELD_JOB_SOURCE_OPTIONS} value={source} onChange={setSource} style={{ flex: 1, minWidth: 140 }} />
+        <Select<string>
+          size={size}
+          label="Source"
+          data={FIELD_JOB_SOURCE_OPTIONS}
+          value={source}
+          onChange={setSource}
+          style={{ flex: 1, minWidth: 140 }}
+        />
         <Select<string>
           size={size}
           label="Status"
@@ -432,7 +517,13 @@ export function JobBoard({
         )}
       </Group>
       {canExport && (
-        <Button size={size} variant="light" leftSection={<IconDownload size={18} />} onClick={() => void download()} style={{ minHeight: 48, alignSelf: 'flex-start' }}>
+        <Button
+          size={size}
+          variant="light"
+          leftSection={<IconDownload size={18} />}
+          onClick={() => void download()}
+          style={{ minHeight: 48, alignSelf: 'flex-start' }}
+        >
           Export
         </Button>
       )}
@@ -444,10 +535,22 @@ export function JobBoard({
         onChange={(event) => setQuery(event.currentTarget.value)}
       />
       <Group gap="sm" grow>
-        <TextInput size={size} type="date" label="From" value={from} onChange={(event) => setFrom(event.currentTarget.value)} />
-        <TextInput size={size} type="date" label="To" value={to} onChange={(event) => setTo(event.currentTarget.value)} />
+        <TextInput
+          size={size}
+          type="date"
+          label="From"
+          value={from}
+          onChange={(event) => setFrom(event.currentTarget.value)}
+        />
+        <TextInput
+          size={size}
+          type="date"
+          label="To"
+          value={to}
+          onChange={(event) => setTo(event.currentTarget.value)}
+        />
       </Group>
-      <SegmentedControl<string>
+      {!lockedView && <SegmentedControl<string>
         fullWidth={surface === 'phone'}
         value={view}
         onChange={setView}
@@ -456,7 +559,7 @@ export function JobBoard({
           { label: 'Calendar', value: 'calendar' },
           { label: 'Report', value: 'reports' },
         ]}
-      />
+      />}
 
       {view === 'list' && (
         <Stack gap="xs">
@@ -538,7 +641,9 @@ export function JobBoard({
           />
           <Stack gap="xs">
             <Text fw={500} ta="center">
-              {span === 'day' ? readableDate(localDay(focusDay)) : `${readableDate(localDay(days[0]))} – ${readableDate(localDay(days[6]))}`}
+              {span === 'day'
+                ? readableDate(localDay(focusDay))
+                : `${readableDate(localDay(days[0]))} – ${readableDate(localDay(days[6]))}`}
             </Text>
             <Group grow={surface === 'phone'} justify="space-between">
               <Button
@@ -598,7 +703,9 @@ export function JobBoard({
           </SimpleGrid>
           {undated.length > 0 && (
             <Text size="sm" c="dimmed">
-              {undated.length} job{undated.length === 1 ? '' : 's'} received in these days {undated.length === 1 ? 'has' : 'have'} no date and {undated.length === 1 ? 'is' : 'are'} not on the calendar. Set a date to place {undated.length === 1 ? 'it' : 'them'}.
+              {undated.length} job{undated.length === 1 ? '' : 's'} received in these days{' '}
+              {undated.length === 1 ? 'has' : 'have'} no date and {undated.length === 1 ? 'is' : 'are'} not on the
+              calendar. Set a date to place {undated.length === 1 ? 'it' : 'them'}.
             </Text>
           )}
           {booking && canBook && (
@@ -644,7 +751,9 @@ export function JobBoard({
             ))}
           </SimpleGrid>
           {report.averageDaysToComplete !== undefined && (
-            <Text size="sm">Completed jobs took {report.averageDaysToComplete} days on average from the day they were received.</Text>
+            <Text size="sm">
+              Completed jobs took {report.averageDaysToComplete} days on average from the day they were received.
+            </Text>
           )}
           <Text fw={500}>Where jobs came from</Text>
           {report.bySource.map((entry) => (
@@ -654,7 +763,13 @@ export function JobBoard({
           ))}
           {report.byStore.length > 0 && (
             <SummaryTable
-              rows={report.byStore.map(({ storeNumber, name, open, completed, total }) => ({ storeNumber, store: storeLabel(storeNumber, name), open, completed, total }))}
+              rows={report.byStore.map(({ storeNumber, name, open, completed, total }) => ({
+                storeNumber,
+                store: storeLabel(storeNumber, name),
+                open,
+                completed,
+                total,
+              }))}
               rowKey={(store) => store.storeNumber}
               name={{ key: 'store', title: 'Store' }}
               counts={STORE_COUNTS}
@@ -663,10 +778,12 @@ export function JobBoard({
           )}
           {report.byWorker.length > 0 && (
             <SummaryTable
-              rows={report.byWorker.map(({ userId, name, oldSystem, open, completed, failed }) => ({
+              rows={report.byWorker.map(({ userId, name, oldSystem, open, toAssign, completed, failed }) => ({
                 key: userId || `old:${name}`,
                 name: oldSystem ? `${name} (old system)` : name,
-                open,
+                // Older APIs counted unassigned imported jobs as an old-system worker's open jobs.
+                open: oldSystem && toAssign === undefined ? 0 : open,
+                toAssign: toAssign ?? (oldSystem ? open : 0),
                 completed,
                 failed,
               }))}
@@ -704,14 +821,15 @@ export function JobBoard({
 }
 
 type StoreSummary = { storeNumber: string; store: string; open: number; completed: number; total: number }
-type WorkerSummary = { key: string; name: string; open: number; completed: number; failed: number }
+type WorkerSummary = { key: string; name: string; open: number; toAssign: number; completed: number; failed: number }
 
 const STORE_COUNTS: Array<{ key: keyof StoreSummary & string; title: string }> = [
   { key: 'open', title: 'Open' },
   { key: 'completed', title: 'Completed' },
 ]
 const WORKER_COUNTS: Array<{ key: keyof WorkerSummary & string; title: string }> = [
-  { key: 'open', title: 'Open' },
+  { key: 'open', title: 'Assigned open' },
+  { key: 'toAssign', title: 'To assign' },
   { key: 'completed', title: 'Completed' },
   { key: 'failed', title: 'Failed visits' },
 ]
@@ -732,7 +850,9 @@ function SummaryTable<T extends Record<string, string | number>>({
 }) {
   const list = useListState({ initialSort: { key: counts[0].key, dir: 'desc' } })
   const sorters = useMemo(() => {
-    const byKey: Record<string, (row: T) => string | number> = { [name.key]: (row) => String(row[name.key]).toLowerCase() }
+    const byKey: Record<string, (row: T) => string | number> = {
+      [name.key]: (row) => String(row[name.key]).toLowerCase(),
+    }
     for (const count of counts) byKey[count.key] = (row) => Number(row[count.key])
     return byKey
   }, [name.key, counts])
@@ -749,12 +869,31 @@ function SummaryTable<T extends Record<string, string | number>>({
     })),
   ]
   return (
-    <DataTable rows={items} columns={columns} rowKey={rowKey} sort={list.sort} onSortChange={list.setSort} paging={paging} itemWord={itemWord} minWidth={360} />
+    <DataTable
+      rows={items}
+      columns={columns}
+      rowKey={rowKey}
+      sort={list.sort}
+      onSortChange={list.setSort}
+      paging={paging}
+      itemWord={itemWord}
+      minWidth={360}
+    />
   )
 }
 
 /** Everything known about a job that came from the old system or is waiting to be booked. */
-function ImportedJobSheet({ row, workerName, canBook, onBook }: { row: JobRegisterRow; workerName?: string; canBook: boolean; onBook: () => void }) {
+function ImportedJobSheet({
+  row,
+  workerName,
+  canBook,
+  onBook,
+}: {
+  row: JobRegisterRow
+  workerName?: string
+  canBook: boolean
+  onBook: () => void
+}) {
   const details = row.details || {}
   const facts = [
     ['Description', row.description || ''] as [string, string],

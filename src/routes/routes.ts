@@ -736,6 +736,16 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "EmployeeQualification": {
+        "dataType": "refObject",
+        "properties": {
+            "name": {"dataType":"string","required":true},
+            "expiresAt": {"dataType":"string"},
+            "issuer": {"dataType":"string"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "Employee": {
         "dataType": "refObject",
         "properties": {
@@ -752,6 +762,7 @@ const models: TsoaRoute.Models = {
             "tin": {"dataType":"string"},
             "staffNumber": {"dataType":"string"},
             "skills": {"dataType":"array","array":{"dataType":"string"}},
+            "qualifications": {"dataType":"array","array":{"dataType":"refObject","ref":"EmployeeQualification"}},
             "userId": {"dataType":"string"},
             "branch": {"dataType":"string"},
             "legacyUsername": {"dataType":"string"},
@@ -777,6 +788,7 @@ const models: TsoaRoute.Models = {
             "did": {"dataType":"string"},
             "staffNumber": {"dataType":"string"},
             "skills": {"dataType":"array","array":{"dataType":"string"}},
+            "qualifications": {"dataType":"array","array":{"dataType":"refObject","ref":"EmployeeQualification"}},
             "userId": {"dataType":"string"},
         },
         "additionalProperties": false,
@@ -6086,6 +6098,11 @@ const models: TsoaRoute.Models = {
         "additionalProperties": false,
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "FieldJobPriority": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["urgent"]},{"dataType":"enum","enums":["out_of_hours"]},{"dataType":"enum","enums":["normal"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "FieldJobCategory": {
         "dataType": "refAlias",
         "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["pending"]},{"dataType":"enum","enums":["assigned"]},{"dataType":"enum","enums":["active"]},{"dataType":"enum","enums":["arrived"]},{"dataType":"enum","enums":["on_hold"]},{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["completed"]},{"dataType":"enum","enums":["reconciled"]},{"dataType":"enum","enums":["cancelled"]}],"validators":{}},
@@ -6106,6 +6123,8 @@ const models: TsoaRoute.Models = {
             "description": {"dataType":"string","required":true},
             "location": {"dataType":"string"},
             "scheduledDate": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "priority": {"ref":"FieldJobPriority"},
             "category": {"ref":"FieldJobCategory","required":true},
             "callOut": {"dataType":"boolean","required":true},
             "assigneeId": {"dataType":"string"},
@@ -6150,6 +6169,8 @@ const models: TsoaRoute.Models = {
             "reference": {"dataType":"string","required":true},
             "description": {"dataType":"string","required":true},
             "scheduledDate": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "priority": {"ref":"FieldJobPriority"},
             "source": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["manual"]},{"dataType":"enum","enums":["email"]},{"dataType":"enum","enums":["import"]}],"required":true},
             "duplicateOf": {"dataType":"string"},
             "createdAt": {"dataType":"string","required":true},
@@ -6358,7 +6379,7 @@ const models: TsoaRoute.Models = {
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "AttentionKind": {
         "dataType": "refAlias",
-        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["overdue"]},{"dataType":"enum","enums":["unassigned"]},{"dataType":"enum","enums":["stalled"]},{"dataType":"enum","enums":["waiting"]}],"validators":{}},
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["failed"]},{"dataType":"enum","enums":["overdue"]},{"dataType":"enum","enums":["unassigned"]},{"dataType":"enum","enums":["stalled"]},{"dataType":"enum","enums":["waiting"]},{"dataType":"enum","enums":["response_at_risk"]},{"dataType":"enum","enums":["response_breached"]}],"validators":{}},
     },
     // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
     "AttentionItem": {
@@ -6375,6 +6396,54 @@ const models: TsoaRoute.Models = {
             "days": {"dataType":"double","required":true},
             "headline": {"dataType":"string","required":true},
             "detail": {"dataType":"string","required":true},
+            "elapsedMinutes": {"dataType":"double"},
+            "targetMinutes": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "Record_ResponsePriority.number-or-null_": {
+        "dataType": "refAlias",
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"normal":{"dataType":"double","required":true},"urgent":{"dataType":"double","required":true},"out_of_hours":{"dataType":"double","required":true}},"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "JobResponseTargets": {
+        "dataType": "refAlias",
+        "type": {"ref":"Record_ResponsePriority.number-or-null_","validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "Partial_JobResponseTargets_": {
+        "dataType": "refAlias",
+        "type": {"dataType":"nestedObjectLiteral","nestedProperties":{"normal":{"dataType":"double"},"urgent":{"dataType":"double"},"out_of_hours":{"dataType":"double"}},"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "ResponsePriority": {
+        "dataType": "refAlias",
+        "type": {"dataType":"union","subSchemas":[{"dataType":"enum","enums":["normal"]},{"dataType":"enum","enums":["urgent"]},{"dataType":"enum","enums":["out_of_hours"]}],"validators":{}},
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "TodayMapJob": {
+        "dataType": "refObject",
+        "properties": {
+            "runId": {"dataType":"string","required":true},
+            "reference": {"dataType":"string","required":true},
+            "description": {"dataType":"string","required":true},
+            "storeNumber": {"dataType":"string"},
+            "location": {"dataType":"string","required":true},
+            "priority": {"ref":"ResponsePriority"},
+            "latitude": {"dataType":"double"},
+            "longitude": {"dataType":"double"},
+        },
+        "additionalProperties": false,
+    },
+    // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+    "TodayJobsMap": {
+        "dataType": "refObject",
+        "properties": {
+            "date": {"dataType":"string","required":true},
+            "jobs": {"dataType":"array","array":{"dataType":"refObject","ref":"TodayMapJob"},"required":true},
+            "pendingLocations": {"dataType":"double","required":true},
+            "notFoundLocations": {"dataType":"double","required":true},
         },
         "additionalProperties": false,
     },
@@ -6413,6 +6482,8 @@ const models: TsoaRoute.Models = {
             "location": {"dataType":"string"},
             "problemType": {"dataType":"string"},
             "scheduledDate": {"dataType":"string"},
+            "branch": {"dataType":"string"},
+            "priority": {"ref":"FieldJobPriority"},
             "assigneeId": {"dataType":"string"},
             "vehicle": {"dataType":"string"},
             "callOut": {"dataType":"boolean","required":true},
@@ -6453,11 +6524,12 @@ const models: TsoaRoute.Models = {
             "counts": {"ref":"Record_JobRegisterCategory.number_","required":true},
             "bySource": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"count":{"dataType":"double","required":true},"label":{"dataType":"string","required":true},"source":{"ref":"FieldJobSource","required":true}}},"required":true},
             "byStore": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"total":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"name":{"dataType":"string"},"storeNumber":{"dataType":"string","required":true}}},"required":true},
-            "byWorker": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"oldSystem":{"dataType":"boolean"},"failed":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"name":{"dataType":"string","required":true},"userId":{"dataType":"string","required":true}}},"required":true},
+            "byWorker": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"toAssign":{"dataType":"double"},"oldSystem":{"dataType":"boolean"},"failed":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"name":{"dataType":"string","required":true},"userId":{"dataType":"string","required":true}}},"required":true},
+            "byBranch": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"urgent":{"dataType":"double","required":true},"failed":{"dataType":"double","required":true},"onHold":{"dataType":"double","required":true},"inProgress":{"dataType":"double","required":true},"assigned":{"dataType":"double","required":true},"unassigned":{"dataType":"double","required":true},"total":{"dataType":"double","required":true},"completed":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"branch":{"dataType":"string","required":true}}},"required":true},
             "byProblemType": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"total":{"dataType":"double","required":true},"open":{"dataType":"double","required":true},"problemType":{"dataType":"string","required":true}}},"required":true},
             "averageDaysToComplete": {"dataType":"double"},
             "firstTimeFix": {"dataType":"nestedObjectLiteral","nestedProperties":{"percent":{"dataType":"double"},"returnVisits":{"dataType":"double","required":true},"fixed":{"dataType":"double","required":true}},"required":true},
-            "today": {"dataType":"nestedObjectLiteral","nestedProperties":{"oldestOpenDays":{"dataType":"double"},"completedLast30Days":{"dataType":"double","required":true},"completedLast7Days":{"dataType":"double","required":true},"receivedLast7Days":{"dataType":"double","required":true},"urgent":{"dataType":"double","required":true},"unassigned":{"dataType":"double","required":true},"overdue":{"dataType":"double","required":true},"scheduled":{"dataType":"double","required":true},"date":{"dataType":"string","required":true}},"required":true},
+            "today": {"dataType":"nestedObjectLiteral","nestedProperties":{"oldestOpenDays":{"dataType":"double"},"completedLast30Days":{"dataType":"double","required":true},"completedLast7Days":{"dataType":"double","required":true},"receivedLast7Days":{"dataType":"double","required":true},"outOfHours":{"dataType":"double","required":true},"urgent":{"dataType":"double","required":true},"unassigned":{"dataType":"double","required":true},"overdue":{"dataType":"double","required":true},"scheduled":{"dataType":"double","required":true},"date":{"dataType":"string","required":true}},"required":true},
             "weekly": {"dataType":"array","array":{"dataType":"nestedObjectLiteral","nestedProperties":{"completed":{"dataType":"double","required":true},"received":{"dataType":"double","required":true},"weekStart":{"dataType":"string","required":true}}},"required":true},
         },
         "additionalProperties": false,
@@ -27436,6 +27508,152 @@ export function RegisterRoutes(app: Router) {
             }
         });
         // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_responseTargets: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/platform/operations/response-targets',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.responseTargets)),
+
+            async function OperationsRegisterController_responseTargets(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_responseTargets, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'responseTargets',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_saveResponseTargets: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"targets":{"ref":"Partial_JobResponseTargets_","required":true}}},
+        };
+        app.put('/api/platform/operations/response-targets',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.saveResponseTargets)),
+
+            async function OperationsRegisterController_saveResponseTargets(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_saveResponseTargets, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'saveResponseTargets',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_todayJobsMap: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+        };
+        app.get('/api/platform/operations/map/today',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.todayJobsMap)),
+
+            async function OperationsRegisterController_todayJobsMap(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_todayJobsMap, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'todayJobsMap',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+        const argsOperationsRegisterController_geocodeTodayJobs: Record<string, TsoaRoute.ParameterSchema> = {
+                request: {"in":"request","name":"request","required":true,"dataType":"object"},
+                body: {"in":"body","name":"body","required":true,"dataType":"nestedObjectLiteral","nestedProperties":{"limit":{"dataType":"double"},"confirmed":{"dataType":"boolean","required":true}}},
+        };
+        app.post('/api/platform/operations/map/today/geocode',
+            authenticateMiddleware([{"jwt":["tenant"]}]),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController)),
+            ...(fetchMiddlewares<RequestHandler>(OperationsRegisterController.prototype.geocodeTodayJobs)),
+
+            async function OperationsRegisterController_geocodeTodayJobs(request: ExRequest, response: ExResponse, next: any) {
+
+            // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
+
+            let validatedArgs: any[] = [];
+            try {
+                validatedArgs = templateService.getValidatedArgs({ args: argsOperationsRegisterController_geocodeTodayJobs, request, response });
+
+                const container: IocContainer = typeof iocContainer === 'function' ? (iocContainer as IocContainerFactory)(request) : iocContainer;
+
+                const controller: any = await container.get<OperationsRegisterController>(OperationsRegisterController);
+                if (typeof controller['setStatus'] === 'function') {
+                controller.setStatus(undefined);
+                }
+
+              await templateService.apiHandler({
+                methodName: 'geocodeTodayJobs',
+                controller,
+                response,
+                next,
+                validatedArgs,
+                successStatus: undefined,
+              });
+            } catch (err) {
+                return next(err);
+            }
+        });
+        // WARNING: This file was auto-generated with tsoa. Please do not modify it. Re-run tsoa to re-generate this file: https://github.com/lukeautry/tsoa
         const argsOperationsRegisterController_scheduleCheck: Record<string, TsoaRoute.ParameterSchema> = {
                 request: {"in":"request","name":"request","required":true,"dataType":"object"},
                 storeNumber: {"in":"query","name":"storeNumber","dataType":"string"},
@@ -27487,6 +27705,7 @@ export function RegisterRoutes(app: Router) {
                 from: {"in":"query","name":"from","dataType":"string"},
                 to: {"in":"query","name":"to","dataType":"string"},
                 q: {"in":"query","name":"q","dataType":"string"},
+                branch: {"in":"query","name":"branch","dataType":"string"},
                 sort: {"in":"query","name":"sort","dataType":"string"},
                 dir: {"in":"query","name":"dir","dataType":"string"},
                 limit: {"in":"query","name":"limit","dataType":"double"},
@@ -27534,6 +27753,7 @@ export function RegisterRoutes(app: Router) {
                 from: {"in":"query","name":"from","dataType":"string"},
                 to: {"in":"query","name":"to","dataType":"string"},
                 q: {"in":"query","name":"q","dataType":"string"},
+                branch: {"in":"query","name":"branch","dataType":"string"},
         };
         app.get('/api/platform/operations/jobs/export',
             authenticateMiddleware([{"jwt":["tenant"]}]),

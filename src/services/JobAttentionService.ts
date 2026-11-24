@@ -18,16 +18,24 @@
 
 import { randomUUID } from 'crypto'
 
-import { OPEN_FIELD_JOB_CATEGORIES } from '../config/fieldJobCategory'
+import { fieldJobPriority, OPEN_FIELD_JOB_CATEGORIES } from '../config/fieldJobCategory'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { jobIntakeRepository } from '../persistence/JobIntakeRepository'
 import { rootLogger } from '../utils/pinoLogger'
+import { jobDashboardSettingsService, type JobResponseTargets } from './JobDashboardSettingsService'
 
 import { operationsRegisterService, type JobSummary } from './OperationsRegisterService'
 
 const logger = rootLogger.child({ module: 'JobAttentionService' })
 
-export type AttentionKind = 'failed' | 'overdue' | 'unassigned' | 'stalled' | 'waiting'
+export type AttentionKind =
+  | 'failed'
+  | 'overdue'
+  | 'unassigned'
+  | 'stalled'
+  | 'waiting'
+  | 'response_at_risk'
+  | 'response_breached'
 
 export interface AttentionItem {
   kind: AttentionKind
@@ -46,6 +54,8 @@ export interface AttentionItem {
   days: number
   headline: string
   detail: string
+  elapsedMinutes?: number
+  targetMinutes?: number
 }
 
 export const ATTENTION = {
@@ -70,20 +80,32 @@ export const ATTENTION = {
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
 
-const KIND_ORDER: AttentionKind[] = ['failed', 'overdue', 'unassigned', 'stalled', 'waiting']
+const KIND_ORDER: AttentionKind[] = [
+  'response_breached',
+  'response_at_risk',
+  'failed',
+  'overdue',
+  'unassigned',
+  'stalled',
+  'waiting',
+]
 const KIND_WORDS: Record<AttentionKind, string> = {
   failed: 'stopped',
   overdue: 'late',
   unassigned: 'with nobody on them',
   stalled: 'not moving',
   waiting: 'waiting to be booked',
+  response_at_risk: 'approaching the first-response target',
+  response_breached: 'past the first-response target',
 }
 
 /** SQLite stores UTC times without a zone ("2026-11-21 08:00:00"); read them as UTC. */
 function time(value: unknown): number {
   const text = String(value || '').trim()
   if (!text) return NaN
-  const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text.replace(' ', 'T')}${text.length === 10 ? 'T00:00:00' : ''}Z`
+  const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text)
+    ? text
+    : `${text.replace(' ', 'T')}${text.length === 10 ? 'T00:00:00' : ''}Z`
   return Date.parse(iso)
 }
 
@@ -99,8 +121,12 @@ function age(ms: number): string {
 /** How a job is named in a message: its PO or reference, or what it is about. Never a raw id. */
 export function jobLabel(job: { poNumber?: string; reference?: string; description?: string }): string {
   const ref = String(job.poNumber || job.reference || '').trim()
-  if (ref && ref.length <= 40 && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(ref) && !/^[0-9a-f]{24,}$/i.test(ref)) return `job ${ref}`
-  const what = String(job.description || '').trim().replace(/\s+/g, ' ').slice(0, 40)
+  if (ref && ref.length <= 40 && !/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(ref) && !/^[0-9a-f]{24,}$/i.test(ref))
+    return `job ${ref}`
+  const what = String(job.description || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 40)
   return what ? `the job "${what}"` : 'a job'
 }
 
@@ -137,18 +163,51 @@ export class JobAttentionService {
     const items: AttentionItem[] = []
     const jobs = operationsRegisterService.listJobs(orgTenantId)
     const progress = this.progressOf(orgTenantId)
+    const responseTargets = jobDashboardSettingsService.responseTargets(orgTenantId)
     const today = now.toISOString().slice(0, 10)
 
     for (const job of jobs) {
-      const item = this.classify(job, progress.get(job.runId), today, now.getTime())
+      const item = this.classify(job, progress.get(job.runId), today, now.getTime(), responseTargets)
       if (item) items.push(item)
     }
 
     for (const intake of jobIntakeRepository.listForTenant(orgTenantId, 'pending')) {
       const since = time(intake.createdAt)
-      if (!Number.isFinite(since) || now.getTime() - since < ATTENTION.waitingHours * HOUR) continue
+      if (!Number.isFinite(since)) continue
       const reference = intake.payload.reference || intake.payload.poNumber || 'New job'
-      const label = jobLabel({ poNumber: intake.payload.poNumber, reference: intake.payload.reference, description: intake.payload.description })
+      const label = jobLabel({
+        poNumber: intake.payload.poNumber,
+        reference: intake.payload.reference,
+        description: intake.payload.description,
+      })
+      const priority = fieldJobPriority({ input: intake.payload })
+      const targetMinutes = priority ? responseTargets[priority] : null
+      const elapsedMinutes = Math.max(0, Math.floor((now.getTime() - since) / 60_000))
+      if (targetMinutes) {
+        if (elapsedMinutes >= targetMinutes * 0.75) {
+          const breached = elapsedMinutes >= targetMinutes
+          const remaining = Math.max(0, targetMinutes - elapsedMinutes)
+          const duration = (minutes: number) =>
+            minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}` : `${minutes}m`
+          items.push({
+            kind: breached ? 'response_breached' : 'response_at_risk',
+            intakeId: intake.id,
+            reference,
+            label,
+            storeNumber: intake.payload.storeNumber || undefined,
+            since: new Date(since).toISOString(),
+            days: Math.max(0, Math.floor((now.getTime() - since) / DAY)),
+            headline: `${sentence(label)} response ${breached ? 'is late' : 'is at risk'}`,
+            detail: breached
+              ? `No worker has been assigned after ${duration(elapsedMinutes)}. The ${duration(targetMinutes)} first-response target was missed.`
+              : `No worker has been assigned. ${duration(remaining)} remain before the ${duration(targetMinutes)} first-response target.`,
+            elapsedMinutes,
+            targetMinutes,
+          })
+        }
+        continue
+      }
+      if (now.getTime() - since < ATTENTION.waitingHours * HOUR) continue
       items.push({
         kind: 'waiting',
         intakeId: intake.id,
@@ -178,7 +237,10 @@ export class JobAttentionService {
       )
       .all(orgTenantId) as Array<{ id: string; status: string; finishedAt?: string; lastStep?: string }>
     return new Map(
-      rows.map((row) => [row.id, { status: row.status, lastStep: time(row.lastStep), finishedAt: time(row.finishedAt) }]),
+      rows.map((row) => [
+        row.id,
+        { status: row.status, lastStep: time(row.lastStep), finishedAt: time(row.finishedAt) },
+      ]),
     )
   }
 
@@ -187,6 +249,7 @@ export class JobAttentionService {
     progress: { status: string; lastStep?: number; finishedAt?: number } | undefined,
     today: string,
     now: number,
+    responseTargets: JobResponseTargets,
   ): AttentionItem | undefined {
     const created = time(job.createdAt)
     const known = [created, progress?.lastStep].filter((value): value is number => Number.isFinite(value))
@@ -238,6 +301,28 @@ export class JobAttentionService {
         `A step started ${age(now - last)} ago and has not finished. Open it to see where it stopped.`,
       )
     }
+    if (job.category === 'pending' && !job.assigneeId && job.priority) {
+      const targetMinutes = responseTargets[job.priority]
+      const elapsedMinutes = Math.max(0, Math.floor((now - created) / 60_000))
+      if (targetMinutes && elapsedMinutes >= targetMinutes * 0.75) {
+        const breached = elapsedMinutes >= targetMinutes
+        const remaining = Math.max(0, targetMinutes - elapsedMinutes)
+        const duration = (minutes: number) =>
+          minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}` : `${minutes}m`
+        return {
+          ...make(
+            breached ? 'response_breached' : 'response_at_risk',
+            created,
+            `${sentence(label)} response ${breached ? 'is late' : 'is at risk'}`,
+            breached
+              ? `No worker has been assigned after ${duration(elapsedMinutes)}. The ${duration(targetMinutes)} first-response target was missed.`
+              : `No worker has been assigned. ${duration(remaining)} remain before the ${duration(targetMinutes)} first-response target.`,
+          ),
+          elapsedMinutes,
+          targetMinutes,
+        }
+      }
+    }
     if (job.scheduledDate && job.scheduledDate < today) {
       const due = time(`${job.scheduledDate}T00:00:00`)
       return make(
@@ -247,7 +332,12 @@ export class JobAttentionService {
         `It was booked for ${job.scheduledDate} and is not finished. ${job.assigneeId ? 'Check with the worker.' : 'Nobody is on it yet.'}`,
       )
     }
-    if (job.category === 'pending' && !job.assigneeId && now - created >= ATTENTION.unassignedHours * HOUR) {
+    if (
+      job.category === 'pending' &&
+      !job.assigneeId &&
+      now - created >= ATTENTION.unassignedHours * HOUR &&
+      !(job.priority && responseTargets[job.priority])
+    ) {
       return make(
         'unassigned',
         created,
@@ -255,7 +345,11 @@ export class JobAttentionService {
         `It has been booked for ${age(now - created)} and no worker has been chosen.`,
       )
     }
-    if (job.assigneeId && ['assigned', 'active', 'arrived', 'on_hold'].includes(job.category) && now - last >= ATTENTION.stalledHours * HOUR) {
+    if (
+      job.assigneeId &&
+      ['assigned', 'active', 'arrived', 'on_hold'].includes(job.category) &&
+      now - last >= ATTENTION.stalledHours * HOUR
+    ) {
       return make(
         'stalled',
         last,
@@ -297,11 +391,16 @@ export class JobAttentionService {
         totals.announced += result.announced
         totals.summaries += result.summaries
       } catch (error: any) {
-        logger.warn({ orgTenantId: row.tenantId, error: error?.message }, 'Job attention check failed for an organisation')
+        logger.warn(
+          { orgTenantId: row.tenantId, error: error?.message },
+          'Job attention check failed for an organisation',
+        )
       }
     }
     this.db
-      .prepare(`DELETE FROM job_attention_log WHERE scope IN ('day', 'week') AND datetime(notified_at) < datetime('now', '-120 days')`)
+      .prepare(
+        `DELETE FROM job_attention_log WHERE scope IN ('day', 'week') AND datetime(notified_at) < datetime('now', '-120 days')`,
+      )
       .run()
     return totals
   }
@@ -319,7 +418,9 @@ export class JobAttentionService {
       const scope = item.runId ? 'run' : 'intake'
       const subject = item.runId || item.intakeId!
       const fresh = this.db
-        .prepare(`INSERT OR IGNORE INTO job_attention_log (org_tenant_id, scope, subject, kind, notified_at) VALUES (?, ?, ?, ?, ?)`)
+        .prepare(
+          `INSERT OR IGNORE INTO job_attention_log (org_tenant_id, scope, subject, kind, notified_at) VALUES (?, ?, ?, ?, ?)`,
+        )
         .run(orgTenantId, scope, subject, item.kind, now.toISOString())
       if (fresh.changes === 0) continue
       if (Date.parse(item.since) < announceAfter) continue // listed in the summaries, not announced one by one
@@ -327,7 +428,8 @@ export class JobAttentionService {
       const recipients = [...managers]
       if (item.runId && item.assigneeId && item.kind !== 'failed') {
         const worker = this.recipient(item.assigneeId)
-        if (worker && !recipients.some((entry) => entry.walletTenantId === worker.walletTenantId)) recipients.push(worker)
+        if (worker && !recipients.some((entry) => entry.walletTenantId === worker.walletTenantId))
+          recipients.push(worker)
       }
       const sent = this.send(orgTenantId, recipients, {
         sourceId: `${scope}:${subject}:attention:${item.kind}:${now.toISOString()}`,
@@ -354,16 +456,21 @@ export class JobAttentionService {
     const scope = weekly ? 'week' : 'day'
     const subject = weekly ? weekKey(now) : now.toISOString().slice(0, 10)
     const fresh = this.db
-      .prepare(`INSERT OR IGNORE INTO job_attention_log (org_tenant_id, scope, subject, kind, notified_at) VALUES (?, ?, ?, 'summary', ?)`)
+      .prepare(
+        `INSERT OR IGNORE INTO job_attention_log (org_tenant_id, scope, subject, kind, notified_at) VALUES (?, ?, ?, 'summary', ?)`,
+      )
       .run(orgTenantId, scope, subject, now.toISOString())
     if (fresh.changes === 0) return 0
 
-    const counts = KIND_ORDER.map((kind) => ({ kind, count: listed.filter((item) => item.kind === kind).length })).filter(
-      (entry) => entry.count > 0,
-    )
+    const counts = KIND_ORDER.map((kind) => ({
+      kind,
+      count: listed.filter((item) => item.kind === kind).length,
+    })).filter((entry) => entry.count > 0)
     const oldest = [...listed].sort((a, b) => Date.parse(a.since) - Date.parse(b.since))[0]
     const serious = listed.filter((item) => item.days >= ATTENTION.seriousDays).length
-    const stoppedThisWeek = items.filter((item) => item.kind === 'failed' && now.getTime() - Date.parse(item.since) < 7 * DAY).length
+    const stoppedThisWeek = items.filter(
+      (item) => item.kind === 'failed' && now.getTime() - Date.parse(item.since) < 7 * DAY,
+    ).length
 
     const title = weekly
       ? `Weekly jobs check: ${plural(listed.length, 'job')} need${listed.length === 1 ? 's' : ''} attention`
@@ -395,9 +502,13 @@ export class JobAttentionService {
 
   /** Forget jobs that are no longer stuck and close the cards that said so. */
   private release(orgTenantId: string, items: AttentionItem[], now: Date): void {
-    const stuck = new Set(items.map((item) => `${item.runId ? 'run' : 'intake'}|${item.runId || item.intakeId}|${item.kind}`))
+    const stuck = new Set(
+      items.map((item) => `${item.runId ? 'run' : 'intake'}|${item.runId || item.intakeId}|${item.kind}`),
+    )
     const logged = this.db
-      .prepare(`SELECT scope, subject, kind FROM job_attention_log WHERE org_tenant_id = ? AND scope IN ('run', 'intake')`)
+      .prepare(
+        `SELECT scope, subject, kind FROM job_attention_log WHERE org_tenant_id = ? AND scope IN ('run', 'intake')`,
+      )
       .all(orgTenantId) as Array<{ scope: string; subject: string; kind: string }>
     for (const row of logged) {
       if (stuck.has(`${row.scope}|${row.subject}|${row.kind}`)) continue
@@ -425,9 +536,9 @@ export class JobAttentionService {
   }
 
   private recipient(userId: string): Recipient | undefined {
-    const row = this.db.prepare(`SELECT id AS userId, tenant_id AS walletTenantId FROM ssi_users WHERE id = ?`).get(userId) as
-      | Recipient
-      | undefined
+    const row = this.db
+      .prepare(`SELECT id AS userId, tenant_id AS walletTenantId FROM ssi_users WHERE id = ?`)
+      .get(userId) as Recipient | undefined
     return row?.walletTenantId ? row : undefined
   }
 

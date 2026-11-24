@@ -22,7 +22,16 @@ import type {
 } from '../../../src/config/fieldDataImport'
 import type { ListPage } from '../../../src/config/listPage'
 
-export type JobCategory = 'pending' | 'assigned' | 'active' | 'arrived' | 'on_hold' | 'failed' | 'completed' | 'reconciled' | 'cancelled'
+export type JobCategory =
+  | 'pending'
+  | 'assigned'
+  | 'active'
+  | 'arrived'
+  | 'on_hold'
+  | 'failed'
+  | 'completed'
+  | 'reconciled'
+  | 'cancelled'
 
 export interface JobSummary {
   runId: string
@@ -101,6 +110,8 @@ export interface JobRegisterRow {
   location?: string
   problemType?: string
   scheduledDate?: string
+  branch?: string
+  priority?: 'urgent' | 'out_of_hours' | 'normal'
   assigneeId?: string
   vehicle?: string
   callOut: boolean
@@ -124,7 +135,29 @@ export interface JobReport {
   /** Busiest stores first: most open jobs, then most jobs overall. */
   byStore: Array<{ storeNumber: string; name?: string; open: number; completed: number; total: number }>
   /** Team members, and the people the old system had on imported jobs (`userId` empty, `oldSystem` set). */
-  byWorker: Array<{ userId: string; name: string; open: number; completed: number; failed: number; oldSystem?: boolean }>
+  byWorker: Array<{
+    userId: string
+    name: string
+    open: number
+    completed: number
+    failed: number
+    oldSystem?: boolean
+    /** Open imported jobs naming this old-system worker but not yet assigned in LDK. */
+    toAssign?: number
+  }>
+  /** Stage figures are missing from older APIs. */
+  byBranch?: Array<{
+    branch: string
+    open: number
+    completed: number
+    total: number
+    unassigned?: number
+    assigned?: number
+    inProgress?: number
+    onHold?: number
+    failed?: number
+    urgent?: number
+  }>
   byProblemType?: Array<{ problemType: string; open: number; total: number }>
   averageDaysToComplete?: number
   /** Jobs done on the first visit, out of every job that is done or had to be visited again. */
@@ -136,6 +169,7 @@ export interface JobReport {
     overdue: number
     unassigned: number
     urgent: number
+    outOfHours?: number
     receivedLast7Days: number
     completedLast7Days: number
     completedLast30Days: number
@@ -325,7 +359,14 @@ export interface MailStatus {
   repeats?: number
 }
 
-export type AttentionKind = 'failed' | 'overdue' | 'unassigned' | 'stalled' | 'waiting'
+export type AttentionKind =
+  | 'failed'
+  | 'overdue'
+  | 'unassigned'
+  | 'stalled'
+  | 'waiting'
+  | 'response_at_risk'
+  | 'response_breached'
 
 /** A job that is stopped, late, has nobody on it, is not moving, or was never booked. Mirrors `JobAttentionService`. */
 export interface AttentionItem {
@@ -340,6 +381,8 @@ export interface AttentionItem {
   days: number
   headline: string
   detail: string
+  elapsedMinutes?: number
+  targetMinutes?: number
 }
 
 export const ATTENTION_WORDS: Record<AttentionKind, { label: string; color: string }> = {
@@ -348,6 +391,29 @@ export const ATTENTION_WORDS: Record<AttentionKind, { label: string; color: stri
   unassigned: { label: 'Nobody on it', color: 'yellow' },
   stalled: { label: 'Not moving', color: 'orange' },
   waiting: { label: 'Not booked', color: 'blue' },
+  response_at_risk: { label: 'Response at risk', color: 'orange' },
+  response_breached: { label: 'Response late', color: 'red' },
+}
+
+export type ResponsePriority = 'urgent' | 'out_of_hours' | 'normal'
+export type JobResponseTargets = Record<ResponsePriority, number | null>
+
+export interface TodayMapJob {
+  runId: string
+  reference: string
+  description: string
+  storeNumber?: string
+  location: string
+  priority?: ResponsePriority
+  latitude?: number
+  longitude?: number
+}
+
+export interface TodayJobsMap {
+  date: string
+  jobs: TodayMapJob[]
+  pendingLocations: number
+  notFoundLocations: number
 }
 
 /** One person on the team, as `GET /api/organizations/{org}/members` returns them. */
@@ -359,6 +425,12 @@ export interface TeamMember {
   displayName?: string
   phone?: string
   invitePending?: boolean
+}
+
+export interface EmployeeQualification {
+  name: string
+  expiresAt?: string
+  issuer?: string
 }
 
 /** A payroll employee. Everyone on the team has one; this is the single record for a person. */
@@ -375,6 +447,7 @@ export interface EmployeeRecord {
   tin?: string | null
   staffNumber?: string
   skills?: string[]
+  qualifications?: EmployeeQualification[]
   userId?: string
   status: string
 }
@@ -393,12 +466,18 @@ export function operationsApi(backend: string, token: string | null | undefined)
     if (!token) throw new OperationsApiError('Sign in to the organisation first.', 401)
     const response = await fetch(`${backend.replace(/\/$/, '')}${path}`, {
       method: init?.method || 'GET',
-      headers: { Authorization: `Bearer ${token}`, ...(init?.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init?.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      },
       body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     })
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new OperationsApiError(String(data?.message || data?.error || 'Something went wrong. Try again.'), response.status)
+      throw new OperationsApiError(
+        String(data?.message || data?.error || 'Something went wrong. Try again.'),
+        response.status,
+      )
     }
     return data as T
   }
@@ -417,7 +496,12 @@ export function operationsApi(backend: string, token: string | null | undefined)
       input.contactId
         ? call(`/api/contacts/${encodeURIComponent(input.contactId)}`, {
             method: 'PATCH',
-            body: { name: input.name, phone: input.phone || undefined, email: input.email || undefined, storeNumber: input.storeNumber },
+            body: {
+              name: input.name,
+              phone: input.phone || undefined,
+              email: input.email || undefined,
+              storeNumber: input.storeNumber,
+            },
           })
         : call('/api/contacts', {
             method: 'POST',
@@ -464,8 +548,16 @@ export function operationsApi(backend: string, token: string | null | undefined)
               driverUserId: input.driverUserId || undefined,
             },
           }),
-    addVanEvent: (vanId: string, input: { kind: 'service' | 'mot' | 'accident'; eventDate?: string; userId?: string; notes?: string; nextDue?: string }) =>
-      call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/events`, { method: 'POST', body: input }),
+    addVanEvent: (
+      vanId: string,
+      input: {
+        kind: 'service' | 'mot' | 'accident'
+        eventDate?: string
+        userId?: string
+        notes?: string
+        nextDue?: string
+      },
+    ) => call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/events`, { method: 'POST', body: input }),
     scheduleCheck: (params: {
       storeNumber?: string
       date?: string
@@ -475,6 +567,15 @@ export function operationsApi(backend: string, token: string | null | undefined)
       excludeIntakeId?: string
     }) => call<ScheduleCheck>(`${base}/schedule-check${query(params)}`),
     attention: () => call<{ items: AttentionItem[] }>(`${base}/attention`).then((data) => data.items),
+    responseTargets: () =>
+      call<{ targets: JobResponseTargets }>(`${base}/response-targets`).then((data) => data.targets),
+    saveResponseTargets: (targets: JobResponseTargets) =>
+      call<{ targets: JobResponseTargets }>(`${base}/response-targets`, { method: 'PUT', body: { targets } }).then(
+        (data) => data.targets,
+      ),
+    todayJobsMap: () => call<TodayJobsMap>(`${base}/map/today`),
+    geocodeTodayJobs: (limit = 10) =>
+      call<TodayJobsMap>(`${base}/map/today/geocode`, { method: 'POST', body: { confirmed: true, limit } }),
     intakes: () => call<{ items: IntakeItem[] }>('/api/platform/job-intake').then((data) => data.items),
     assignIntake: (
       intakeId: string,
@@ -495,7 +596,25 @@ export function operationsApi(backend: string, token: string | null | undefined)
       call<EmployeeRecord>('/api/payroll/employees', {
         method: 'POST',
         body: Object.fromEntries(
-          (['id', 'status', 'firstName', 'lastName', 'email', 'phone', 'baseSalary', 'currency', 'nssaNumber', 'tin', 'did', 'staffNumber', 'skills', 'userId'] as const)
+          (
+            [
+              'id',
+              'status',
+              'firstName',
+              'lastName',
+              'email',
+              'phone',
+              'baseSalary',
+              'currency',
+              'nssaNumber',
+              'tin',
+              'did',
+              'staffNumber',
+              'skills',
+              'qualifications',
+              'userId',
+            ] as const
+          )
             .map((key) => [key, input[key]])
             .filter(([, value]) => value !== null && value !== undefined),
         ),
@@ -503,7 +622,10 @@ export function operationsApi(backend: string, token: string | null | undefined)
     members: (org: string) => call<TeamMember[]>(`${orgBase(org)}/members`),
     memberOnboarding: (org: string) => call<MemberOnboarding[]>(`${orgBase(org)}${ONBOARDING_PATH}`),
     teamRoles: (org: string) => call<Array<{ name?: string; membershipRole?: string }>>(`${orgBase(org)}/roles`),
-    inviteMember: (org: string, input: { phone: string; name: string; role: string; email?: string; whatsappConsent: boolean }) =>
+    inviteMember: (
+      org: string,
+      input: { phone: string; name: string; role: string; email?: string; whatsappConsent: boolean },
+    ) =>
       call<{ targetUserId: string; message?: string; invite?: { channel?: string; link?: string } }>(
         `${orgBase(org)}/members/invite`,
         { method: 'POST', body: input },
@@ -523,7 +645,9 @@ export function operationsApi(backend: string, token: string | null | undefined)
         { method: 'POST', body: { kind } },
       ),
     staffCardChange: (org: string) =>
-      call<{ staffCardChange?: string }>(`${orgBase(org)}${SETUP_PROFILE_PATH}`).then((data) => staffCardChangeRule(data?.staffCardChange)),
+      call<{ staffCardChange?: string }>(`${orgBase(org)}${SETUP_PROFILE_PATH}`).then((data) =>
+        staffCardChangeRule(data?.staffCardChange),
+      ),
     saveStaffCardChange: (org: string, rule: StaffCardChangeRule) =>
       call(`${orgBase(org)}${SETUP_PROFILE_PATH}`, { method: 'PUT', body: { staffCardChange: rule } }),
     reportFailedVisit: (runId: string, input: { reason: string; note?: string }) =>
@@ -544,7 +668,8 @@ export function operationsApi(backend: string, token: string | null | undefined)
         },
       ),
     /** One page of the Jobs list and how many matched; without `limit`, every match. */
-    jobs: (filter: Record<string, string | undefined> = {}) => call<ListPage<JobRegisterRow>>(`${base}/jobs${query(filter)}`),
+    jobs: (filter: Record<string, string | undefined> = {}) =>
+      call<ListPage<JobRegisterRow>>(`${base}/jobs${query(filter)}`),
     jobReport: (filter: Record<string, string | undefined> = {}) => call<JobReport>(`${base}/reports${query(filter)}`),
     exportJobs: async (filter: Record<string, string | undefined> = {}) => {
       if (!token) throw new OperationsApiError('Sign in to the organisation first.', 401)
@@ -565,25 +690,44 @@ export function operationsApi(backend: string, token: string | null | undefined)
       return text.charCodeAt(0) === 0xfeff || text.startsWith('Job,') ? text : text
     },
     intakeThread: (intakeId: string) =>
-      call<{ messages: MailMessage[] }>(`/api/platform/job-intake/${encodeURIComponent(intakeId)}/thread`).then((data) => data.messages),
-    jobSheet: (runId: string) =>
-      call<{ sheet: { problemType?: string; items: JobSheetItem[]; general: boolean }; saved: { answers: Record<string, { ok?: boolean; value?: string }>; materials: Array<{ name: string; quantity: number; unit?: string }> } | null }>(
-        `/workflows/runs/${encodeURIComponent(runId)}/job-sheet`,
+      call<{ messages: MailMessage[] }>(`/api/platform/job-intake/${encodeURIComponent(intakeId)}/thread`).then(
+        (data) => data.messages,
       ),
+    jobSheet: (runId: string) =>
+      call<{
+        sheet: { problemType?: string; items: JobSheetItem[]; general: boolean }
+        saved: {
+          answers: Record<string, { ok?: boolean; value?: string }>
+          materials: Array<{ name: string; quantity: number; unit?: string }>
+        } | null
+      }>(`/workflows/runs/${encodeURIComponent(runId)}/job-sheet`),
     saveJobSheet: (
       runId: string,
-      body: { answers: Record<string, { ok?: boolean; value?: string }>; materials: Array<{ name: string; quantity: number; unit?: string }> },
+      body: {
+        answers: Record<string, { ok?: boolean; value?: string }>
+        materials: Array<{ name: string; quantity: number; unit?: string }>
+      },
     ) => call(`/workflows/runs/${encodeURIComponent(runId)}/job-sheet`, { method: 'POST', body }),
     saveStoreSignature: (runId: string, body: { signerName: string; signerRole?: string; imageDataUrl: string }) =>
       call(`/workflows/runs/${encodeURIComponent(runId)}/store-signature`, { method: 'POST', body }),
     createStatusLink: (runId: string) =>
-      call<{ url: string; code: string }>(`/workflows/runs/${encodeURIComponent(runId)}/status-link`, { method: 'POST' }),
+      call<{ url: string; code: string }>(`/workflows/runs/${encodeURIComponent(runId)}/status-link`, {
+        method: 'POST',
+      }),
     revokeStatusLink: (runId: string) =>
       call<{ revoked: number }>(`/workflows/runs/${encodeURIComponent(runId)}/status-link`, { method: 'DELETE' }),
     rateCards: () => call<{ items: RateCard[] }>(`${base}/rate-cards`).then((data) => data.items),
     saveJobSheetTemplate: (problemType: string, items: JobSheetItem[]) =>
       call(`${base}/job-sheets`, { method: 'PUT', body: { problemType, items } }),
-    saveRateCard: (input: { id?: string; name: string; unit?: string; unitPrice: number; currency?: string; problemType?: string; active?: boolean }) =>
+    saveRateCard: (input: {
+      id?: string
+      name: string
+      unit?: string
+      unitPrice: number
+      currency?: string
+      problemType?: string
+      active?: boolean
+    }) =>
       input.id
         ? call<RateCard>(`${base}/rate-cards/${encodeURIComponent(input.id)}`, { method: 'PUT', body: input })
         : call<RateCard>(`${base}/rate-cards`, { method: 'POST', body: input }),
@@ -595,18 +739,31 @@ export function operationsApi(backend: string, token: string | null | undefined)
     vanCheckItems: () => call<{ items: string[] }>(`${base}/van-checks`).then((data) => data.items),
     dailyCheck: (
       vanId: string,
-      body: { checks: Array<{ item: string; ok: boolean; note?: string }>; mileage?: number; notes?: string; photos?: Array<{ filename: string; mediaType: string; contentBase64: string }> },
+      body: {
+        checks: Array<{ item: string; ok: boolean; note?: string }>
+        mileage?: number
+        notes?: string
+        photos?: Array<{ filename: string; mediaType: string; contentBase64: string }>
+      },
     ) => call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/checks`, { method: 'POST', body }),
     reportVanAccident: (
       vanId: string,
-      body: { eventDate?: string; notes: string; photos?: Array<{ filename: string; mediaType: string; contentBase64: string }> },
+      body: {
+        eventDate?: string
+        notes: string
+        photos?: Array<{ filename: string; mediaType: string; contentBase64: string }>
+      },
     ) => call<VanEvent>(`${base}/vans/${encodeURIComponent(vanId)}/accidents`, { method: 'POST', body }),
     mailStatus: () => call<MailStatus>('/api/platform/job-intake/mail'),
     mailSync: () =>
-      call<{ imported: number; repeats: number; alreadySaved: number; skipped: number; failed: number; error?: string }>(
-        '/api/platform/job-intake/mail/sync',
-        { method: 'POST' },
-      ),
+      call<{
+        imported: number
+        repeats: number
+        alreadySaved: number
+        skipped: number
+        failed: number
+        error?: string
+      }>('/api/platform/job-intake/mail/sync', { method: 'POST' }),
   }
 }
 
@@ -644,10 +801,12 @@ export function jobWaitingDays(row: Pick<JobRegisterRow, 'category' | 'createdAt
   return Number.isFinite(created) ? Math.max(0, Math.floor((now - created) / 86_400_000)) : 0
 }
 
-export const SERVICE_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map((day) => ({
+export const SERVICE_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(
+  (day) => ({
   value: day,
   label: day.charAt(0).toUpperCase() + day.slice(1),
-}))
+  }),
+)
 
 export const LEAVE_WORDS: Record<string, string> = {
   annual: 'Holiday',
@@ -725,5 +884,7 @@ export function scheduleWarnings(check: ScheduleCheck | null, names: Record<stri
 export function readableDate(value?: string): string {
   if (!value) return '—'
   const date = new Date(value.length === 10 ? `${value}T12:00:00` : value)
-  return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : value
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+    : value
 }

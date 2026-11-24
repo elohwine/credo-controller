@@ -48,7 +48,6 @@ import { getWorkflowCapabilityFlags } from '@/lib/workflowCapabilities';
 import { openInboxOffers } from '@/lib/inboxAttention';
 import { RECORDS_TARGET_ATTR } from '../../shared/cardMotion';
 import { UnreadCount } from '../../shared/UnreadCount';
-import { isRequestFlowRun } from '../../shared/requestDecision';
 
 const LayoutNestingContext = React.createContext(false);
 
@@ -127,7 +126,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                 fetch(`${backend}/api/wallet/credentials/pending-offers?status=open`, { headers }).then((res) => res.json()).catch(() => null),
                 fetch(`${backend}/api/wallet/credentials/pending-receipts`, { headers }).then((res) => res.json()).catch(() => null),
                 isOrg ? fetch(`${backend}/workflow-requests/inbound?status=pending&limit=20`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
-                isOrg ? fetch(`${backend}/workflows/runs?limit=30`, { headers }).then((res) => res.json()).catch(() => null) : Promise.resolve(null),
+                isOrg ? fetch(`${backend}/api/platform/operations/reports`, { headers }).then((res) => (res.ok ? res.json() : null)).catch(() => null) : Promise.resolve(null),
                 isOrg && activeOrg?.orgTenantId
                     ? fetch(`${backend}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/workflows`, { headers }).then((res) => res.json()).catch(() => null)
                     : Promise.resolve(null),
@@ -137,8 +136,10 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
             const pendingReceipts = Array.isArray(receipts) ? receipts : [];
             const receiptRows = pendingReceipts.filter((row: any) => String(row?.sourceType || '').toLowerCase() === 'payment');
             const requestRows = Array.isArray(inbound) ? inbound : [];
-            const runRows = Array.isArray(runs) ? runs : [];
-            const openJobs = runRows.filter((run) => !isRequestFlowRun(run) && !['completed', 'cancelled', 'reconciled'].includes(String(run?.status || '').toLowerCase())).length;
+            const jobCounts = runs?.counts || {};
+            // Every open job, matching the dashboard's Open jobs tile.
+            const openJobs = ['pending', 'not_booked', 'assigned', 'active', 'arrived', 'on_hold', 'failed']
+                .reduce((sum, category) => sum + (Number(jobCounts[category]) || 0), 0);
             setCounts({ inbox: offerRows.length + receiptRows.length, requests: requestRows.length, jobs: openJobs });
             setWorkflowTypes(Array.isArray(workflows?.workflowTypes) ? workflows.workflowTypes : []);
         };
@@ -326,7 +327,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                                         rightSection={count > 0
                                             ? (item.href === '/inbox'
                                                 ? <UnreadCount count={count} />
-                                                : <Badge size="sm" circle>{count > 9 ? '9+' : count}</Badge>)
+                                                : <Badge size="sm" miw={22} px={6}>{count > 99 ? '99+' : count}</Badge>)
                                             : undefined}
                                         onClick={() => setNavOpened(false)}
                                         {...(item.href === '/wallet' ? { [RECORDS_TARGET_ATTR]: '' } : null)}

@@ -34,8 +34,16 @@ import {
     IconSearch,
     IconShoppingCart,
     IconTool,
+    IconInbox,
+    IconFolder,
+    IconBuilding,
+    IconShare,
+    IconUsers,
+    IconChecklist,
 } from '@tabler/icons-react'
 import Link from 'next/link'
+import { useRouter } from 'next/router'
+import { StatTile, type StatTileIcon } from '../../shared/StatTile'
 import { CONTEXT_UPDATED_EVENT } from '@/lib/portalContext'
 import { formatTxnTime, openInboxOffers } from '@/lib/inboxAttention'
 import { nextStepCard, type NextStepItem } from '@/lib/nextSteps'
@@ -185,21 +193,20 @@ const CATALOGUE_ICONS: Record<RequestKindIcon, React.ReactNode> = {
     coins: <IconCoins size={20} />,
 }
 
-const SectionTitle = ({
-    label,
-    emoji,
-}: {
-    label: string
-    emoji?: string
-}) => (
+/** Icon, colour and one line of context for each home figure. */
+const TILE_LOOK: Record<string, { icon: StatTileIcon; color: string; hint: string; alertWhenAny?: boolean }> = {
+    'Requests to decide': { icon: IconChecklist, color: 'orange', hint: 'Waiting for someone here to decide', alertWhenAny: true },
+    'Documents received': { icon: IconInbox, color: 'blue', hint: 'Sent to this organisation' },
+    'People with access': { icon: IconUsers, color: 'teal', hint: 'Team members and their roles' },
+    'Waiting for you': { icon: IconInbox, color: 'orange', hint: 'Requests and documents to answer', alertWhenAny: true },
+    'My records': { icon: IconFolder, color: 'blue', hint: 'Your saved documents' },
+    Organisations: { icon: IconBuilding, color: 'teal', hint: 'Switch to a place you work' },
+    'Your shares': { icon: IconShare, color: 'grape', hint: 'Records you have shown' },
+}
+
+const SectionTitle = ({ label, emoji }: { label: string; emoji?: string }) => (
     <Box mb="sm">
-        <Text
-            size="xs"
-            fw={700}
-            tt="uppercase"
-            c="dimmed"
-            style={{ letterSpacing: '0.06em' }}
-        >
+    <Text size="xs" fw={700} tt="uppercase" c="dimmed" style={{ letterSpacing: '0.06em' }}>
             {emoji && `${emoji}  `}
             {label}
         </Text>
@@ -208,6 +215,7 @@ const SectionTitle = ({
 )
 
 export default function DashboardPage() {
+    const router = useRouter()
     const [orgName, setOrgName] = useState<string | null>(null)
     const [readinessPercent, setReadinessPercent] = useState<number | null>(null)
     const [readinessState, setReadinessState] = useState<string | null>(null)
@@ -278,7 +286,12 @@ export default function DashboardPage() {
         const loadRequestCatalogue = async () => {
             setRequestOptions(null)
             const baseContext: RequestContext = activeOrg?.orgTenantId
-                ? { contextMode: 'org', activeOrgTenantId: activeOrg.orgTenantId, activeOrgName: activeOrg.name, orgRole: activeOrg.role }
+        ? {
+            contextMode: 'org',
+            activeOrgTenantId: activeOrg.orgTenantId,
+            activeOrgName: activeOrg.name,
+            orgRole: activeOrg.role,
+          }
                 : { contextMode: 'personal' }
             setRequestContext(baseContext)
             if (!personalToken) return
@@ -325,10 +338,9 @@ export default function DashboardPage() {
                 const requests: Array<Promise<any>> = []
                 if (activeOrg?.orgTenantId && orgToken) {
                     requests.push(
-                        axios.get(
-                            `${backendUrl}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/setup/readiness`,
-                            { headers },
-                        ),
+            axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/setup/readiness`, {
+              headers,
+            }),
                         axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, {
                             params: { holder: 'organization', status: 'open' },
                             headers,
@@ -355,30 +367,36 @@ export default function DashboardPage() {
                     let memberCount = 0
                     try {
                         const [members, runs] = await Promise.all([
-                            axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/members`, { headers }),
+              axios.get(`${backendUrl}/api/organizations/${encodeURIComponent(activeOrg.orgTenantId)}/members`, {
+                headers,
+              }),
                             axios.get(`${backendUrl}/workflows/runs`, { headers, params: { limit: 8 } }),
                         ])
                         memberCount = Array.isArray(members.data) ? members.data.length : 0
                         const runRows = (Array.isArray(runs.data) ? runs.data : []).filter((run: any) => !isRequestFlowRun(run))
-                        setActivity(runRows.slice(0, 5).map((run: any) => {
+            setActivity(
+              runRows.slice(0, 5).map((run: any) => {
                             const input = run.output?.workflowInput || run.input || {}
                             const at = run.updatedAt || run.updated_at || run.completedAt || run.createdAt || run.created_at
                             return { id: String(run.id), title: jobHeading(input).title, at: at ? String(at) : '' }
-                        }))
+              }),
+            )
                     } catch {
                         setActivity([])
                     }
                     setTiles([
-                        { label: 'Waiting for you', value: offerRows.length + inboundRows.length, href: '/inbox' },
-                        { label: 'Incoming requests', value: inboundRows.length, href: '/requests' },
-                        { label: 'Records to keep', value: offerRows.length, href: '/inbox' },
-                        { label: 'People', value: memberCount, href: '/hr?tab=team' },
+                        { label: 'Requests to decide', value: inboundRows.length, href: '/requests' },
+                        { label: 'Documents received', value: offerRows.length, href: '/inbox' },
+                        { label: 'People with access', value: memberCount, href: '/hr?tab=team' },
                     ])
-                    setRecords(offerRows.slice(0, 4).map((row: any) => ({
+          setRecords(
+            offerRows.slice(0, 4).map((row: any) => ({
                         id: String(row.id || row.offerId || row.title),
                         title: String(row.title || 'Record'),
-                    })))
-                    setAttentionItems([
+            })),
+          )
+          setAttentionItems(
+            [
                         ...offerRows.map((row: any) => ({
                             id: String(row.id || row.offerId || row.title),
                             title: String(row.title || 'Record waiting'),
@@ -393,43 +411,63 @@ export default function DashboardPage() {
                             action: 'Open',
                             href: '/requests',
                         })),
-                    ].slice(0, 6))
+            ].slice(0, 6),
+          )
                 } else {
                     const [offers, receiptsRes, activityRes, sharesRes] = await Promise.all([
                         axios.get(`${backendUrl}/api/wallet/credentials/pending-offers`, { headers, params: { status: 'open' } }),
                         axios.get(`${backendUrl}/api/wallet/credentials/pending-receipts`, { headers }).catch(() => ({ data: [] })),
                         // Your own activity: cards you were given, what you shared and with whom.
-                        axios.get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 5 } }).catch(() => ({ data: {} })),
-                        axios.get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 1, kind: 'shared' } }).catch(() => ({ data: {} })),
+            axios
+              .get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 5 } })
+              .catch(() => ({ data: {} })),
+            axios
+              .get(`${backendUrl}/api/wallet/activity`, { headers, params: { limit: 1, kind: 'shared' } })
+              .catch(() => ({ data: {} })),
                     ])
                     const offerRows: any[] = openInboxOffers(offers.data)
                     const receiptRows = (Array.isArray(receiptsRes.data) ? receiptsRes.data : []).filter(
                         (row: any) => String(row?.sourceType || '').toLowerCase() === 'payment',
                     )
                     const combinedAttention = [...offerRows, ...receiptRows]
-                    const activityItems: HolderActivityEntry[] = Array.isArray(activityRes.data?.items) ? activityRes.data.items : []
-                    setActivity(activityItems.map((entry) => {
-                        const line = describeHolderActivity(entry, { labelStep: (step) => stepRequiredLabel({ stageAction: step }) })
-                        return { id: entry.id, title: line.title, at: entry.occurredAt, href: `/activity?entry=${encodeURIComponent(entry.id)}` }
-                    }))
+          const activityItems: HolderActivityEntry[] = Array.isArray(activityRes.data?.items)
+            ? activityRes.data.items
+            : []
+          setActivity(
+            activityItems.map((entry) => {
+              const line = describeHolderActivity(entry, {
+                labelStep: (step) => stepRequiredLabel({ stageAction: step }),
+              })
+              return {
+                id: entry.id,
+                title: line.title,
+                at: entry.occurredAt,
+                href: `/activity?entry=${encodeURIComponent(entry.id)}`,
+              }
+            }),
+          )
                     setTiles([
                         { label: 'Waiting for you', value: combinedAttention.length, href: '/inbox' },
                         { label: 'My records', value: 'Open', href: '/wallet' },
                         { label: 'Organisations', value: 'Open', href: '/' },
                         { label: 'Your shares', value: Number(sharesRes.data?.total) || 0, href: '/activity' },
                     ])
-                    setRecords(offerRows.slice(0, 4).map((row: any) => ({
+          setRecords(
+            offerRows.slice(0, 4).map((row: any) => ({
                         id: String(row.id || row.offerId || row.title),
                         title: String(row.title || 'Record'),
-                    })))
+            })),
+          )
                     setNextSteps([])
-                    setAttentionItems(combinedAttention.slice(0, 6).map((row: any) => ({
+          setAttentionItems(
+            combinedAttention.slice(0, 6).map((row: any) => ({
                         id: String(row.id || row.offerId || row.title),
                         title: String(row.title || 'Record waiting'),
-                        description: offerReplacement(row.claims)?.note || 'Open your inbox to keep it.',
-                        action: 'Keep',
+                        description: offerReplacement(row.claims)?.note || 'Waiting in your inbox.',
+                        action: 'Open',
                         href: '/inbox',
-                    })))
+            })),
+          )
                 }
             } catch {
                 // The dashboard stays useful when one summary endpoint is unavailable.
@@ -442,8 +480,7 @@ export default function DashboardPage() {
         void load()
     }, [backendUrl, contextVersion])
 
-    const readinessBadgeColor =
-        readinessState === 'ready' ? 'teal' : readinessState === 'in_progress' ? 'yellow' : 'red'
+  const readinessBadgeColor = readinessState === 'ready' ? 'teal' : readinessState === 'in_progress' ? 'yellow' : 'red'
     const step = nextStepCard(nextSteps, 'portal')
 
     return (
@@ -452,13 +489,17 @@ export default function DashboardPage() {
                 <Stack gap="xl">
                     <Group justify="space-between" align="flex-end" wrap="wrap">
                         <Box>
-                            {today && <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{today}</Text>}
+              {today && (
+                <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                  {today}
+                </Text>
+              )}
                             <Title order={2}>{orgName ? `Hello, ${orgName}` : 'Hello'}</Title>
                             <Text c="dimmed" size="sm" mt={4}>
                                 {orgName ? 'Here is what needs you in this organisation.' : 'Here is what needs you.'}
                             </Text>
                         </Box>
-                        <Button.Group>
+                        <Group gap="xs" wrap="wrap" role="group" aria-label="Quick actions">
                             <Button
                                 component={Link}
                                 href={orgName ? '/finance/job-cards' : '/wallet'}
@@ -466,21 +507,13 @@ export default function DashboardPage() {
                             >
                                 {orgName ? 'Start a job' : 'Share a record'}
                             </Button>
-                            <Button
-                                variant="light"
-                                leftSection={<IconMessagePlus size={16} />}
-                                onClick={() => openRequest()}
-                            >
+              <Button variant="light" leftSection={<IconMessagePlus size={16} />} onClick={() => openRequest()}>
                                 Request
                             </Button>
-                            <Button
-                                variant="light"
-                                leftSection={<IconCircleCheck size={16} />}
-                                onClick={() => setCheckOpen(true)}
-                            >
+              <Button variant="light" leftSection={<IconCircleCheck size={16} />} onClick={() => setCheckOpen(true)}>
                                 Check a record
                             </Button>
-                        </Button.Group>
+                        </Group>
                         <Modal opened={checkOpen} onClose={() => setCheckOpen(false)} title="Check a record" centered>
                             <Text size="sm" c="dimmed" mb="sm">
                                 Paste the reference from a record issued here. Anyone can check one.
@@ -492,25 +525,52 @@ export default function DashboardPage() {
                     {readinessPercent != null && orgName && (
                         <Group gap="xs">
                             <Badge color={readinessBadgeColor} size="lg">
-                                {readinessState === 'ready' ? 'Ready' : readinessState === 'in_progress' ? 'Setup in progress' : 'Setup needed'}
+                {readinessState === 'ready'
+                  ? 'Ready'
+                  : readinessState === 'in_progress'
+                    ? 'Setup in progress'
+                    : 'Setup needed'}
                             </Badge>
-                            <Anchor component={Link} href="/organization/setup" size="sm">Open setup</Anchor>
+              <Anchor component={Link} href="/organization/setup" size="sm">
+                Open setup
+              </Anchor>
                         </Group>
                     )}
 
-                    {orgName && (
+          {orgName && jobsToken && (
+            <JobsOverview
+              key={`${contextVersion}:${jobsToken.slice(-12)}`}
+              backendUrl={backendUrl}
+              token={jobsToken}
+              canManage={['owner', 'admin', 'dispatcher', 'manager'].includes(
+                String(readActiveOrganization()?.role || '').toLowerCase(),
+              )}
+            />
+          )}
+
+                    {orgName && (dashboardLoading || step) && (
                         <Paper withBorder radius="lg" p="lg">
-                            <Text size="xs" c="dimmed" tt="uppercase" fw={700}>Next step</Text>
-                            {dashboardLoading && <Text size="sm" c="dimmed" mt="xs">Checking what is waiting…</Text>}
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>
+                Next step
+              </Text>
+              {dashboardLoading && (
+                <Text size="sm" c="dimmed" mt="xs">
+                  Checking what is waiting…
+                </Text>
+              )}
                             {!dashboardLoading && !step && (
-                                <Text fw={600} mt="xs">You're up to date</Text>
+                <Text fw={600} mt="xs">
+                  You're up to date
+                </Text>
                             )}
                             {!dashboardLoading && step && (
                                 <Stack gap={4} mt="xs">
                                     <Anchor component={Link} href={step.href} fw={600}>
                                         {step.sentence}
                                     </Anchor>
-                                    <Text size="sm" c="dimmed" lineClamp={2}>{step.detail}</Text>
+                  <Text size="sm" c="dimmed" lineClamp={2}>
+                    {step.detail}
+                  </Text>
                                     {step.moreLabel && (
                                         <Anchor component={Link} href={step.moreHref} size="sm">
                                             {step.moreLabel}
@@ -521,36 +581,69 @@ export default function DashboardPage() {
                         </Paper>
                     )}
 
-                    <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
-                        {(tiles.length ? tiles : [
-                            { label: 'Waiting for you', value: dashboardLoading ? '…' : 0, href: '/inbox' },
-                            { label: orgName ? 'Incoming requests' : 'My records', value: dashboardLoading ? '…' : orgName ? 0 : 'Open', href: orgName ? '/requests' : '/wallet' },
-                            { label: orgName ? 'Records to keep' : 'Organisations', value: dashboardLoading ? '…' : 'Open', href: orgName ? '/inbox' : '/' },
-                            { label: orgName ? 'People' : 'Your shares', value: dashboardLoading ? '…' : 0, href: orgName ? '/hr?tab=team' : '/activity' },
-                        ]).map((tile) => (
-                            <Paper key={tile.label} component={Link} href={tile.href} withBorder radius="md" p="md" style={{ textDecoration: 'none', color: 'inherit' }}>
-                                <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{tile.label}</Text>
-                                <Title order={3} mt={6}>{tile.value}</Title>
-                            </Paper>
-                        ))}
+                    <SimpleGrid cols={{ base: orgName ? 1 : 2, xs: orgName ? 3 : 2, md: orgName ? 3 : 4 }} spacing="md">
+            {(tiles.length
+              ? tiles
+              : orgName
+                ? [
+                    { label: 'Requests to decide', value: dashboardLoading ? '…' : 0, href: '/requests' },
+                    { label: 'Documents received', value: dashboardLoading ? '…' : 0, href: '/inbox' },
+                    { label: 'People with access', value: dashboardLoading ? '…' : 0, href: '/hr?tab=team' },
+                  ]
+                : [
+                    { label: 'Waiting for you', value: dashboardLoading ? '…' : 0, href: '/inbox' },
+                    { label: 'My records', value: dashboardLoading ? '…' : 'Open', href: '/wallet' },
+                    { label: 'Organisations', value: dashboardLoading ? '…' : 'Open', href: '/' },
+                    { label: 'Your shares', value: dashboardLoading ? '…' : 0, href: '/activity' },
+                  ]
+            ).map((tile) => {
+              const look = TILE_LOOK[tile.label]
+              const count = typeof tile.value === 'number' ? tile.value : 0
+              return (
+                <StatTile
+                  key={tile.label}
+                  label={tile.label}
+                  value={tile.value}
+                  hint={look?.hint}
+                  icon={look?.icon}
+                  color={look?.color}
+                  alert={Boolean(look?.alertWhenAny && count > 0)}
+                  onClick={() => void router.push(tile.href)}
+                />
+              )
+            })}
                     </SimpleGrid>
 
-                    {orgName && jobsToken && <JobsOverview key={`${contextVersion}:${jobsToken.slice(-12)}`} backendUrl={backendUrl} token={jobsToken} />}
-
                     <Paper withBorder radius="lg" p="lg">
-                        <Title order={3} mb="sm">Needs you</Title>
-                        {dashboardLoading && <Text size="sm" c="dimmed">Checking what is waiting…</Text>}
-                        {!dashboardLoading && attentionItems.length === 0 && (
-                            <Text size="sm">You are all caught up.</Text>
+            <Title order={3} mb="sm">
+              {orgName ? 'Requests and documents' : 'Needs you'}
+            </Title>
+            {dashboardLoading && (
+              <Text size="sm" c="dimmed">
+                Checking what is waiting…
+              </Text>
                         )}
+            {!dashboardLoading && attentionItems.length === 0 && (
+              <Text size="sm" c="dimmed">
+                {orgName
+                  ? 'No requests or documents are waiting. Jobs that need attention are listed above.'
+                  : 'You are all caught up.'}
+              </Text>
+            )}
                         <Stack gap="sm">
                             {attentionItems.map((item) => (
                                 <Group key={item.id} justify="space-between" wrap="nowrap">
                                     <Box style={{ minWidth: 0 }}>
-                                        <Text fw={600} truncate>{item.title}</Text>
-                                        <Text size="sm" c="dimmed" lineClamp={1}>{item.description}</Text>
+                    <Text fw={600} truncate>
+                      {item.title}
+                    </Text>
+                    <Text size="sm" c="dimmed" lineClamp={1}>
+                      {item.description}
+                    </Text>
                                     </Box>
-                                    <Button component={Link} href={item.href} size="sm" variant="light">{item.action}</Button>
+                  <Button component={Link} href={item.href} size="sm" variant="light">
+                    {item.action}
+                  </Button>
                                 </Group>
                             ))}
                         </Stack>
@@ -567,7 +660,9 @@ export default function DashboardPage() {
                                             : 'Time off, an expense, a payout, a record sent again, or a quote from a business.'}
                                     </Text>
                                 </Box>
-                                <Anchor component={Link} href={orgName ? '/requests' : '/requests/mine'} size="sm">{orgName ? 'Requests' : 'My requests'}</Anchor>
+                <Anchor component={Link} href={orgName ? '/requests' : '/requests/mine'} size="sm">
+                  {orgName ? 'Requests' : 'My requests'}
+                </Anchor>
                             </Group>
                             <Stack gap="md">
                                 {catalogueGroups.map((group) => (
@@ -586,28 +681,52 @@ export default function DashboardPage() {
                         <Paper withBorder radius="md" p="md">
                             <Group justify="space-between" align="center" mb="sm">
                                 <Title order={4}>Recent activity</Title>
-                                {!orgName && <Anchor component={Link} href="/activity" size="sm">View all</Anchor>}
+                {!orgName && (
+                  <Anchor component={Link} href="/activity" size="sm">
+                    View all
+                  </Anchor>
+                )}
                             </Group>
-                            {activity.length === 0 && <Text size="sm" c="dimmed">Nothing new yet.</Text>}
+              {activity.length === 0 && (
+                <Text size="sm" c="dimmed">
+                  Nothing new yet.
+                </Text>
+              )}
                             <Stack gap={6}>
                                 {activity.map((item) => (
                                     <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
                                         {item.href ? (
-                                            <Anchor component={Link} href={item.href} size="sm" truncate style={{ minWidth: 0 }} c="inherit">{item.title}</Anchor>
+                      <Anchor component={Link} href={item.href} size="sm" truncate style={{ minWidth: 0 }} c="inherit">
+                        {item.title}
+                      </Anchor>
                                         ) : (
-                                            <Text size="sm" truncate style={{ minWidth: 0 }}>{item.title}</Text>
+                      <Text size="sm" truncate style={{ minWidth: 0 }}>
+                        {item.title}
+                      </Text>
+                    )}
+                    {item.at && (
+                      <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>
+                        {formatTxnTime(item.at)}
+                      </Text>
                                         )}
-                                        {item.at && <Text size="xs" c="dimmed" style={{ flexShrink: 0 }}>{formatTxnTime(item.at)}</Text>}
                                     </Group>
                                 ))}
                             </Stack>
                         </Paper>
                         <Paper withBorder radius="md" p="md">
-                            <Title order={4} mb="sm">Recent records</Title>
-                            {records.length === 0 && <Text size="sm" c="dimmed">No records waiting.</Text>}
+              <Title order={4} mb="sm">
+                Recent records
+              </Title>
+              {records.length === 0 && (
+                <Text size="sm" c="dimmed">
+                  No records waiting.
+                </Text>
+              )}
                             <Stack gap={6}>
                                 {records.map((item) => (
-                                    <Anchor key={item.id} component={Link} href="/wallet" size="sm">{item.title}</Anchor>
+                  <Anchor key={item.id} component={Link} href="/wallet" size="sm">
+                    {item.title}
+                  </Anchor>
                                 ))}
                             </Stack>
                         </Paper>

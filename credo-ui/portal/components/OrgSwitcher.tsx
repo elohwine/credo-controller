@@ -427,9 +427,9 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
             disabled={!activeOrg}
             leftSection={activeOrg ? <IconWallet size={16} /> : <IconCheck size={16} />}
           >
-            <Text size="sm" fw={500}>Personal Wallet</Text>
+            <Text size="sm" fw={500}>Personal account</Text>
             <Text size="xs" c="dimmed">
-              {activeOrg ? 'Back to your personal account' : 'Current context — receipts, proofs, and your own requests'}
+              {activeOrg ? 'Back to your own jobs and requests' : 'Your own jobs, requests and receipts'}
             </Text>
           </Menu.Item>
 
@@ -450,7 +450,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           {!loading && organizations.length === 0 && (
             <Menu.Item disabled>
               <Text size="sm">No organizations yet</Text>
-              <Text size="xs" c="dimmed">Onboard one below to unlock finance, approvals, and org admin.</Text>
+              <Text size="xs" c="dimmed">Set one up below to run jobs, your team and approvals.</Text>
             </Menu.Item>
           )}
           {organizations.filter((org) => !canOpenOrg(org)).map((org) => (
@@ -521,8 +521,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           <Divider my="xs" />
 
           <Menu.Item leftSection={<IconPlus size={16} />} component="a" href="/organization/setup">
-            <Text size="sm" fw={500}>Onboard organization</Text>
-            <Text size="xs" c="dimmed">Create a new organization you administer</Text>
+            <Text size="sm" fw={500}>Set up an organisation</Text>
+            <Text size="xs" c="dimmed">Add a business you manage</Text>
           </Menu.Item>
         </ScrollArea.Autosize>
       </Menu.Dropdown>

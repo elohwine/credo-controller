@@ -8,6 +8,7 @@ import { jest } from '@jest/globals'
 import { DatabaseManager } from '../../persistence/DatabaseManager'
 import { jobIntakeRepository } from '../../persistence/JobIntakeRepository'
 import { JobAttentionService, jobLabel, weekKey } from '../JobAttentionService'
+import { jobDashboardSettingsService } from '../JobDashboardSettingsService'
 
 const ORG = 'org-sgk'
 const OWNER_WALLET = 'wallet-owner'
@@ -46,11 +47,19 @@ describe('Stuck job alerts', () => {
   }
 
   function step(runId: string, at: string) {
-    db.prepare(`INSERT INTO workflow_steps (id, run_id, completed_at) VALUES (?, ?, ?)`).run(`${runId}-${at}`, runId, at)
+    db.prepare(`INSERT INTO workflow_steps (id, run_id, completed_at) VALUES (?, ?, ?)`).run(
+      `${runId}-${at}`,
+      runId,
+      at,
+    )
   }
 
   const cardsFor = (wallet: string) =>
-    db.prepare(`SELECT title, body, source_id AS sourceId, metadata, resolved_at AS resolvedAt FROM wallet_pending_offers WHERE tenant_id = ? ORDER BY created_at`).all(wallet) as Array<{
+    db
+      .prepare(
+        `SELECT title, body, source_id AS sourceId, metadata, resolved_at AS resolvedAt FROM wallet_pending_offers WHERE tenant_id = ? ORDER BY created_at`,
+      )
+      .all(wallet) as Array<{
       title: string
       body: string
       sourceId: string
@@ -90,16 +99,28 @@ describe('Stuck job alerts', () => {
     db.exec(migration('153_employee_staff_link.sql'))
     db.exec(migration('155_job_mail_checks_rates_links.sql'))
     db.exec(migration('154_job_attention_log.sql'))
+    db.exec(migration('156_job_history_imports.sql'))
+    db.exec(migration('157_old_system_import_details.sql'))
+    db.exec(migration('158_job_history_runs.sql'))
+    db.exec(migration('159_job_dashboard_settings.sql'))
     db.prepare(`INSERT INTO organizations (id, tenant_id, name) VALUES ('o1', ?, 'SGK')`).run(ORG)
-    db.prepare(`INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`).run(ORG)
-    db.prepare(`INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-purchase-org', ?, 'Purchase', 'procurement')`).run(ORG)
+    db.prepare(
+      `INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-fept-field-execution-org', ?, 'Field job', 'field_execution_fept')`,
+    ).run(ORG)
+    db.prepare(
+      `INSERT INTO workflows (id, tenant_id, name, category) VALUES ('tpl-purchase-org', ?, 'Purchase', 'procurement')`,
+    ).run(ORG)
     for (const [userId, wallet, role] of [
       ['u-owner', OWNER_WALLET, 'owner'],
       ['u-admin', ADMIN_WALLET, 'admin'],
       ['u-farai', WORKER_WALLET, 'field_worker'],
     ]) {
       db.prepare(`INSERT INTO ssi_users (id, tenant_id) VALUES (?, ?)`).run(userId, wallet)
-      db.prepare(`INSERT INTO org_memberships (org_tenant_id, user_id, role, status) VALUES (?, ?, ?, 'active')`).run(ORG, userId, role)
+      db.prepare(`INSERT INTO org_memberships (org_tenant_id, user_id, role, status) VALUES (?, ?, ?, 'active')`).run(
+        ORG,
+        userId,
+        role,
+      )
     }
     restores.push(jest.spyOn(DatabaseManager, 'getDatabase').mockReturnValue(db))
   })
@@ -110,7 +131,15 @@ describe('Stuck job alerts', () => {
   })
 
   it('tells the owner and admin the moment a job stops, in plain words, and not the worker', () => {
-    addJob('11111111-2222-3333-4444-555555555555', { poNumber: 'PO-77', description: 'Leaking tap', assigneeId: 'u-farai' }, 'failed', ago(TUESDAY, 3 * HOUR), {}, undefined, ago(TUESDAY, HOUR))
+    addJob(
+      '11111111-2222-3333-4444-555555555555',
+      { poNumber: 'PO-77', description: 'Leaking tap', assigneeId: 'u-farai' },
+      'failed',
+      ago(TUESDAY, 3 * HOUR),
+      {},
+      undefined,
+      ago(TUESDAY, HOUR),
+    )
 
     service.onRunFailed('11111111-2222-3333-4444-555555555555', TUESDAY)
 
@@ -125,7 +154,9 @@ describe('Stuck job alerts', () => {
   })
 
   it('never names a job by its id', () => {
-    expect(jobLabel({ reference: '11111111-2222-3333-4444-555555555555', description: 'Leaking tap' })).toBe('the job "Leaking tap"')
+    expect(jobLabel({ reference: '11111111-2222-3333-4444-555555555555', description: 'Leaking tap' })).toBe(
+      'the job "Leaking tap"',
+    )
     expect(jobLabel({ reference: 'abcdef0123456789abcdef0123456789' })).toBe('a job')
     expect(jobLabel({ poNumber: 'PO-9', reference: 'ignored' })).toBe('job PO-9')
   })
@@ -138,35 +169,100 @@ describe('Stuck job alerts', () => {
   })
 
   it('finds late, unassigned and not-moving jobs, and also tells the worker whose job is not moving', () => {
-    addJob('RUN-LATE', { poNumber: 'PO-2', scheduledDate: '2026-11-22', assigneeId: 'u-farai' }, 'paused', ago(TUESDAY, 3 * DAY), { assignment: { assigneeId: 'u-farai' }, workflowStage: 'ASSIGNED' })
+    addJob(
+      'RUN-LATE',
+      { poNumber: 'PO-2', scheduledDate: '2026-11-22', assigneeId: 'u-farai' },
+      'paused',
+      ago(TUESDAY, 3 * DAY),
+      { assignment: { assigneeId: 'u-farai' }, workflowStage: 'ASSIGNED' },
+    )
     addJob('RUN-NOBODY', { poNumber: 'PO-3' }, 'paused', ago(TUESDAY, 2 * DAY))
-    addJob('RUN-SLOW', { poNumber: 'PO-4', assigneeId: 'u-farai' }, 'paused', ago(TUESDAY, 4 * DAY), { assignment: { assigneeId: 'u-farai' }, workflowStage: 'IN_PROGRESS' })
+    addJob('RUN-SLOW', { poNumber: 'PO-4', assigneeId: 'u-farai' }, 'paused', ago(TUESDAY, 4 * DAY), {
+      assignment: { assigneeId: 'u-farai' },
+      workflowStage: 'IN_PROGRESS',
+    })
     step('RUN-SLOW', ago(TUESDAY, 3 * DAY))
     addJob('RUN-FRESH', { poNumber: 'PO-5' }, 'paused', ago(TUESDAY, 2 * HOUR))
-    addJob('RUN-BUSY', { poNumber: 'PO-6', assigneeId: 'u-farai' }, 'paused', ago(TUESDAY, 4 * DAY), { assignment: { assigneeId: 'u-farai' }, workflowStage: 'IN_PROGRESS' })
+    addJob('RUN-BUSY', { poNumber: 'PO-6', assigneeId: 'u-farai' }, 'paused', ago(TUESDAY, 4 * DAY), {
+      assignment: { assigneeId: 'u-farai' },
+      workflowStage: 'IN_PROGRESS',
+    })
     step('RUN-BUSY', ago(TUESDAY, 3 * HOUR))
 
     const items = service.attention(ORG, TUESDAY)
-    expect(items.map((item) => `${item.kind}:${item.runId}`).sort()).toEqual(['overdue:RUN-LATE', 'stalled:RUN-SLOW', 'unassigned:RUN-NOBODY'])
+    expect(items.map((item) => `${item.kind}:${item.runId}`).sort()).toEqual([
+      'overdue:RUN-LATE',
+      'stalled:RUN-SLOW',
+      'unassigned:RUN-NOBODY',
+    ])
 
     service.sweepOrganisation(ORG, TUESDAY)
     const worker = cardsFor(WORKER_WALLET).map((card) => card.title)
     expect(worker).toEqual(expect.arrayContaining(['Job PO-4 has not moved', 'Job PO-2 is late']))
     expect(worker).not.toContain('Job PO-3 has nobody on it')
-    expect(cardsFor(OWNER_WALLET).map((card) => card.title)).toEqual(expect.arrayContaining(['Job PO-3 has nobody on it']))
+    expect(cardsFor(OWNER_WALLET).map((card) => card.title)).toEqual(
+      expect.arrayContaining(['Job PO-3 has nobody on it']),
+    )
   })
 
   it('catches a step that started and never finished', () => {
-    addJob('RUN-CRASH', { poNumber: 'PO-7', assigneeId: 'u-farai' }, 'running', ago(TUESDAY, 3 * HOUR), { assignment: { assigneeId: 'u-farai' } })
-    expect(service.attention(ORG, TUESDAY)[0]).toMatchObject({ kind: 'stalled', headline: 'Job PO-7 is stuck mid-step' })
+    addJob('RUN-CRASH', { poNumber: 'PO-7', assigneeId: 'u-farai' }, 'running', ago(TUESDAY, 3 * HOUR), {
+      assignment: { assigneeId: 'u-farai' },
+    })
+    expect(service.attention(ORG, TUESDAY)[0]).toMatchObject({
+      kind: 'stalled',
+      headline: 'Job PO-7 is stuck mid-step',
+    })
   })
 
   it('catches a job that came in and was never booked', () => {
-    const intake = jobIntakeRepository.create(ORG, 'mail:jobs', { storeNumber: '1042', poNumber: 'PO-8', description: 'Door will not close', amount: 0, currency: 'USD' })
+    const intake = jobIntakeRepository.create(ORG, 'mail:jobs', {
+      storeNumber: '1042',
+      poNumber: 'PO-8',
+      description: 'Door will not close',
+      amount: 0,
+      currency: 'USD',
+    })
     db.prepare(`UPDATE job_intakes SET created_at = ? WHERE id = ?`).run(ago(TUESDAY, 2 * DAY), intake.id)
     const [item] = service.attention(ORG, TUESDAY)
-    expect(item).toMatchObject({ kind: 'waiting', intakeId: intake.id, headline: 'Job PO-8 is still waiting to be booked' })
+    expect(item).toMatchObject({
+      kind: 'waiting',
+      intakeId: intake.id,
+      headline: 'Job PO-8 is still waiting to be booked',
+    })
     expect(service.sweepOrganisation(ORG, TUESDAY).announced).toBe(1)
+  })
+
+  it('only adds first-response alerts after the organisation configures a target', () => {
+    jobDashboardSettingsService.saveResponseTargets(ORG, { urgent: 60 })
+    addJob('RUN-RESPONSE', { poNumber: 'PO-RESP', priority: 'urgent' }, 'paused', ago(TUESDAY, 50 * 60_000))
+
+    expect(service.attention(ORG, TUESDAY)[0]).toMatchObject({
+      kind: 'response_at_risk',
+      runId: 'RUN-RESPONSE',
+      elapsedMinutes: 50,
+      targetMinutes: 60,
+    })
+    db.prepare(`UPDATE workflow_runs SET created_at = ? WHERE id = 'RUN-RESPONSE'`).run(ago(TUESDAY, 70 * 60_000))
+    expect(service.attention(ORG, TUESDAY)[0]).toMatchObject({
+      kind: 'response_breached',
+      elapsedMinutes: 70,
+      targetMinutes: 60,
+    })
+
+    const intake = jobIntakeRepository.create(ORG, 'mail:jobs', {
+      poNumber: 'PO-INTAKE',
+      description: 'Door repair',
+      amount: 0,
+      currency: 'USD',
+      importedDetails: { priority: 'urgent' },
+    })
+    db.prepare(`UPDATE job_intakes SET created_at = ? WHERE id = ?`).run(ago(TUESDAY, 50 * 60_000), intake.id)
+    expect(service.attention(ORG, TUESDAY).find((item) => item.intakeId === intake.id)).toMatchObject({
+      kind: 'response_at_risk',
+      elapsedMinutes: 50,
+      targetMinutes: 60,
+    })
   })
 
   it('announces again when a job is fixed and then stops a second time, and closes the old card when it is fixed', () => {
@@ -180,7 +276,9 @@ describe('Stuck job alerts', () => {
     expect(cardsFor(OWNER_WALLET)[0].resolvedAt).not.toBeNull()
 
     const later = new Date(TUESDAY.getTime() + 20 * 60_000)
-    db.prepare(`UPDATE workflow_runs SET status = 'failed', completed_at = ? WHERE id = 'RUN-AGAIN'`).run(later.toISOString())
+    db.prepare(`UPDATE workflow_runs SET status = 'failed', completed_at = ? WHERE id = 'RUN-AGAIN'`).run(
+      later.toISOString(),
+    )
     expect(service.sweepOrganisation(ORG, later).announced).toBe(1)
     expect(cardsFor(OWNER_WALLET).filter((card) => card.title === 'Job PO-9 stopped')).toHaveLength(2)
   })
@@ -233,7 +331,15 @@ describe('Stuck job alerts', () => {
   })
 
   it('leaves other workflows alone: a failed purchase is not a field job alert', () => {
-    addJob('RUN-BUY', { title: 'Buy pipes' }, 'failed', ago(TUESDAY, 3 * HOUR), {}, 'tpl-purchase-org', ago(TUESDAY, HOUR))
+    addJob(
+      'RUN-BUY',
+      { title: 'Buy pipes' },
+      'failed',
+      ago(TUESDAY, 3 * HOUR),
+      {},
+      'tpl-purchase-org',
+      ago(TUESDAY, HOUR),
+    )
     expect(service.attention(ORG, TUESDAY)).toEqual([])
     expect(service.sweep(TUESDAY)).toMatchObject({ announced: 0, summaries: 0 })
     expect(cardsFor(OWNER_WALLET)).toHaveLength(0)

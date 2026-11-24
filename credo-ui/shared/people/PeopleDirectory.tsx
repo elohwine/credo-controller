@@ -19,7 +19,7 @@ import {
 import { IconCircleCheck, IconClock, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
-import type { EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
+import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
 import {
   CARD_STATE_COLOR,
   CARD_STATE_LABEL,
@@ -76,8 +76,27 @@ function splitName(full: string): { firstName: string; lastName: string } {
 function accessLabel(row: PersonRow): { label: string; color: string } {
   if (!row.member) return { label: 'No app access', color: 'gray' }
   if (row.member.invitePending) return { label: 'Invite not opened', color: 'orange' }
-  if (row.onboarding) return { label: SUMMARY_LABEL[row.onboarding.summary], color: SUMMARY_COLOR[row.onboarding.summary] }
-  return { label: row.member.status === 'active' ? 'Active' : 'Invited', color: row.member.status === 'active' ? 'teal' : 'orange' }
+  if (row.onboarding)
+    return { label: SUMMARY_LABEL[row.onboarding.summary], color: SUMMARY_COLOR[row.onboarding.summary] }
+  return {
+    label: row.member.status === 'active' ? 'Active' : 'Invited',
+    color: row.member.status === 'active' ? 'teal' : 'orange',
+  }
+}
+
+function qualificationAlerts(qualifications: EmployeeQualification[] = []): Array<{ label: string; color: string }> {
+  const today = new Date().toISOString().slice(0, 10)
+  const cutoffDate = new Date(`${today}T00:00:00.000Z`)
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() + 30)
+  const cutoff = cutoffDate.toISOString().slice(0, 10)
+  const expired = qualifications.filter((item) => item.expiresAt && item.expiresAt < today)
+  const upcoming = qualifications.filter(
+    (item) => item.expiresAt && item.expiresAt >= today && item.expiresAt <= cutoff,
+  )
+  return [
+    ...(expired.length ? [{ label: `${expired.length} expired`, color: 'red' }] : []),
+    ...(upcoming.length ? [{ label: `${upcoming.length} expiring`, color: 'orange' }] : []),
+  ]
 }
 
 export function PeopleDirectory({
@@ -124,7 +143,9 @@ export function PeopleDirectory({
     // Pay roles see the payroll list; anyone else still sees the team, so nobody is left out.
     setEmployees(employeeRows.status === 'fulfilled' && Array.isArray(employeeRows.value) ? employeeRows.value : [])
     setMembers(memberRows.status === 'fulfilled' && Array.isArray(memberRows.value) ? memberRows.value : [])
-    setOnboarding(onboardingRows.status === 'fulfilled' && Array.isArray(onboardingRows.value) ? onboardingRows.value : [])
+    setOnboarding(
+      onboardingRows.status === 'fulfilled' && Array.isArray(onboardingRows.value) ? onboardingRows.value : [],
+    )
     if (roles.status === 'fulfilled') {
       const fromSetup = teamRolesFromCatalog(Array.isArray(roles.value) ? roles.value : [])
       setRoleChoices(fromSetup.length ? fromSetup : TEAM_ROLE_FALLBACK)
@@ -195,7 +216,13 @@ export function PeopleDirectory({
             : 'Everyone on your team, in one list.'}
         </Text>
         {canManage && (
-          <Button size={size} radius="xl" leftSection={<IconUserPlus size={18} />} onClick={() => setSheet({ kind: 'add' })} style={{ flexShrink: 0 }}>
+          <Button
+            size={size}
+            radius="xl"
+            leftSection={<IconUserPlus size={18} />}
+            onClick={() => setSheet({ kind: 'add' })}
+            style={{ flexShrink: 0 }}
+          >
             Add person
           </Button>
         )}
@@ -227,9 +254,16 @@ export function PeopleDirectory({
                   .filter(Boolean)
                   .join(' · ')}
                 trailing={
+                  <Group gap={4} justify="flex-end">
+                    {qualificationAlerts(row.employee?.qualifications).map((alert) => (
+                      <Badge key={alert.label} variant="light" color={alert.color}>
+                        {alert.label}
+                      </Badge>
+                    ))}
                   <Badge variant="light" color={access.color}>
                     {access.label}
                   </Badge>
+                  </Group>
                 }
                 onClick={() => setSheet({ kind: 'person', key: row.key })}
               />
@@ -355,7 +389,15 @@ function AddPerson({
   onDone: () => void | Promise<void>
 }) {
   const size = surface === 'phone' ? 'md' : 'sm'
-  const [form, setForm] = useState({ name: '', phone: '', email: '', staffNumber: '', skills: [] as string[], salary: 0, currency: 'USD' })
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    staffNumber: '',
+    skills: [] as string[],
+    salary: 0,
+    currency: 'USD',
+  })
   const [giveApp, setGiveApp] = useState(true)
   const [whatsapp, setWhatsapp] = useState(false)
   const [inviteRole, setInviteRole] = useState(defaultInviteRole(roleChoices))
@@ -403,7 +445,14 @@ function AddPerson({
 
   return (
     <Stack gap="sm">
-      <TextInput size={size} label="Full name" placeholder="Tendai Moyo" value={form.name} onChange={(event) => setForm({ ...form, name: event.currentTarget.value })} required />
+      <TextInput
+        size={size}
+        label="Full name"
+        placeholder="Tendai Moyo"
+        value={form.name}
+        onChange={(event) => setForm({ ...form, name: event.currentTarget.value })}
+        required
+      />
       <PhoneField
         surface={surface}
         label="Phone number"
@@ -422,7 +471,13 @@ function AddPerson({
         error={emailError}
         onChange={(event) => setForm({ ...form, email: event.currentTarget.value })}
       />
-      <Checkbox size={size} checked={giveApp} onChange={(event) => setGiveApp(event.currentTarget.checked)} label="Give them the app" description="They get jobs, approvals and their staff card on their phone." />
+      <Checkbox
+        size={size}
+        checked={giveApp}
+        onChange={(event) => setGiveApp(event.currentTarget.checked)}
+        label="Give them the app"
+        description="They get jobs, approvals and their staff card on their phone."
+      />
       {giveApp && (
         <>
           <Select
@@ -434,19 +489,59 @@ function AddPerson({
             onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
             allowDeselect={false}
           />
-          <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on." />
+          <Checkbox
+            size={size}
+            checked={whatsapp}
+            onChange={(event) => setWhatsapp(event.currentTarget.checked)}
+            label="They agreed to get the invite on WhatsApp"
+            description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
+          />
         </>
       )}
-      <TextInput size={size} label="Staff number" placeholder="e.g. SGK-014" value={form.staffNumber} onChange={(event) => setForm({ ...form, staffNumber: event.currentTarget.value })} />
-      <TagsInput size={size} label="Skills" placeholder="Type a skill and press Enter" data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'Carpentry', 'Roofing', 'Tiling', 'Welding']} value={form.skills} onChange={(skills) => setForm({ ...form, skills })} />
+      <TextInput
+        size={size}
+        label="Staff number"
+        placeholder="e.g. SGK-014"
+        value={form.staffNumber}
+        onChange={(event) => setForm({ ...form, staffNumber: event.currentTarget.value })}
+      />
+      <TagsInput
+        size={size}
+        label="Skills"
+        placeholder="Type a skill and press Enter"
+        data={['Plumbing', 'Electrical', 'Painting', 'HVAC', 'Carpentry', 'Roofing', 'Tiling', 'Welding']}
+        value={form.skills}
+        onChange={(skills) => setForm({ ...form, skills })}
+      />
       {showPay && (
         <Group grow align="flex-end">
-          <NumberInput size={size} label="Base salary" min={0} decimalScale={2} value={form.salary} onChange={(value) => setForm({ ...form, salary: Number(value) || 0 })} />
-          <Select size={size} label="Currency" data={['USD', 'ZWL', 'ZAR']} value={form.currency} onChange={(value) => setForm({ ...form, currency: value || 'USD' })} allowDeselect={false} />
+          <NumberInput
+            size={size}
+            label="Base salary"
+            min={0}
+            decimalScale={2}
+            value={form.salary}
+            onChange={(value) => setForm({ ...form, salary: Number(value) || 0 })}
+          />
+          <Select
+            size={size}
+            label="Currency"
+            data={['USD', 'ZWL', 'ZAR']}
+            value={form.currency}
+            onChange={(value) => setForm({ ...form, currency: value || 'USD' })}
+            allowDeselect={false}
+          />
         </Group>
       )}
       <Group justify="flex-end">
-        <Button size={size} radius="xl" loading={saving} disabled={!ready} onClick={() => void save()} leftSection={<IconUserPlus size={18} />}>
+        <Button
+          size={size}
+          radius="xl"
+          loading={saving}
+          disabled={!ready}
+          onClick={() => void save()}
+          leftSection={<IconUserPlus size={18} />}
+        >
           {giveApp ? 'Add and invite' : 'Add'}
         </Button>
       </Group>
@@ -514,15 +609,29 @@ function PersonPanel({
     staffNumber: employee?.staffNumber || '',
     skills: employee?.skills || [],
   })
+  const [qualifications, setQualifications] = useState<EmployeeQualification[]>(employee?.qualifications || [])
 
   const invite = () =>
     run('invite', async () => {
       if (!api) return
       const email = inviteEmail.trim() || undefined
-      const invited = await api.inviteMember(orgTenantId, { phone: phone.trim(), name: row.name, role: inviteRole, email, whatsappConsent: whatsapp })
+      const invited = await api.inviteMember(orgTenantId, {
+        phone: phone.trim(),
+        name: row.name,
+        role: inviteRole,
+        email,
+        whatsappConsent: whatsapp,
+      })
       if (employee) {
         const { firstName, lastName } = splitName(pay.name || row.name)
-        await api.saveEmployee({ ...employee, firstName, lastName, phone: phone.trim(), email: email || employee.email, userId: invited.targetUserId })
+        await api.saveEmployee({
+          ...employee,
+          firstName,
+          lastName,
+          phone: phone.trim(),
+          email: email || employee.email,
+          userId: invited.targetUserId,
+        })
       }
       inviteNotice(invited, notify, 'They are on the team.')
       await onChanged()
@@ -548,12 +657,32 @@ function PersonPanel({
       await onChanged()
     })
 
+  const saveQualifications = () =>
+    run('qualifications', async () => {
+      if (!api || !employee) return
+      const cleanQualifications = qualifications
+        .filter((item) => item.name.trim())
+        .map((item) => ({
+          name: item.name.trim(),
+          ...(item.expiresAt ? { expiresAt: item.expiresAt } : {}),
+          ...(item.issuer?.trim() ? { issuer: item.issuer.trim() } : {}),
+        }))
+      await api.saveEmployee({ ...employee, qualifications: cleanQualifications })
+      notify('Qualifications saved', 'success')
+      await onChanged()
+    })
+
   const sendCards = (kind: MemberCardKind | 'all') =>
     run(`cards:${kind}`, async () => {
       if (!api || !row.userId) return
       const result = await api.sendCards(orgTenantId, row.userId, kind)
       const sent = result.sent || []
-      notify(sent.length ? 'Sent. They will find it in their app inbox.' : result.skipped?.[0]?.reason || 'Everything they need is already in their app.', sent.length ? 'success' : 'info')
+      notify(
+        sent.length
+          ? 'Sent. They will find it in their app inbox.'
+          : result.skipped?.[0]?.reason || 'Everything they need is already in their app.',
+        sent.length ? 'success' : 'info',
+      )
       await onChanged()
     })
 
@@ -583,7 +712,11 @@ function PersonPanel({
                 <Select
                   size={size}
                   label="Role"
-                  data={roleChoices.some((choice) => choice.value === member.role) ? roleChoices : [...roleChoices, { value: member.role, label: roleLabel(member.role) }]}
+                  data={
+                    roleChoices.some((choice) => choice.value === member.role)
+                      ? roleChoices
+                      : [...roleChoices, { value: member.role, label: roleLabel(member.role) }]
+                  }
                   value={member.role}
                   disabled={busy === 'role'}
                   allowDeselect={false}
@@ -627,17 +760,41 @@ function PersonPanel({
                     <Paper key={`${card.kind}:${card.workflowType || ''}`} withBorder radius="md" p="sm">
                       <Group justify="space-between" wrap="nowrap" align="flex-start">
                         <Group gap="sm" wrap="nowrap" align="flex-start" style={{ minWidth: 0, flex: 1 }}>
-                          {card.state === 'accepted' ? <IconCircleCheck size={20} color="var(--mantine-color-teal-6)" /> : <IconClock size={20} color="var(--mantine-color-gray-6)" />}
+                          {card.state === 'accepted' ? (
+                            <IconCircleCheck size={20} color="var(--mantine-color-teal-6)" />
+                          ) : (
+                            <IconClock size={20} color="var(--mantine-color-gray-6)" />
+                          )}
                           <Stack gap={2} style={{ minWidth: 0 }}>
-                            <Text size="sm" fw={500}>{card.label}</Text>
-                            <Text size="xs" c="dimmed">{cardPurpose(card)}</Text>
-                            {cardResendHint(card) && <Text size="xs" c="dimmed">{cardResendHint(card)}</Text>}
+                            <Text size="sm" fw={500}>
+                              {card.label}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {cardPurpose(card)}
+                            </Text>
+                            {cardResendHint(card) && (
+                              <Text size="xs" c="dimmed">
+                                {cardResendHint(card)}
+                              </Text>
+                            )}
                           </Stack>
                         </Group>
                         <Stack gap={4} align="flex-end" style={{ flexShrink: 0 }}>
-                          <Badge size="sm" variant="light" color={CARD_STATE_COLOR[card.state]} style={{ flexShrink: 0 }}>{CARD_STATE_LABEL[card.state]}</Badge>
+                          <Badge
+                            size="sm"
+                            variant="light"
+                            color={CARD_STATE_COLOR[card.state]}
+                            style={{ flexShrink: 0 }}
+                          >
+                            {CARD_STATE_LABEL[card.state]}
+                          </Badge>
                           {canManage && onboarding.hasApp && cardCanResend(card) && (
-                            <Button size="compact-sm" variant="subtle" loading={busy === `cards:${card.kind}`} onClick={() => void sendCards(card.kind)}>
+                            <Button
+                              size="compact-sm"
+                              variant="subtle"
+                              loading={busy === `cards:${card.kind}`}
+                              onClick={() => void sendCards(card.kind)}
+                            >
                               {card.state === 'not_sent' ? 'Send' : 'Send again'}
                             </Button>
                           )}
@@ -646,7 +803,14 @@ function PersonPanel({
                     </Paper>
                   ))}
                   {canManage && onboarding.hasApp && onboarding.summary !== 'ready' && (
-                    <Button size={size} radius="xl" leftSection={<IconSend size={16} />} loading={busy === 'cards:all'} onClick={() => void sendCards('all')} style={{ alignSelf: 'flex-start' }}>
+                    <Button
+                      size={size}
+                      radius="xl"
+                      leftSection={<IconSend size={16} />}
+                      loading={busy === 'cards:all'}
+                      onClick={() => void sendCards('all')}
+                      style={{ alignSelf: 'flex-start' }}
+                    >
                       Send everything missing
                     </Button>
                   )}
@@ -662,7 +826,8 @@ function PersonPanel({
                   loading={busy === 'remove'}
                   style={{ alignSelf: 'flex-start' }}
                   onClick={() => {
-                    if (!window.confirm(`Take ${row.name} off the team? Their staff card stops working straight away.`)) return
+                    if (!window.confirm(`Take ${row.name} off the team? Their staff card stops working straight away.`))
+                      return
                     void run('remove', async () => {
                       await api?.removeMember(orgTenantId, member.userId)
                       notify(`${row.name} is off the team.`, 'info')
@@ -681,7 +846,14 @@ function PersonPanel({
               <Text size="sm" c="dimmed">
                 They are not on the app yet, so they cannot get jobs or approvals.
               </Text>
-              <PhoneField surface={surface} label="Phone number" description="Their sign-in number. They choose their own PIN." value={phone} onChange={setPhone} required />
+              <PhoneField
+                surface={surface}
+                label="Phone number"
+                description="Their sign-in number. They choose their own PIN."
+                value={phone}
+                onChange={setPhone}
+                required
+              />
               <TextInput
                 size={size}
                 type="email"
@@ -691,17 +863,39 @@ function PersonPanel({
                 error={inviteEmail.trim() && !looksLikeEmail(inviteEmail) ? 'Check the email address' : null}
                 onChange={(event) => setInviteEmail(event.currentTarget.value)}
               />
-              <Select size={size} label="Role" data={roleChoices} value={inviteRole} onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))} allowDeselect={false} />
-              <Checkbox size={size} checked={whatsapp} onChange={(event) => setWhatsapp(event.currentTarget.checked)} label="They agreed to get the invite on WhatsApp" description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on." />
+              <Select
+                size={size}
+                label="Role"
+                data={roleChoices}
+                value={inviteRole}
+                onChange={(value) => setInviteRole(value || defaultInviteRole(roleChoices))}
+                allowDeselect={false}
+              />
+              <Checkbox
+                size={size}
+                checked={whatsapp}
+                onChange={(event) => setWhatsapp(event.currentTarget.checked)}
+                label="They agreed to get the invite on WhatsApp"
+                description="Without an email, we send it by WhatsApp or text message, or give you the link to pass on."
+              />
               <Group justify="flex-end">
-                <Button size={size} radius="xl" leftSection={<IconUserPlus size={18} />} loading={busy === 'invite'} disabled={phone.trim().length < 5 || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))} onClick={() => void invite()}>
+                <Button
+                  size={size}
+                  radius="xl"
+                  leftSection={<IconUserPlus size={18} />}
+                  loading={busy === 'invite'}
+                  disabled={phone.trim().length < 5 || Boolean(inviteEmail.trim() && !looksLikeEmail(inviteEmail))}
+                  onClick={() => void invite()}
+                >
                   Invite to the app
                 </Button>
               </Group>
             </Stack>
           </Paper>
         ) : (
-          <Text size="sm" c="dimmed">No app access.</Text>
+          <Text size="sm" c="dimmed">
+            No app access.
+          </Text>
         )}
       </Stack>
 
@@ -710,15 +904,49 @@ function PersonPanel({
           <Text fw={500}>Pay and details</Text>
           <Paper withBorder radius="md" p="md">
             <Stack gap="sm">
-              <TextInput size={size} label="Full name" value={pay.name} onChange={(event) => setPay({ ...pay, name: event.currentTarget.value })} />
-              <TextInput size={size} label="Email" value={pay.email} onChange={(event) => setPay({ ...pay, email: event.currentTarget.value })} />
+              <TextInput
+                size={size}
+                label="Full name"
+                value={pay.name}
+                onChange={(event) => setPay({ ...pay, name: event.currentTarget.value })}
+              />
+              <TextInput
+                size={size}
+                label="Email"
+                value={pay.email}
+                onChange={(event) => setPay({ ...pay, email: event.currentTarget.value })}
+              />
               <Group grow align="flex-end">
-                <NumberInput size={size} label="Base salary" min={0} decimalScale={2} value={pay.salary} onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })} />
-                <Select size={size} label="Currency" data={['USD', 'ZWL', 'ZAR']} value={pay.currency} onChange={(value) => setPay({ ...pay, currency: value || 'USD' })} allowDeselect={false} />
+                <NumberInput
+                  size={size}
+                  label="Base salary"
+                  min={0}
+                  decimalScale={2}
+                  value={pay.salary}
+                  onChange={(value) => setPay({ ...pay, salary: Number(value) || 0 })}
+                />
+                <Select
+                  size={size}
+                  label="Currency"
+                  data={['USD', 'ZWL', 'ZAR']}
+                  value={pay.currency}
+                  onChange={(value) => setPay({ ...pay, currency: value || 'USD' })}
+                  allowDeselect={false}
+                />
               </Group>
               <Group grow>
-                <TextInput size={size} label="NSSA number" value={pay.nssa} onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })} />
-                <TextInput size={size} label="TIN" value={pay.tin} onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })} />
+                <TextInput
+                  size={size}
+                  label="NSSA number"
+                  value={pay.nssa}
+                  onChange={(event) => setPay({ ...pay, nssa: event.currentTarget.value })}
+                />
+                <TextInput
+                  size={size}
+                  label="TIN"
+                  value={pay.tin}
+                  onChange={(event) => setPay({ ...pay, tin: event.currentTarget.value })}
+                />
               </Group>
               <Select
                 size={size}
@@ -734,8 +962,19 @@ function PersonPanel({
               />
               {!employee.userId && (
                 <>
-                  <TextInput size={size} label="Staff number" value={pay.staffNumber} onChange={(event) => setPay({ ...pay, staffNumber: event.currentTarget.value })} />
-                  <TagsInput size={size} label="Skills" placeholder="Type a skill and press Enter" value={pay.skills} onChange={(skills) => setPay({ ...pay, skills })} />
+                  <TextInput
+                    size={size}
+                    label="Staff number"
+                    value={pay.staffNumber}
+                    onChange={(event) => setPay({ ...pay, staffNumber: event.currentTarget.value })}
+                  />
+                  <TagsInput
+                    size={size}
+                    label="Skills"
+                    placeholder="Type a skill and press Enter"
+                    value={pay.skills}
+                    onChange={(skills) => setPay({ ...pay, skills })}
+                  />
                 </>
               )}
               {employee.baseSalary <= 0 && (
@@ -744,10 +983,112 @@ function PersonPanel({
                 </Alert>
               )}
               <Group justify="flex-end">
-                <Button size={size} radius="xl" loading={busy === 'pay'} disabled={pay.name.trim().length < 2} onClick={() => void savePay()}>
+                <Button
+                  size={size}
+                  radius="xl"
+                  loading={busy === 'pay'}
+                  disabled={pay.name.trim().length < 2}
+                  onClick={() => void savePay()}
+                >
                   Save
                 </Button>
               </Group>
+            </Stack>
+          </Paper>
+        </Stack>
+      )}
+
+      {employee && (
+        <Stack gap="xs">
+          <Text fw={500}>Qualifications</Text>
+          <Paper withBorder radius="md" p="md">
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                Record certificates or training and their expiry dates. Expired and due-within-30-days items are flagged
+                in the people list.
+              </Text>
+              {qualifications.map((item, index) => {
+                const alert = qualificationAlerts(item.expiresAt ? [item] : [])[0]
+                return (
+                  <Group key={`${item.name}:${index}`} align="flex-end" wrap="nowrap">
+                    <TextInput
+                      size={size}
+                      label="Qualification"
+                      value={item.name}
+                      onChange={(event) =>
+                        setQualifications((current) =>
+                          current.map((value, rowIndex) =>
+                            rowIndex === index ? { ...value, name: event.currentTarget.value } : value,
+                          ),
+                        )
+                      }
+                      style={{ flex: 2 }}
+                    />
+                    <TextInput
+                      size={size}
+                      type="date"
+                      label="Expires"
+                      value={item.expiresAt || ''}
+                      onChange={(event) =>
+                        setQualifications((current) =>
+                          current.map((value, rowIndex) =>
+                            rowIndex === index
+                              ? { ...value, expiresAt: event.currentTarget.value || undefined }
+                              : value,
+                          ),
+                        )
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <TextInput
+                      size={size}
+                      label="Issuer (optional)"
+                      value={item.issuer || ''}
+                      onChange={(event) =>
+                        setQualifications((current) =>
+                          current.map((value, rowIndex) =>
+                            rowIndex === index ? { ...value, issuer: event.currentTarget.value } : value,
+                          ),
+                        )
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    {alert && <Badge color={alert.color}>{alert.label}</Badge>}
+                    {canManage && (
+                      <Button
+                        size={size}
+                        variant="subtle"
+                        color="red"
+                        aria-label={`Remove ${item.name || 'qualification'}`}
+                        onClick={() =>
+                          setQualifications((current) => current.filter((_, rowIndex) => rowIndex !== index))
+                        }
+                      >
+                        <IconTrash size={16} />
+                      </Button>
+                    )}
+                  </Group>
+                )
+              })}
+              {qualifications.length === 0 && (
+                <Text size="sm" c="dimmed">
+                  No qualifications recorded.
+                </Text>
+              )}
+              {canManage && (
+                <Group justify="space-between">
+                  <Button
+                    size={size}
+                    variant="light"
+                    onClick={() => setQualifications((current) => [...current, { name: '' }])}
+                  >
+                    Add qualification
+                  </Button>
+                  <Button size={size} loading={busy === 'qualifications'} onClick={() => void saveQualifications()}>
+                    Save qualifications
+                  </Button>
+                </Group>
+              )}
             </Stack>
           </Paper>
         </Stack>

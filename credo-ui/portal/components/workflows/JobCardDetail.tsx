@@ -1,4 +1,4 @@
-import { feedback } from '@/lib/feedback';
+import { feedback } from '@/lib/feedback'
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import {
@@ -71,7 +71,7 @@ import {
   purchaseReceiptsFromHandoffs,
 } from '@/components/finance/jobAuditTrail'
 import { jobStatusColor as getStatusColor, jobStatusLabel as getStatusLabel } from '../finance/financeStages'
-import { fieldJobUrgent } from '../../../../src/config/fieldJobCategory'
+import { fieldJobPriority, fieldJobUrgent } from '../../../../src/config/fieldJobCategory'
 import { detailTabsFor, type DetailTabKey } from '../../../shared/detailTabs'
 import { FailedVisitPanel } from '../../../shared/operations/FailedVisitPanel'
 import { ImportedJobDetails } from '../../../shared/operations/ImportedJobDetails'
@@ -249,9 +249,11 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       link.click()
       URL.revokeObjectURL(url)
     } catch (error) {
-      feedback.error(axios.isAxiosError(error)
+      feedback.error(
+        axios.isAxiosError(error)
           ? error.response?.data?.message || error.response?.data?.error || error.message
-          : 'Could not open the source document.')
+          : 'Could not open the source document.',
+      )
     }
   }
 
@@ -264,7 +266,8 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
   ) as Record<string, string>
   const mayBookJobs =
     canReassign ||
-    (Boolean(currentUserId) && fieldActors.some((s) => s.stageAction === 'dispatch_job' && s.actor?.userId === currentUserId))
+    (Boolean(currentUserId) &&
+      fieldActors.some((s) => s.stageAction === 'dispatch_job' && s.actor?.userId === currentUserId))
   const assigneeName = (() => {
     if (!assigneeId) return undefined
     const member = namedPeople.find((m) => m.userId === assigneeId)
@@ -307,7 +310,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
     ).map(([type, info]) => ({
       type,
       label: RECORD_LABEL[type] || type.replace(/VC$/, '').replace(/([a-z])([A-Z])/g, '$1 $2'),
-      recipientStage: isOrganisationJobRecord(type, info) ? 'Organisation records' : plainStepName(info?.recipientStage),
+      recipientStage: isOrganisationJobRecord(type, info)
+        ? 'Organisation records'
+        : plainStepName(info?.recipientStage),
       offerId: info?.offerId ? String(info.offerId) : undefined,
     }))
 
@@ -613,6 +618,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       onClose={onClose}
       position="right"
       size="xl"
+      closeButtonProps={{ 'aria-label': 'Close job details' }}
       title={(() => {
         const heading = jobHeading(input)
         return (
@@ -630,7 +636,18 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               >
                 {getStatusLabel(String(job?.status || ''), state?.workflowStage, pauseReason, state)}
               </Badge>
-              {!isCompleted && fieldJobUrgent(job || {}) && <Badge color="red" variant="filled">Urgent</Badge>}
+              {!isCompleted &&
+                (fieldJobPriority(job || {}) === 'urgent' ||
+                  (!fieldJobPriority(job || {}) && fieldJobUrgent(job || {}))) && (
+                  <Badge color="red" variant="filled">
+                    Urgent
+                  </Badge>
+                )}
+              {!isCompleted && fieldJobPriority(job || {}) === 'out_of_hours' && (
+                <Badge color="violet" variant="light">
+                  Out of hours
+                </Badge>
+              )}
             </Group>
             {heading.detail && (
               <Text size="xs" c="dimmed">
@@ -648,11 +665,14 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
           <Text size="sm" c="dimmed">
             Waiting for:{' '}
             {childWait?.requestId ? (
-              <Anchor component="button" onClick={() => {
+              <Anchor
+                component="button"
+                onClick={() => {
                 const links = handoffLinks(state.handoffs)
                 const link = links.find((item) => item.id === childWait.requestId)
                 if (link) openRelatedWork(link, links)
-              }}>
+                }}
+              >
                 {childWait.line}
               </Anchor>
             ) : (
@@ -666,7 +686,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
             pauseReason={pauseReason}
             canWork={Boolean(currentUserId) && (assigneeId === currentUserId || (!assigneeId && canReassign))}
             held={held}
-            safetyHold={[...auditTrail.holds].reverse().find((hold) => hold.checkpoint === 'risk_assessment' && holdIsLive(hold.status))}
+            safetyHold={[...auditTrail.holds]
+              .reverse()
+              .find((hold) => hold.checkpoint === 'risk_assessment' && holdIsLive(hold.status))}
             purchaseReceipts={purchaseReceiptsFromHandoffs(state?.handoffs)}
             resume={resumeWithOrgToken}
             onRefresh={onRefresh}
@@ -710,7 +732,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       </Stack>
       {job?.status === 'paused' && pauseReason === 'await_site_inspection' && (
         <Card withBorder radius="md" mb="md">
-          <Text fw={600} mb="xs">Record site inspection</Text>
+          <Text fw={600} mb="xs">
+            Record site inspection
+          </Text>
           <Text size="xs" c="dimmed" mb="sm">
             Check the site now someone is there. A failed check keeps the job on hold.
           </Text>
@@ -724,7 +748,12 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               { value: 'failed', label: 'Failed - hold the job' },
             ]}
           />
-          <Textarea mt="sm" label="Findings" value={inspectionFindings} onChange={(e) => setInspectionFindings(e.currentTarget.value)} />
+          <Textarea
+            mt="sm"
+            label="Findings"
+            value={inspectionFindings}
+            onChange={(e) => setInspectionFindings(e.currentTarget.value)}
+          />
           <Button mt="sm" size="xs" loading={submitting} disabled={held} onClick={handleSiteInspection}>
             Record inspection
           </Button>
@@ -732,7 +761,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       )}
       {job?.status === 'paused' && pauseReason === 'await_completion_review' && (
         <Card withBorder radius="md" mb="md">
-          <Text fw={600} mb="xs">Review the finished work</Text>
+          <Text fw={600} mb="xs">
+            Review the finished work
+          </Text>
           <Text size="xs" c="dimmed" mb="sm">
             Check the AFTER photos and receipts. Approve to release customer sign-off; ask for rework to hold the job.
           </Text>
@@ -752,7 +783,11 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
           </Button>
         </Card>
       )}
-      {actionError && <Alert color="red" variant="light" mb="md">{actionError}</Alert>}
+      {actionError && (
+        <Alert color="red" variant="light" mb="md">
+          {actionError}
+        </Alert>
+      )}
       <Tabs value={tab} onChange={(value) => setTab((value as typeof tab) || 'details')} color={BRAND.curious}>
         <Tabs.List mb="md">
           {detailTabsFor({
@@ -802,11 +837,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                         ? 'Bill message queued for delivery · Awaiting payment'
                         : state.clientBill.reason || 'Invoice delivery needs attention'}
                 </Text>
-                <Button
-                  mt="sm"
-                  variant="light"
-                  onClick={() => openBilling(job.id, state.clientBill.linkId)}
-                >
+                <Button mt="sm" variant="light" onClick={() => openBilling(job.id, state.clientBill.linkId)}>
                   Open client billing details
                 </Button>
               </Card>
@@ -1028,7 +1059,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                   </Text>
                   <Group gap="xs" mb="sm">
                     <Text size="md">{String(input.customerMsisdn || input.clientPhone)}</Text>
-                    <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>Call</Anchor>
+                    <Anchor size="sm" href={`tel:${String(input.customerMsisdn || input.clientPhone)}`}>
+                      Call
+                    </Anchor>
                     <Anchor
                       size="sm"
                       href={`https://wa.me/${String(input.customerMsisdn || input.clientPhone).replace(/\D/g, '')}`}
@@ -1057,7 +1090,9 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               </Text>
               <Text size="md" mb="sm">
                 {input.storeNumber ? (
-                  <Anchor href={`/operations?store=${encodeURIComponent(input.storeNumber)}`}>{input.storeNumber}</Anchor>
+                  <Anchor href={`/operations?store=${encodeURIComponent(input.storeNumber)}`}>
+                    {input.storeNumber}
+                  </Anchor>
                 ) : (
                   'N/A'
                 )}
@@ -1115,7 +1150,11 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                   {job?.status === 'paused' && canReassign && (
                     <Stack gap="xs" mt="sm">
                       <Select
-                        label={pauseReason === 'await_assignment' ? 'Choose who does this job' : 'Move this job to someone else'}
+                        label={
+                          pauseReason === 'await_assignment'
+                            ? 'Choose who does this job'
+                            : 'Move this job to someone else'
+                        }
                         placeholder="Choose a member"
                         value={nextAssignee}
                         onChange={setNextAssignee}
@@ -1271,9 +1310,13 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
 
         <Tabs.Panel value="documents">
           <Card withBorder radius="md" p="md" mb="md">
-            <Text fw={600} mb="xs">Client source documents</Text>
+            <Text fw={600} mb="xs">
+              Client source documents
+            </Text>
             {sourceAttachments.length === 0 ? (
-              <Text size="sm" c="dimmed" fs="italic">No source documents were attached to this job intake.</Text>
+              <Text size="sm" c="dimmed" fs="italic">
+                No source documents were attached to this job intake.
+              </Text>
             ) : (
               <Stack gap="xs">
                 {sourceAttachments.map((attachment: any) => (
@@ -1283,7 +1326,8 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                       <Box>
                         <Text size="sm">{attachment.filename}</Text>
                         <Text size="xs" c="dimmed">
-                          {Math.ceil(Number(attachment.sizeBytes || 0) / 1024)} KB · SHA-256 {String(attachment.sha256 || '').slice(0, 12)}
+                          {Math.ceil(Number(attachment.sizeBytes || 0) / 1024)} KB · SHA-256{' '}
+                          {String(attachment.sha256 || '').slice(0, 12)}
                         </Text>
                       </Box>
                     </Group>
@@ -1303,18 +1347,36 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
               Assignment records go to the worker. Organisation records stay in the organisation wallet.
             </Text>
             {canReassign && state.issuedCredentials?.RequisitionVC && !state.issuedCredentials?.JobAssignmentVC && (
-              <Button size="xs" mb="sm" variant="light" loading={submitting} onClick={async () => {
+              <Button
+                size="xs"
+                mb="sm"
+                variant="light"
+                loading={submitting}
+                onClick={async () => {
                 setSubmitting(true)
                 try {
                   const backend = ((window as any).__ENV?.NEXT_PUBLIC_VC_REPO as string) || 'http://localhost:3000'
-                  await axios.post(`${backend}/workflows/runs/${encodeURIComponent(job.id)}/assignment-record/replace`, {}, {
+                    await axios.post(
+                      `${backend}/workflows/runs/${encodeURIComponent(job.id)}/assignment-record/replace`,
+                      {},
+                      {
                     headers: { Authorization: `Bearer ${getOrgScopedToken()}` },
-                  })
+                      },
+                    )
                   onRefresh()
                 } catch (error) {
-                  feedback.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : 'Could not replace the assignment record')
-                } finally { setSubmitting(false) }
-              }}>Replace legacy assignment record</Button>
+                    feedback.error(
+                      axios.isAxiosError(error)
+                        ? error.response?.data?.message || error.message
+                        : 'Could not replace the assignment record',
+                    )
+                  } finally {
+                    setSubmitting(false)
+                  }
+                }}
+              >
+                Replace legacy assignment record
+              </Button>
             )}
             {issuedRecords.length === 0 ? (
               <Text size="sm" c="dimmed" fs="italic">
@@ -1350,7 +1412,12 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
       </Group>
 
       {job?.id && (
-        <JobPriceModal job={{ ...job, input }} opened={priceOpen} onClose={() => setPriceOpen(false)} onSaved={onRefresh} />
+        <JobPriceModal
+          job={{ ...job, input }}
+          opened={priceOpen}
+          onClose={() => setPriceOpen(false)}
+          onSaved={onRefresh}
+        />
       )}
 
       {proofStage && (

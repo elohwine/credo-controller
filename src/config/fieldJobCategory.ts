@@ -34,10 +34,31 @@ export interface FieldJobRunLike {
   output?: any
 }
 
-export const OPEN_FIELD_JOB_CATEGORIES: ReadonlySet<FieldJobCategory> = new Set(['pending', 'assigned', 'active', 'arrived', 'on_hold'])
+export const OPEN_FIELD_JOB_CATEGORIES: ReadonlySet<FieldJobCategory> = new Set([
+  'pending',
+  'assigned',
+  'active',
+  'arrived',
+  'on_hold',
+])
 
 export function fieldJobInput(job: FieldJobRunLike): Record<string, any> {
   return job.output?.workflowInput || job.input || {}
+}
+
+export type FieldJobPriority = 'urgent' | 'out_of_hours' | 'normal'
+
+/** Normalize current job priority and values imported from MyMobileWorkers. */
+export function fieldJobPriority(job: FieldJobRunLike): FieldJobPriority | undefined {
+  const input = fieldJobInput(job)
+  const value = String(input.priority || input.importedDetails?.priority || '')
+    .trim()
+    .toLowerCase()
+  if (!value) return undefined
+  if (/\b(out[_\s-]?of[_\s-]?hours|ooh)\b/.test(value)) return 'out_of_hours'
+  if (/\b(urgent|emergency|high|p1)\b/.test(value)) return 'urgent'
+  if (/\b(normal|standard|routine|low|medium)\b/.test(value)) return 'normal'
+  return undefined
 }
 
 export function fieldJobAssigneeId(job: FieldJobRunLike): string {
@@ -120,9 +141,9 @@ export function isFieldJobRun(job: FieldJobRunLike & { workflowId?: string; work
   return workflowId.includes('field') || workflowId.includes('fept') || FIELD_JOB_STAGES.has(stage)
 }
 
-/** Urgent when it was booked as a call-out, or the imported priority says urgent, emergency or high. */
+/** Explicit priority takes precedence over the legacy call-out flag. */
 export function fieldJobUrgent(job: FieldJobRunLike): boolean {
   const input = fieldJobInput(job)
-  if (input.callOut === true) return true
-  return /\b(urgent|emergency|high|out of hours|p1)\b/i.test(String(input.importedDetails?.priority || input.priority || ''))
+  const priority = fieldJobPriority(job)
+  return priority ? priority === 'urgent' : input.callOut === true
 }

@@ -353,29 +353,33 @@ export function getFriendlyActivityActionLabel(
 }
 
 export function getFriendlyActivitySummary(actionLabel: string, contextText: string, amountText?: string): string {
-  if (actionLabel === 'Approved') return `${contextText}, everything is all set.`
-  if (actionLabel === 'Needs attention') return `${contextText}, this needs a quick follow-up.`
+  // Personal entries read as plain sentences; organisation entries keep who they were done for.
+  const personal = /^(for you|in your personal account)$/i.test(contextText.trim())
+  const say = (clause: string) =>
+    personal ? `${clause.charAt(0).toUpperCase()}${clause.slice(1)}` : `${contextText}, ${clause}`
+  if (actionLabel === 'Approved') return say(`everything is all set.`)
+  if (actionLabel === 'Needs attention') return say(`this needs a quick follow-up.`)
   if (actionLabel === 'Payment ready') {
     return amountText
-      ? `${contextText}, this payment is ready to share for ${amountText}.`
-      : `${contextText}, this payment is ready to share.`
+      ? say(`this payment is ready to share for ${amountText}.`)
+      : say(`this payment is ready to share.`)
   }
   if (actionLabel === 'Payment confirmed') {
     return amountText
-      ? `${contextText}, payment has been confirmed for ${amountText}.`
-      : `${contextText}, payment has been confirmed.`
+      ? say(`payment has been confirmed for ${amountText}.`)
+      : say(`payment has been confirmed.`)
   }
-  if (actionLabel === 'Invoice ready') return `${contextText}, an invoice is ready for review.`
-  if (actionLabel === 'Receipt ready') return `${contextText}, a receipt is ready to save.`
-  if (actionLabel === 'Needs your review') return `${contextText}, this needs your review.`
-  if (actionLabel === 'Request sent') return `${contextText}, a request was sent.`
-  if (actionLabel === 'Purchase request sent') return `${contextText}, a purchase request was sent.`
-  if (actionLabel === 'Purchase request updated') return `${contextText}, a purchase request was updated.`
-  if (actionLabel === 'Field job update') return `${contextText}, the field job is ready for the next step.`
-  if (actionLabel === 'Updated') return `${contextText}, the request was updated.`
-  if (actionLabel === 'Verified') return `${contextText}, the record was verified.`
-  if (actionLabel === 'Evidence captured') return `${contextText}, evidence was captured.`
-  return `${contextText}, ${actionLabel.toLowerCase()}.`
+  if (actionLabel === 'Invoice ready') return say(`an invoice is ready for review.`)
+  if (actionLabel === 'Receipt ready') return say(`a receipt is ready to save.`)
+  if (actionLabel === 'Needs your review') return say(`this needs your review.`)
+  if (actionLabel === 'Request sent') return say(`a request was sent.`)
+  if (actionLabel === 'Purchase request sent') return say(`a purchase request was sent.`)
+  if (actionLabel === 'Purchase request updated') return say(`a purchase request was updated.`)
+  if (actionLabel === 'Field job update') return say(`the field job is ready for the next step.`)
+  if (actionLabel === 'Updated') return say(`the request was updated.`)
+  if (actionLabel === 'Verified') return say(`the record was verified.`)
+  if (actionLabel === 'Evidence captured') return say(`evidence was captured.`)
+  return say(`${actionLabel.toLowerCase()}.`)
 }
 
 export interface OfferReplacementNote {

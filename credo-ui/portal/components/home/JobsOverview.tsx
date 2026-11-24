@@ -16,7 +16,15 @@ export function portalJobsHref(target: JobsDashboardTarget): string {
 }
 
 /** The jobs dashboard on the home page; every figure opens the Jobs list it counts. */
-export default function JobsOverview({ backendUrl, token }: { backendUrl: string; token: string }) {
+export default function JobsOverview({
+  backendUrl,
+  token,
+  canManage,
+}: {
+  backendUrl: string
+  token: string
+  canManage: boolean
+}) {
     const router = useRouter()
     const api = useMemo(() => operationsApi(backendUrl, token), [backendUrl, token])
     return (
@@ -24,17 +32,30 @@ export default function JobsOverview({ backendUrl, token }: { backendUrl: string
             <Group justify="space-between" mb="md">
                 <div>
                     <Title order={3}>Jobs</Title>
-                    <Text size="sm" c="dimmed">What is open, late or stuck, and where the work is.</Text>
+          <Text size="sm" c="dimmed">
+            What is open, late or stuck, and where the work is.
+          </Text>
                 </div>
                 <Anchor component={Link} href={BOARD} size="sm">
-                    <Group gap={4}>Open jobs board <IconArrowRight size={14} /></Group>
+          <Group gap={4}>
+            Open jobs board <IconArrowRight size={14} />
+          </Group>
                 </Anchor>
             </Group>
             <JobsDashboard
                 api={api}
                 surface="portal"
+        canManage={canManage}
                 onOpen={(target) => void router.push(portalJobsHref(target))}
-                fallback={<Text size="sm">Your jobs are on the <Anchor component={Link} href={BOARD}>jobs board</Anchor>.</Text>}
+        fallback={
+          <Text size="sm">
+            Your jobs are on the{' '}
+            <Anchor component={Link} href={BOARD}>
+              jobs board
+            </Anchor>
+            .
+          </Text>
+        }
             />
         </Paper>
     )
