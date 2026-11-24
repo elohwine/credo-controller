@@ -3,7 +3,7 @@ import RowCredential from "@/components/walt/credential/RowCredential";
 import PolicyListItem from "@/components/walt/policy/PolicyListItem";
 import {AvailableCredential} from "@/types/credentials";
 import InputField from "@/components/walt/forms/Input";
-import Button from "@/components/walt/button/Button";
+import { Button, Divider, Group, Stack, Text, Title } from "@mantine/core";
 import React, {useContext, useState} from "react";
 import {CredentialsContext} from "@/pages/_app";
 import {useRouter} from "next/router";
@@ -94,24 +94,22 @@ export default function VerificationSection() {
   }
 
   if (params.ids === undefined) {
-    return <Button onClick={() => router.push('/select-credentials')}>Select Credentials</Button>;
+    return <Button onClick={() => router.push('/select-credentials')}>Select records</Button>;
   }
 
   return (
     <>
-      <h1 className="text-3xl text-gray-900 text-center font-bold">
-        Customise Verification
-      </h1>
-      <p className="mt-3 text-gray-600">
-        Select credential format and policies which should be checked
-      </p>
-      <hr className="mt-8" />
-      <h3 className="text-gray-500 text-left mt-2 font-semibold">
-        Credential Formats
-      </h3>
-      <div className="mt-12"></div>
-      {/*START*/}
-      <div className="flex flex-col gap-6">
+      <Title order={1} ta="center">
+        Customise check
+      </Title>
+      <Text mt="sm" c="dimmed">
+        Choose the record format and the rules to check
+      </Text>
+      <Divider mt="xl" />
+      <Text c="dimmed" ta="left" mt="xs" fw={600}>
+        Record formats
+      </Text>
+      <Stack gap="lg" mt={48}>
         {credentialsToIssue.map((credential) => (
           <RowCredential
             credentialToEdit={credential}
@@ -120,62 +118,55 @@ export default function VerificationSection() {
             key={credential.title}
           />
         ))}
-      </div>
-      {/*END*/}
-      <div className="mt-12"></div>
-      <hr className="text-green-900 border border-[0.5px] border-gray-100" />
-      <h3 className="text-gray-500 text-left mt-2 font-semibold">
-        Credential Policies
-      </h3>
-      <div className="flex flex-row justify-start mt-8">
-        <div className="flex flex-col gap-3 w-full">
+      </Stack>
+      <Divider mt={48} />
+      <Text c="dimmed" ta="left" mt="xs" fw={600}>
+        Checks
+      </Text>
+      <Stack gap="sm" mt="xl" ta="left">
+        <PolicyListItem
+          name="Signature Policy"
+          value={signaturePolicy}
+          onChange={setSignaturePolicy}
+        />
+        <PolicyListItem
+          name="Expired Policy"
+          value={expiredPolicy}
+          onChange={setExpiredPolicy}
+        />
+        <PolicyListItem
+          name="Not Before Policy"
+          value={notBeforePolicy}
+          onChange={setNotBeforePolicy}
+        />
+        <Group justify="space-between" align="center">
           <PolicyListItem
-            name="Signature Policy"
-            value={signaturePolicy}
-            onChange={setSignaturePolicy}
+            name="Webhook Policy"
+            value={webhookPolicy}
+            onChange={setWebhookPolicy}
           />
-          <PolicyListItem
-            name="Expired Policy"
-            value={expiredPolicy}
-            onChange={setExpiredPolicy}
+          <InputField
+            error={false}
+            label=""
+            value={webhook}
+            name=""
+            type=""
+            placeholder="https://webhook.site/..."
+            onChange={setWebhook}
           />
-          <PolicyListItem
-            name="Not Before Policy"
-            value={notBeforePolicy}
-            onChange={setNotBeforePolicy}
-          />
-          <div className="sm:flex justify-between">
-            <PolicyListItem
-              name="Webhook Policy"
-              value={webhookPolicy}
-              onChange={setWebhookPolicy}
-            />
-            <InputField
-              error={false}
-              label=""
-              value={webhook}
-              name=""
-              type=""
-              placeholder="https://webhook.site/..."
-              onChange={setWebhook}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="mt-12" />
-      <hr />
-      <div className="flex flex-row justify-center gap-3 mt-14">
-        <Button onClick={handleCancel} style="link" color="gray">
+        </Group>
+      </Stack>
+      <Divider mt={48} />
+      <Group justify="center" gap="sm" mt={56}>
+        <Button onClick={handleCancel} variant="subtle" color="gray">
           Cancel
         </Button>
         <Button onClick={handleVerify}>Verify</Button>
-      </div>
-      <div className="flex flex-col items-center mt-12">
-        <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
-          <p className="">Secured by IdenEx</p>
-          <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
-        </div>
-      </div>
+      </Group>
+      <Group justify="center" gap="xs" mt={48}>
+        <Text size="sm" c="dimmed">Secured by {PRODUCT_NAME}</Text>
+        <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
+      </Group>
     </>
   );
 }

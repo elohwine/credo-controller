@@ -2,6 +2,7 @@ import React from "react";
 import Button from "@/components/walt/button/Button";
 import BaseModal from "@/components/walt/modal/BaseModal";
 import VCClaimsForm from "@/components/forms/VCClaimsForm";
+import { Anchor, Group, ScrollArea, Stack, Textarea, Title } from "@mantine/core";
 
 type Props = {
   show: boolean;
@@ -48,44 +49,43 @@ export default function EditCredentialModal({
   };
 
   return (
-    <BaseModal show={show} securedByWalt={false} onClose={onClose}>
-      <div className="flex flex-col">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">
-            Edit Credential Claims
-          </h2>
-          <button
-            onClick={() => setShowRawJson(!showRawJson)}
-            className="text-sm text-primary-600 hover:text-primary-800 underline"
-          >
+    <BaseModal show={show} securedByWalt={false} onClose={onClose} size="lg">
+      <Stack gap="md">
+        <Group justify="space-between" align="center">
+          <Title order={2} size="h4">
+            Edit record details
+          </Title>
+          <Anchor component="button" type="button" size="sm" onClick={() => setShowRawJson(!showRawJson)}>
             {showRawJson ? 'Use Form View' : 'Edit Raw JSON'}
-          </button>
-        </div>
+          </Anchor>
+        </Group>
 
         {showRawJson ? (
-          <div className="w-full">
-            <textarea
-              value={JSON.stringify(localClaims, null, 2)}
-              onChange={handleJsonChange}
-              className={`w-full h-64 border-2 rounded-md p-2 font-mono text-sm ${jsonError ? 'border-red-500' : 'border-gray-300'
-                }`}
-              placeholder="Paste your JSON here"
-            />
-            {jsonError && (
-              <p className="text-red-500 text-sm mt-1">{jsonError}</p>
-            )}
-          </div>
+          <Textarea
+            aria-label="Record JSON"
+            value={JSON.stringify(localClaims, null, 2)}
+            onChange={handleJsonChange}
+            rows={12}
+            error={jsonError}
+            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 'var(--mantine-font-size-sm)' } }}
+            placeholder="Paste your JSON here"
+          />
         ) : (
-          <div className="max-h-[400px] overflow-y-auto pr-2">
+          <ScrollArea.Autosize mah={400} offsetScrollbars>
             <VCClaimsForm
               credentialType={credentialType}
               claims={localClaims}
               onChange={setLocalClaims}
             />
-          </div>
+          </ScrollArea.Autosize>
         )}
 
-        <div className="flex flex-row justify-end gap-2 mt-6 pt-4 border-t border-gray-200">
+        <Group
+          justify="flex-end"
+          gap="xs"
+          pt="md"
+          style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+        >
           <Button onClick={onClose} style="link">
             Cancel
           </Button>
@@ -94,10 +94,10 @@ export default function EditCredentialModal({
             style="button"
             disabled={!!jsonError}
           >
-            Save Claims
+            Save
           </Button>
-        </div>
-      </div>
+        </Group>
+      </Stack>
     </BaseModal>
   );
 }

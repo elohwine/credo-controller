@@ -1,19 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
-import { StatCard } from '@/components/dashboard/StatCard';
-import { BRAND } from '@/lib/theme';
-import { 
-    ChartBarIcon, 
-    ServerIcon, 
-    CircleStackIcon, 
-    CpuChipIcon, 
-    ClockIcon, 
-    ShieldCheckIcon,
-    WalletIcon,
-    DocumentCheckIcon,
-    BoltIcon
-} from '@heroicons/react/24/outline';
-import { SimpleGrid, Container, Title, Text, Box, Paper, Group, Stack } from '@mantine/core';
+import { EnvContext } from '@/pages/_app';
+import { Badge, Box, Group, Paper, SimpleGrid, Stack, Text, Title } from '@mantine/core';
+import {
+    IconBolt,
+    IconChartBar,
+    IconClock,
+    IconCpu,
+    IconDatabase,
+    IconFileCertificate,
+    IconGauge,
+    IconServer,
+    IconShieldCheck,
+    IconWallet,
+} from '@tabler/icons-react';
+import { StatTile } from '../../../shared/StatTile';
 
 interface HealthCheck {
     status: string;
@@ -24,34 +25,44 @@ interface HealthCheck {
     };
     details: {
         heapUsagePercent: number;
-        uptime: number;
+        uptime?: number;
     };
 }
 
 interface Metrics {
     system: {
-        heapUsed: number;
-        heapTotal: number;
-        rss: number;
         uptime: number;
+        memory: { heapUsed: number; heapTotal: number; rss: number };
     };
     database: {
-        connectionCount: number;
-        poolSize: number;
-        queryLatency: number;
+        totalSize: number;
+        tableStats: { name: string; rowCount: number }[];
     };
     business: {
-        activeWallets: number;
-        credentialsIssued: number;
-        workflowsExecuted: number;
+        credentials: { totalIssued: number; last24h: number };
+        wallets: { totalRegistered: number };
+        tenants: { total: number; active: number };
     };
 }
+
+const StatusRow = ({ label, ok, okLabel, badLabel, icon }: { label: string; ok: boolean; okLabel: string; badLabel: string; icon: React.ReactNode }) => (
+    <Group justify="space-between" wrap="nowrap">
+        <Group gap="xs" wrap="nowrap">
+            <Box c="dimmed" style={{ display: 'flex' }}>{icon}</Box>
+            <Text size="sm">{label}</Text>
+        </Group>
+        <Badge variant="light" color={ok ? 'green' : 'red'} tt="none">{ok ? okLabel : badLabel}</Badge>
+    </Group>
+);
 
 export default function MetricsPage() {
     const [health, setHealth] = useState<HealthCheck | null>(null);
     const [metrics, setMetrics] = useState<Metrics | null>(null);
+    const env = useContext(EnvContext);
+    const backendUrl = env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
 
     useEffect(() => {
+        if (!env.NEXT_PUBLIC_BACKEND_URL) return;
         fetchHealth();
         fetchMetrics();
         const interval = setInterval(() => {
@@ -59,31 +70,30 @@ export default function MetricsPage() {
             fetchMetrics();
         }, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [env.NEXT_PUBLIC_BACKEND_URL]);
 
     const fetchHealth = async () => {
         try {
-            const res = await fetch('http://localhost:3000/health');
-            const data = await res.json();
-            setHealth(data);
+            const res = await fetch(`${backendUrl}/health`);
+            const data = await res.json().catch(() => null);
+            setHealth(data?.checks && data?.details ? data : null);
         } catch (error) {
-            console.error('Failed to fetch health:', error);
+            console.warn('Failed to fetch health:', error);
         }
     };
 
     const fetchMetrics = async () => {
         try {
-            const res = await fetch('http://localhost:3000/metrics/json');
-            const data = await res.json();
-            setMetrics(data);
+            const res = await fetch(`${backendUrl}/metrics/json`);
+            const data = await res.json().catch(() => null);
+            setMetrics(res.ok && data?.system && data?.database && data?.business ? data : null);
         } catch (error) {
-            console.error('Failed to fetch metrics:', error);
+            console.warn('Failed to fetch metrics:', error);
         }
     };
 
-    const formatBytes = (bytes: number) => {
-        return (bytes / 1024 / 1024).toFixed(2) + ' MB';
-    };
+    const formatBytes = (bytes?: number) =>
+        typeof bytes === 'number' && Number.isFinite(bytes) ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : '—';
 
     const formatUptime = (seconds: number) => {
         const hours = Math.floor(seconds / 3600);
@@ -93,110 +103,85 @@ export default function MetricsPage() {
 
     return (
         <Layout title="System Metrics">
-            <div className="px-4 sm:px-6 lg:px-8 py-6">
-                <div className="sm:flex sm:items-center sm:justify-between mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>System Metrics</h1>
-                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>
-                            Real-time system health and performance monitoring
-                        </p>
-                    </div>
+            <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
+                <div>
+                    <Title order={2}>System Metrics</Title>
+                    <Text size="sm" c="dimmed" mt={4}>
+                        Real-time system health and performance monitoring
+                    </Text>
                 </div>
 
                 {/* Health Status */}
                 {health && (
-                    <Box mt="xl">
-                        <Title order={3} mb="md" className="text-gray-900 flex items-center">
-                            <ShieldCheckIcon className="h-6 w-6 mr-2 text-indigo-600" />
-                            System Health
-                        </Title>
-                        <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="lg">
-                            <StatCard
-                                title="Overall Status"
-                                value={health.status === 'healthy' ? 'Healthy' : 'Issues Detected'}
-                                icon={<ServerIcon style={{ width: 24, height: 24 }} />}
-                                iconColor={health.status === 'healthy' ? 'green' : 'red'}
-                                trend="100%"
-                                trendLabel="uptime"
-                            />
-                            <StatCard
-                                title="Database"
-                                value={health.checks.database ? 'Connected' : 'Disconnected'}
-                                icon={<CircleStackIcon style={{ width: 24, height: 24 }} />}
-                                iconColor={health.checks.database ? 'blue' : 'red'}
-                                trend={(metrics?.database.queryLatency || 0) + 'ms'}
-                                trendLabel="latency"
-                            />
-                            <StatCard
-                                title="Agent Status"
-                                value={health.checks.agent ? 'Active' : 'Down'}
-                                icon={<ShieldCheckIcon style={{ width: 24, height: 24 }} />}
-                                iconColor={health.checks.agent ? 'teal' : 'red'}
-                            />
-                            <StatCard
-                                title="Memory Usage"
-                                value={`${health.details.heapUsagePercent}%`}
-                                icon={<CpuChipIcon style={{ width: 24, height: 24 }} />}
-                                iconColor={health.details.heapUsagePercent > 90 ? 'red' : 'orange'}
-                                trend={(metrics?.system.heapUsed ? (metrics.system.heapUsed / 1024 / 1024).toFixed(0) : 0) + ' MB'}
-                                trendLabel="used"
-                            />
+                    <Stack gap="sm">
+                        <Group gap="xs">
+                            <Box c="dimmed" style={{ display: 'flex' }}><IconShieldCheck size={20} /></Box>
+                            <Title order={4}>System Health</Title>
+                        </Group>
+                        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="sm">
+                            <Paper withBorder radius="md" p="md">
+                                <Stack gap="sm">
+                                    <StatusRow label="Overall Status" ok={health.status === 'healthy'} okLabel="Healthy" badLabel={health.status === 'degraded' ? 'Under strain' : 'Issues detected'} icon={<IconServer size={18} />} />
+                                    <StatusRow label="Database" ok={health.checks.database} okLabel="Connected" badLabel="Disconnected" icon={<IconDatabase size={18} />} />
+                                    <StatusRow label="Agent Status" ok={health.checks.agent} okLabel="Active" badLabel="Down" icon={<IconShieldCheck size={18} />} />
+                                </Stack>
+                            </Paper>
+                            <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="sm">
+                                <StatTile
+                                    label="Memory Usage"
+                                    value={`${health.details.heapUsagePercent}%`}
+                                    hint={metrics ? `${formatBytes(metrics.system.memory.heapUsed)} used` : undefined}
+                                    icon={IconCpu}
+                                    alert={health.details.heapUsagePercent > 90}
+                                />
+                                <StatTile
+                                    label="Database size"
+                                    value={metrics ? formatBytes(metrics.database.totalSize) : '—'}
+                                    icon={IconGauge}
+                                />
+                                <StatTile
+                                    label="Uptime"
+                                    value={formatUptime(metrics?.system.uptime ?? health.details.uptime ?? 0)}
+                                    icon={IconClock}
+                                />
+                            </SimpleGrid>
                         </SimpleGrid>
-                    </Box>
+                    </Stack>
                 )}
 
                 {/* System Metrics */}
                 {metrics && (
-                   <Box mt="xl">
-                        <Title order={3} size="h4" mb="md">Business Metrics</Title>
-                        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
-                            <StatCard 
-                                title="Active Wallets" 
-                                value={(metrics.business?.activeWallets ?? 0).toString()} 
-                                icon={<WalletIcon style={{ width: 24, height: 24 }} />} 
-                                iconColor="blue"
-                                trend="+12%" 
-                                trendLabel="vs last month"
-                                trendType="positive"
+                    <Stack gap="sm">
+                        <Title order={4}>Usage</Title>
+                        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
+                            <StatTile label="People signed up" value={metrics.business?.wallets?.totalRegistered ?? 0} icon={IconWallet} />
+                            <StatTile
+                                label="Signed records issued"
+                                value={metrics.business?.credentials?.totalIssued ?? 0}
+                                hint={`${metrics.business?.credentials?.last24h ?? 0} in the last 24 hours`}
+                                icon={IconFileCertificate}
                             />
-                            <StatCard 
-                                title="Credentials Issued" 
-                                value={(metrics.business?.credentialsIssued ?? 0).toString()} 
-                                icon={<DocumentCheckIcon style={{ width: 24, height: 24 }} />} 
-                                iconColor="green"
-                                trend="+5%" 
-                                trendLabel="this week"
-                                trendType="positive"
-                            />
-                            <StatCard 
-                                title="Workflows Executed" 
-                                value={(metrics.business?.workflowsExecuted ?? 0).toString()} 
-                                icon={<BoltIcon style={{ width: 24, height: 24 }} />} 
-                                iconColor="orange"
-                                trend="+2" 
-                                trendLabel="today"
-                                trendType="positive"
-                            />
+                            <StatTile label="Organisations" value={metrics.business?.tenants?.total ?? 0} icon={IconBolt} />
                         </SimpleGrid>
 
-                        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                             <Paper shadow="sm" p="lg" radius="md" withBorder>
-                                <Group mb="md">
-                                    <ChartBarIcon className="h-5 w-5 text-indigo-600" />
+                        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mt="sm">
+                            <Paper p="lg" radius="md" withBorder>
+                                <Group gap="xs" mb="md">
+                                    <Box c="dimmed" style={{ display: 'flex' }}><IconChartBar size={18} /></Box>
                                     <Text fw={500} size="lg">System Resources</Text>
                                 </Group>
                                 <Stack gap="xs">
                                     <Group justify="space-between">
                                         <Text size="sm" c="dimmed">Heap Used</Text>
-                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.heapUsed)}</Text>
+                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.memory?.heapUsed)}</Text>
                                     </Group>
                                     <Group justify="space-between">
                                         <Text size="sm" c="dimmed">Heap Total</Text>
-                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.heapTotal)}</Text>
+                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.memory?.heapTotal)}</Text>
                                     </Group>
                                     <Group justify="space-between">
                                         <Text size="sm" c="dimmed">RSS Memory</Text>
-                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.rss)}</Text>
+                                        <Text size="sm" fw={500}>{formatBytes(metrics.system.memory?.rss)}</Text>
                                     </Group>
                                     <Group justify="space-between">
                                         <Text size="sm" c="dimmed">Uptime</Text>
@@ -205,30 +190,28 @@ export default function MetricsPage() {
                                 </Stack>
                             </Paper>
 
-                            <Paper shadow="sm" p="lg" radius="md" withBorder>
-                                <Group mb="md">
-                                    <CircleStackIcon className="h-5 w-5 text-indigo-600" />
+                            <Paper p="lg" radius="md" withBorder>
+                                <Group gap="xs" mb="md">
+                                    <Box c="dimmed" style={{ display: 'flex' }}><IconDatabase size={18} /></Box>
                                     <Text fw={500} size="lg">Database Metrics</Text>
                                 </Group>
                                 <Stack gap="xs">
                                     <Group justify="space-between">
-                                        <Text size="sm" c="dimmed">Connections</Text>
-                                        <Text size="sm" fw={500}>{metrics.database.connectionCount}</Text>
+                                        <Text size="sm" c="dimmed">Size on disk</Text>
+                                        <Text size="sm" fw={500}>{formatBytes(metrics.database.totalSize)}</Text>
                                     </Group>
-                                    <Group justify="space-between">
-                                        <Text size="sm" c="dimmed">Pool Size</Text>
-                                        <Text size="sm" fw={500}>{metrics.database.poolSize}</Text>
-                                    </Group>
-                                    <Group justify="space-between">
-                                        <Text size="sm" c="dimmed">Query Latency</Text>
-                                        <Text size="sm" fw={500}>{metrics.database.queryLatency}ms</Text>
-                                    </Group>
+                                    {(metrics.database.tableStats || []).map((t) => (
+                                        <Group key={t.name} justify="space-between">
+                                            <Text size="sm" c="dimmed">{t.name.replace(/_/g, ' ')}</Text>
+                                            <Text size="sm" fw={500}>{t.rowCount.toLocaleString()} rows</Text>
+                                        </Group>
+                                    ))}
                                 </Stack>
                             </Paper>
                         </SimpleGrid>
-                    </Box>
+                    </Stack>
                 )}
-            </div>
+            </Stack>
         </Layout>
     );
 }

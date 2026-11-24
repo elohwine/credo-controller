@@ -1,24 +1,82 @@
-import { PRODUCT_NAME } from '@/utils/orgProfile'
-import { useState, useEffect, useContext } from 'react';
-import Head from 'next/head';
+import { useState, useEffect, useContext, type ReactNode } from 'react';
 import Layout from '../../components/Layout';
 import axios from 'axios';
-import { BRAND, formatCurrency } from '@/lib/theme';
+import { formatCurrency } from '@/lib/theme';
 import {
-  CubeIcon,
-  MapPinIcon,
-  QrCodeIcon,
-  ClipboardDocumentListIcon,
-  DocumentMagnifyingGlassIcon,
-  CurrencyDollarIcon,
-  ClockIcon,
-  CheckCircleIcon,
-  ExclamationTriangleIcon,
-  PlusIcon,
-  ArrowPathIcon,
-  ShieldCheckIcon
-} from '@heroicons/react/24/outline';
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Grid,
+  Group,
+  Loader,
+  NativeSelect,
+  NumberInput,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Table,
+  Tabs,
+  Text,
+  TextInput,
+  ThemeIcon,
+  Timeline,
+  Title,
+} from '@mantine/core';
+import {
+  IconAlertTriangle,
+  IconBox,
+  IconChartBar,
+  IconCircleCheck,
+  IconClock,
+  IconCurrencyDollar,
+  IconFileSearch,
+  IconListDetails,
+  IconMapPin,
+  IconPackages,
+  IconPlus,
+  IconQrcode,
+  IconRefresh,
+  IconShieldCheck,
+} from '@tabler/icons-react';
 import { EnvContext } from '@/pages/_app';
+import { StatTile } from '../../../shared/StatTile';
+
+const HEADER_STYLE = {
+  borderBottom: '1px solid var(--mantine-color-default-border)',
+};
+
+function SectionCard({ icon, title, right, children }: { icon?: ReactNode; title: string; right?: ReactNode; children: ReactNode }) {
+  return (
+    <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+      <Group justify="space-between" wrap="wrap" gap="sm" px="lg" py="sm" bg="var(--mantine-color-default-hover)" style={HEADER_STYLE}>
+        <Group gap="sm" wrap="nowrap">
+          {icon && (
+            <ThemeIcon variant="light" color="gray" size="md" radius="md">
+              {icon}
+            </ThemeIcon>
+          )}
+          <Title order={4}>{title}</Title>
+        </Group>
+        {right}
+      </Group>
+      <Box p="lg">{children}</Box>
+    </Paper>
+  );
+}
+
+function EmptyRow({ colSpan, children }: { colSpan: number; children: ReactNode }) {
+  return (
+    <Table.Tr>
+      <Table.Td colSpan={colSpan}>
+        <Text size="sm" c="dimmed" ta="center" py="xl">
+          {children}
+        </Text>
+      </Table.Td>
+    </Table.Tr>
+  );
+}
 
 const InventoryDashboard = () => {
   const [stockLevels, setStockLevels] = useState<any[]>([]);
@@ -198,546 +256,523 @@ const InventoryDashboard = () => {
     else if (activeTab === 'profit') fetchProfitAnalytics();
   }, [activeTab]);
 
+  const unitsOnHand = stockLevels.reduce((sum, level) => sum + (Number(level.quantityOnHand) || 0), 0);
+  const stockValue = stockLevels.reduce((sum, level) => sum + (Number(level.totalCost) || 0), 0);
+
   return (
-    <Layout>
-      <Head>
-        <title>{`Inventory | ${PRODUCT_NAME} Portal`}</title>
-      </Head>
-      <div className="px-4 sm:px-6 lg:px-8 py-6">
+    <Layout title="Inventory">
+      <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
         {/* Header */}
-        <div className="sm:flex sm:items-center sm:justify-between mb-8">
+        <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: BRAND.text }}>Inventory Management</h1>
-            <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Onboard items, scan, track lots & verify inventory VC trails</p>
+            <Title order={2}>Inventory</Title>
+            <Text size="sm" c="dimmed" mt={4}>Receive stock, scan items, track lots and check stock history</Text>
           </div>
-          <div className="mt-4 sm:mt-0">
-            <button
-              onClick={() => setActiveTab('manage')}
-              className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md"
-              style={{ backgroundColor: BRAND.curious }}
-            >
-              <PlusIcon className="h-5 w-5 mr-2" />
-              Onboard Item
-            </button>
-          </div>
-        </div>
+          <Button leftSection={<IconPlus size={16} />} onClick={() => setActiveTab('manage')}>
+            Receive stock
+          </Button>
+        </Group>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-          {[
-            { label: 'Stock Items', value: stockLevels.length, icon: <CubeIcon className="h-6 w-6" /> },
-            { label: 'Locations', value: locations.length, icon: <MapPinIcon className="h-6 w-6" /> },
-            { label: 'Total Value', value: `$${valuation?.totalValue?.toFixed(2) || '0.00'}`, icon: <CurrencyDollarIcon className="h-6 w-6" /> },
-            { label: 'Events Tracked', value: events.length, icon: <ClipboardDocumentListIcon className="h-6 w-6" /> },
-          ].map((stat, idx) => (
-            <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
-              <dt>
-                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
-                  <span className="text-white">{stat.icon}</span>
-                </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
-              </dt>
-              <dd className="ml-16 flex items-baseline">
-                <p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p>
-              </dd>
-            </div>
-          ))}
-        </div>
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="sm">
+          <StatTile label="Stock lines" value={stockLevels.length} icon={IconBox} hint="Item and location pairs" />
+          <StatTile label="Units on hand" value={unitsOnHand.toLocaleString()} icon={IconPackages} />
+          <StatTile label="Stock value" value={formatCurrency(stockValue)} icon={IconCurrencyDollar} hint="At cost" />
+          <StatTile label="Locations" value={locations.length} icon={IconMapPin} />
+        </SimpleGrid>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
-          <nav className="-mb-px flex flex-wrap gap-6">
-            {[
-              { key: 'stock', label: 'Stock Levels', icon: <CubeIcon className="h-5 w-5" /> },
-              { key: 'manage', label: 'Onboard Items', icon: <PlusIcon className="h-5 w-5" /> },
-              { key: 'scan', label: 'Scan & Lookup', icon: <QrCodeIcon className="h-5 w-5" /> },
-              { key: 'events', label: 'Event Chain', icon: <ClipboardDocumentListIcon className="h-5 w-5" /> },
-              { key: 'trace', label: 'Trace Receipt', icon: <DocumentMagnifyingGlassIcon className="h-5 w-5" /> },
-              { key: 'valuation', label: 'Valuation', icon: <CurrencyDollarIcon className="h-5 w-5" /> },
-              { key: 'profit', label: 'Profit Focus', icon: <ShieldCheckIcon className="h-5 w-5" /> },
-              { key: 'aging', label: 'Aging', icon: <ClockIcon className="h-5 w-5" /> },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key as any)}
-                className="group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors"
-                style={{
-                  borderColor: activeTab === tab.key ? BRAND.curious : 'transparent',
-                  color: activeTab === tab.key ? BRAND.curious : '#6B7280',
-                }}
-              >
-                {tab.icon}<span className="ml-2">{tab.label}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
+        <Tabs value={activeTab} onChange={(value) => value && setActiveTab(value as any)}>
+          <Tabs.List>
+            <Tabs.Tab value="stock" leftSection={<IconBox size={16} />}>Stock levels</Tabs.Tab>
+            <Tabs.Tab value="manage" leftSection={<IconPlus size={16} />}>Receive stock</Tabs.Tab>
+            <Tabs.Tab value="scan" leftSection={<IconQrcode size={16} />}>Scan & look up</Tabs.Tab>
+            <Tabs.Tab value="events" leftSection={<IconListDetails size={16} />}>Stock history</Tabs.Tab>
+            <Tabs.Tab value="trace" leftSection={<IconFileSearch size={16} />}>Trace receipt</Tabs.Tab>
+            <Tabs.Tab value="valuation" leftSection={<IconCurrencyDollar size={16} />}>Valuation</Tabs.Tab>
+            <Tabs.Tab value="profit" leftSection={<IconChartBar size={16} />}>Profit</Tabs.Tab>
+            <Tabs.Tab value="aging" leftSection={<IconClock size={16} />}>Aging</Tabs.Tab>
+          </Tabs.List>
+        </Tabs>
 
-        {error && <div className="bg-red-50 border border-red-200 p-4 mb-6 rounded-lg text-red-700">{error}</div>}
+        {error && (
+          <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} withCloseButton onClose={() => setError(null)}>
+            {error}
+          </Alert>
+        )}
 
         {activeTab === 'stock' && (
-          <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead style={{ backgroundColor: BRAND.linkWater }}>
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Item</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Location</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>On Hand</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Reserved</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Available</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Total Cost</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {stockLevels.map((level, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{level.catalogItemId}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{level.locationId}</td>
-                    <td className="px-6 py-4 text-sm text-right">{level.quantityOnHand}</td>
-                    <td className="px-6 py-4 text-sm text-right text-yellow-600">{level.quantityReserved}</td>
-                    <td className="px-6 py-4 text-sm text-right font-semibold text-green-600">{level.quantityAvailable}</td>
-                    <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: BRAND.curious }}>{formatCurrency(level.totalCost || 0)}</td>
-                  </tr>
-                ))}
-                {stockLevels.length === 0 && !loading && (
-                  <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">No stock data found. Use "Onboard Items" to receive goods.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+            <Table.ScrollContainer minWidth={720}>
+              <Table striped highlightOnHover verticalSpacing="sm" horizontalSpacing="lg">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Item</Table.Th>
+                    <Table.Th>Location</Table.Th>
+                    <Table.Th ta="right">On hand</Table.Th>
+                    <Table.Th ta="right">Reserved</Table.Th>
+                    <Table.Th ta="right">Available</Table.Th>
+                    <Table.Th ta="right">Total cost</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {stockLevels.map((level, idx) => (
+                    <Table.Tr key={idx}>
+                      <Table.Td fw={500}>{level.catalogItemId}</Table.Td>
+                      <Table.Td c="dimmed">{level.locationId}</Table.Td>
+                      <Table.Td ta="right">{level.quantityOnHand}</Table.Td>
+                      <Table.Td ta="right" c="dimmed">{level.quantityReserved}</Table.Td>
+                      <Table.Td ta="right" fw={600}>{level.quantityAvailable}</Table.Td>
+                      <Table.Td ta="right" fw={500}>{formatCurrency(level.totalCost || 0)}</Table.Td>
+                    </Table.Tr>
+                  ))}
+                  {stockLevels.length === 0 && !loading && (
+                    <EmptyRow colSpan={6}>No stock yet. Use &quot;Receive stock&quot; to add goods.</EmptyRow>
+                  )}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
         )}
 
         {activeTab === 'manage' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
             {/* Create Location Card */}
-            <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-              <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                <div className="flex items-center gap-3">
-                  <MapPinIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Create Location</h3>
-                </div>
-              </div>
-              <div className="p-6">
-                <form onSubmit={handleCreateLocation} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location Name</label>
-                    <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="e.g. Main Warehouse" value={createLocation.name} onChange={(e) => setCreateLocation({ ...createLocation, name: e.target.value })} required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Type</label>
-                    <select className="w-full rounded-lg border-gray-300 shadow-sm" value={createLocation.type} onChange={(e) => setCreateLocation({ ...createLocation, type: e.target.value })}>
-                      <option value="warehouse">Warehouse</option>
-                      <option value="shop">Shop</option>
-                      <option value="transit">Transit</option>
-                      <option value="virtual">Virtual</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Address</label>
-                    <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Physical address" value={createLocation.address} onChange={(e) => setCreateLocation({ ...createLocation, address: e.target.value })} />
-                  </div>
-                  <button type="submit" className="w-full rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>Create Location</button>
-                </form>
+            <SectionCard icon={<IconMapPin size={18} />} title="Add a location">
+              <form onSubmit={handleCreateLocation}>
+                <Stack gap="sm">
+                  <TextInput
+                    label="Location name"
+                    placeholder="e.g. Main Warehouse"
+                    value={createLocation.name}
+                    onChange={(e) => setCreateLocation({ ...createLocation, name: e.currentTarget.value })}
+                    required
+                  />
+                  <NativeSelect
+                    label="Type"
+                    value={createLocation.type}
+                    onChange={(e) => setCreateLocation({ ...createLocation, type: e.currentTarget.value })}
+                    data={[
+                      { value: 'warehouse', label: 'Warehouse' },
+                      { value: 'shop', label: 'Shop' },
+                      { value: 'transit', label: 'Transit' },
+                      { value: 'virtual', label: 'Virtual' },
+                    ]}
+                  />
+                  <TextInput
+                    label="Address"
+                    placeholder="Physical address"
+                    value={createLocation.address}
+                    onChange={(e) => setCreateLocation({ ...createLocation, address: e.currentTarget.value })}
+                  />
+                  <Button type="submit" fullWidth>Add location</Button>
+                </Stack>
+              </form>
 
-                <div className="mt-6 pt-6 border-t">
-                  <h4 className="text-sm font-semibold mb-3" style={{ color: BRAND.text }}>Existing Locations</h4>
-                  <ul className="space-y-2">
-                    {locations.map((loc) => (
-                      <li key={loc.id} className="flex items-center gap-2 text-sm p-2 rounded" style={{ backgroundColor: BRAND.linkWater }}>
-                        <MapPinIcon className="h-4 w-4" style={{ color: BRAND.curious }} />
-                        <span style={{ color: BRAND.text }}>{loc.name}</span>
-                        <span className="text-xs text-gray-500">· {loc.type}</span>
-                      </li>
-                    ))}
-                    {locations.length === 0 && <li className="text-sm text-gray-500">No locations yet</li>}
-                  </ul>
-                </div>
-              </div>
-            </div>
+              <Stack gap="xs" mt="lg" pt="lg" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+                <Text size="sm" fw={600}>Existing locations</Text>
+                {locations.map((loc) => (
+                  <Paper key={loc.id} withBorder radius="sm" px="sm" py={6}>
+                    <Group gap="xs" wrap="nowrap">
+                      <Box c="dimmed" style={{ display: 'flex' }}><IconMapPin size={16} /></Box>
+                      <Text size="sm">{loc.name}</Text>
+                      <Text size="xs" c="dimmed">· {loc.type}</Text>
+                    </Group>
+                  </Paper>
+                ))}
+                {locations.length === 0 && <Text size="sm" c="dimmed">No locations yet</Text>}
+              </Stack>
+            </SectionCard>
 
             {/* Receive Goods Card */}
-            <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-              <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                <div className="flex items-center gap-3">
-                  <CubeIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                  <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Receive Goods (Onboard)</h3>
-                </div>
-              </div>
-              <div className="p-6">
-                <form onSubmit={handleReceiveGoods} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Catalog Item ID</label>
-                      <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Item ID" value={receiveGoods.catalogItemId} onChange={(e) => setReceiveGoods({ ...receiveGoods, catalogItemId: e.target.value })} required />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location</label>
-                      <select className="w-full rounded-lg border-gray-300 shadow-sm" value={receiveGoods.locationId} onChange={(e) => setReceiveGoods({ ...receiveGoods, locationId: e.target.value })} required>
-                        <option value="">Select Location</option>
-                        {locations.map((loc) => (
-                          <option key={loc.id} value={loc.id}>{loc.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Quantity</label>
-                      <input className="w-full rounded-lg border-gray-300 shadow-sm" type="number" placeholder="Qty" value={receiveGoods.quantity} onChange={(e) => setReceiveGoods({ ...receiveGoods, quantity: Number(e.target.value) })} required />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Unit Cost</label>
-                      <input className="w-full rounded-lg border-gray-300 shadow-sm" type="number" placeholder="Cost" value={receiveGoods.unitCost} onChange={(e) => setReceiveGoods({ ...receiveGoods, unitCost: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Lot Number</label>
-                      <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="LOT-XXX" value={receiveGoods.lotNumber} onChange={(e) => setReceiveGoods({ ...receiveGoods, lotNumber: e.target.value })} />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Barcode</label>
-                      <input className="w-full rounded-lg border-gray-300 shadow-sm" placeholder="Barcode" value={receiveGoods.barcode} onChange={(e) => setReceiveGoods({ ...receiveGoods, barcode: e.target.value })} />
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                    <label className="flex items-center gap-2 text-sm" style={{ color: BRAND.text }}>
-                      <input type="checkbox" checked={receiveGoods.issueVC} onChange={(e) => setReceiveGoods({ ...receiveGoods, issueVC: e.target.checked })} className="rounded" />
-                      <span className="font-medium">Issue GoodsReceivedVC on receipt</span>
-                    </label>
-                  </div>
-                  <button type="submit" className="w-full rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>Receive Goods</button>
-                </form>
-              </div>
-            </div>
-          </div>
+            <SectionCard icon={<IconBox size={18} />} title="Receive goods">
+              <form onSubmit={handleReceiveGoods}>
+                <Stack gap="sm">
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+                    <TextInput
+                      label="Catalogue item ID"
+                      placeholder="Item ID"
+                      value={receiveGoods.catalogItemId}
+                      onChange={(e) => setReceiveGoods({ ...receiveGoods, catalogItemId: e.currentTarget.value })}
+                      required
+                    />
+                    <NativeSelect
+                      label="Location"
+                      value={receiveGoods.locationId}
+                      onChange={(e) => setReceiveGoods({ ...receiveGoods, locationId: e.currentTarget.value })}
+                      required
+                      data={[
+                        { value: '', label: 'Select location' },
+                        ...locations.map((loc) => ({ value: String(loc.id), label: String(loc.name) })),
+                      ]}
+                    />
+                    <NumberInput
+                      label="Quantity"
+                      placeholder="Qty"
+                      value={receiveGoods.quantity}
+                      onChange={(value) => setReceiveGoods({ ...receiveGoods, quantity: Number(value) })}
+                      required
+                    />
+                    <NumberInput
+                      label="Unit cost"
+                      placeholder="Cost"
+                      decimalScale={2}
+                      value={receiveGoods.unitCost}
+                      onChange={(value) => setReceiveGoods({ ...receiveGoods, unitCost: Number(value) })}
+                    />
+                    <TextInput
+                      label="Lot number"
+                      placeholder="LOT-XXX"
+                      value={receiveGoods.lotNumber}
+                      onChange={(e) => setReceiveGoods({ ...receiveGoods, lotNumber: e.currentTarget.value })}
+                    />
+                    <TextInput
+                      label="Barcode"
+                      placeholder="Barcode"
+                      value={receiveGoods.barcode}
+                      onChange={(e) => setReceiveGoods({ ...receiveGoods, barcode: e.currentTarget.value })}
+                    />
+                  </SimpleGrid>
+                  <Paper withBorder radius="sm" p="sm" bg="var(--mantine-color-default-hover)">
+                    <Checkbox
+                      label="Issue a goods-received record on receipt"
+                      checked={receiveGoods.issueVC}
+                      onChange={(e) => setReceiveGoods({ ...receiveGoods, issueVC: e.currentTarget.checked })}
+                    />
+                  </Paper>
+                  <Button type="submit" fullWidth>Receive goods</Button>
+                </Stack>
+              </form>
+            </SectionCard>
+          </SimpleGrid>
         )}
 
         {activeTab === 'scan' && (
-          <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-            <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-              <div className="flex items-center gap-3">
-                <QrCodeIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Scan Barcode / SKU</h3>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="flex gap-3 items-end mb-6 flex-wrap">
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Barcode or SKU</label>
-                  <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Enter barcode" value={scanBarcode} onChange={(e) => setScanBarcode(e.target.value)} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location (optional)</label>
-                  <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Location ID" value={scanLocationId} onChange={(e) => setScanLocationId(e.target.value)} />
-                </div>
-                <button onClick={handleScan} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>
-                  <QrCodeIcon className="h-5 w-5 inline mr-1" />Scan
-                </button>
-              </div>
+          <SectionCard icon={<IconQrcode size={18} />} title="Scan barcode or SKU">
+            <Group align="flex-end" gap="sm" wrap="wrap" mb="lg">
+              <TextInput label="Barcode or SKU" placeholder="Enter barcode" value={scanBarcode} onChange={(e) => setScanBarcode(e.currentTarget.value)} />
+              <TextInput label="Location (optional)" placeholder="Location ID" value={scanLocationId} onChange={(e) => setScanLocationId(e.currentTarget.value)} />
+              <Button leftSection={<IconQrcode size={16} />} onClick={handleScan}>Scan</Button>
+            </Group>
 
-              {scanResult && (
-                <div className="space-y-4">
-                  <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                    <p className="text-sm font-medium mb-2" style={{ color: BRAND.text }}>Catalog Item</p>
-                    <div className="grid grid-cols-2 gap-4 bg-white p-4 rounded-xl shadow-sm border border-blue-50">
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase font-black">Title</p>
-                        <p className="font-bold text-[#0F3F5E]">{scanResult.catalogItem?.title}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500 uppercase font-black">Price</p>
-                        <p className="font-bold text-green-600">{formatCurrency(scanResult.catalogItem?.price)}</p>
-                      </div>
+            {scanResult && (
+              <Stack gap="md">
+                <Paper withBorder radius="md" p="md">
+                  <Text size="sm" fw={600} mb="sm">Catalogue item</Text>
+                  <SimpleGrid cols={2} spacing="md">
+                    <div>
+                      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Title</Text>
+                      <Text fw={600}>{scanResult.catalogItem?.title}</Text>
                     </div>
-                  </div>
+                    <div>
+                      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Price</Text>
+                      <Text fw={600}>{formatCurrency(scanResult.catalogItem?.price)}</Text>
+                    </div>
+                  </SimpleGrid>
+                </Paper>
 
-                  {/* Digital Twin / Provenance Section */}
-                  <div className="rounded-xl overflow-hidden border border-blue-100 shadow-sm">
-                    <div className="px-4 py-3 font-bold text-sm bg-blue-50 text-[#0F3F5E] flex justify-between">
-                      <span>Digital Twin Provenance</span>
-                      <span className="text-[10px] bg-[#2188CA] text-white px-2 py-0.5 rounded-full uppercase">Verified</span>
-                    </div>
-                    <div className="p-4 bg-white">
-                      <div className="flow-root">
-                        <ul role="list" className="-mb-8">
-                          {scanResult.provenanceTrial?.map((event: any, idx: number) => (
-                            <li key={event.id}>
-                              <div className="relative pb-8">
-                                {idx !== scanResult.provenanceTrial.length - 1 && <span className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true" />}
-                                <div className="relative flex space-x-3">
-                                  <div>
-                                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-8 ring-white ${event.eventType === 'RECEIVE' ? 'bg-green-500' : 'bg-blue-500'}`}>
-                                      <CheckCircleIcon className="h-5 w-5 text-white" />
-                                    </span>
-                                  </div>
-                                  <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
-                                    <div>
-                                      <p className="text-sm text-gray-500">
-                                        <span className="font-bold text-gray-900">{event.eventType}</span> · Qty {event.quantity}
-                                      </p>
-                                    </div>
-                                    <div className="whitespace-nowrap text-right text-xs text-gray-500">
-                                      {event.createdAt.slice(0, 10)}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl overflow-hidden border" style={{ borderColor: BRAND.viking }}>
-                    <div className="px-4 py-3 font-medium text-sm" style={{ backgroundColor: BRAND.linkWater, color: BRAND.text }}>Available Lots</div>
-                    <ul className="divide-y">
-                      {scanResult.lots?.map((lot: any) => (
-                        <li key={lot.id} className="p-4 text-sm flex justify-between items-center group">
-                          <div>
-                            <span className="font-bold text-[#0F3F5E]">{lot.lotNumber || lot.serialNumber || lot.id}</span>
-                            <p className="text-xs text-gray-400">On Hand: {lot.quantityOnHand}</p>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            {lot.grnVcId && <span className="inline-flex items-center gap-1 text-green-600 text-xs font-bold uppercase"><CheckCircleIcon className="h-4 w-4" />VC Proof</span>}
-                            <button
-                              onClick={() => handleBuyNow(lot.id)}
-                              disabled={lot.quantityOnHand <= 0}
-                              className="px-3 py-1.5 bg-[#2188CA] text-white rounded-lg text-xs font-bold shadow-md hover:bg-[#0F3F5E] transition-all disabled:opacity-50"
-                            >
-                              BUY NOW
-                            </button>
-                          </div>
-                        </li>
+                {/* Item history */}
+                <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                  <Group justify="space-between" px="md" py="sm" bg="var(--mantine-color-default-hover)" style={HEADER_STYLE}>
+                    <Text size="sm" fw={600}>Item history</Text>
+                    <Badge variant="light" color="green" size="sm">Verified</Badge>
+                  </Group>
+                  <Box p="md">
+                    <Timeline bulletSize={26} lineWidth={2} active={(scanResult.provenanceTrial?.length ?? 0) - 1}>
+                      {scanResult.provenanceTrial?.map((event: any) => (
+                        <Timeline.Item
+                          key={event.id}
+                          color={event.eventType === 'RECEIVE' ? 'green' : 'blue'}
+                          bullet={<IconCircleCheck size={14} />}
+                          title={
+                            <Group justify="space-between" wrap="nowrap" gap="sm">
+                              <Text size="sm">
+                                <Text span fw={600}>{event.eventType}</Text>
+                                <Text span c="dimmed"> · Qty {event.quantity}</Text>
+                              </Text>
+                              <Text size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{event.createdAt.slice(0, 10)}</Text>
+                            </Group>
+                          }
+                        />
                       ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+                    </Timeline>
+                  </Box>
+                </Paper>
+
+                <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                  <Box px="md" py="sm" bg="var(--mantine-color-default-hover)" style={HEADER_STYLE}>
+                    <Text size="sm" fw={600}>Available lots</Text>
+                  </Box>
+                  <Stack gap={0}>
+                    {scanResult.lots?.map((lot: any, idx: number) => (
+                      <Group
+                        key={lot.id}
+                        justify="space-between"
+                        wrap="wrap"
+                        gap="sm"
+                        p="md"
+                        style={idx > 0 ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined}
+                      >
+                        <div>
+                          <Text size="sm" fw={600}>{lot.lotNumber || lot.serialNumber || lot.id}</Text>
+                          <Text size="xs" c="dimmed">On hand: {lot.quantityOnHand}</Text>
+                        </div>
+                        <Group gap="sm">
+                          {lot.grnVcId && (
+                            <Badge variant="light" color="green" size="sm" leftSection={<IconCircleCheck size={12} />}>
+                              Proof on file
+                            </Badge>
+                          )}
+                          <Button size="xs" onClick={() => handleBuyNow(lot.id)} disabled={lot.quantityOnHand <= 0}>
+                            Buy now
+                          </Button>
+                        </Group>
+                      </Group>
+                    ))}
+                  </Stack>
+                </Paper>
+              </Stack>
+            )}
+          </SectionCard>
         )}
 
         {activeTab === 'events' && (
-          <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-            <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-              <div className="flex items-center gap-3">
-                <ClipboardDocumentListIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Event Chain & VC Trail</h3>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="flex gap-3 items-end flex-wrap mb-6">
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Catalog Item ID</label>
-                  <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Item ID" value={eventsQuery.catalogItemId} onChange={(e) => setEventsQuery({ ...eventsQuery, catalogItemId: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Location ID</label>
-                  <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Location" value={eventsQuery.locationId} onChange={(e) => setEventsQuery({ ...eventsQuery, locationId: e.target.value })} />
-                </div>
-                <button onClick={handleFetchEvents} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>
-                  <ArrowPathIcon className="h-5 w-5 inline mr-1" />Load Events
-                </button>
-              </div>
+          <SectionCard icon={<IconListDetails size={18} />} title="Stock history">
+            <Group align="flex-end" gap="sm" wrap="wrap" mb="lg">
+              <TextInput
+                label="Catalogue item ID"
+                placeholder="Item ID"
+                value={eventsQuery.catalogItemId}
+                onChange={(e) => setEventsQuery({ ...eventsQuery, catalogItemId: e.currentTarget.value })}
+              />
+              <TextInput
+                label="Location ID"
+                placeholder="Location"
+                value={eventsQuery.locationId}
+                onChange={(e) => setEventsQuery({ ...eventsQuery, locationId: e.currentTarget.value })}
+              />
+              <Button leftSection={<IconRefresh size={16} />} onClick={handleFetchEvents}>Load history</Button>
+            </Group>
 
-              {verifyChainResult && (
-                <div className={`p-4 rounded-lg mb-6 flex items-center gap-2 ${verifyChainResult.valid ? 'bg-green-50' : 'bg-red-50'}`}>
-                  {verifyChainResult.valid ? <ShieldCheckIcon className="h-5 w-5 text-green-600" /> : <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />}
-                  <span className={verifyChainResult.valid ? 'text-green-700' : 'text-red-700'}>
-                    Chain {verifyChainResult.valid ? 'Valid' : 'Invalid'} · {verifyChainResult.eventCount} events
-                  </span>
-                </div>
-              )}
+            {verifyChainResult && (
+              <Alert
+                mb="lg"
+                variant="light"
+                color={verifyChainResult.valid ? 'green' : 'red'}
+                icon={verifyChainResult.valid ? <IconShieldCheck size={18} /> : <IconAlertTriangle size={18} />}
+              >
+                History {verifyChainResult.valid ? 'checks out' : 'has been altered'} · {verifyChainResult.eventCount} events
+              </Alert>
+            )}
 
-              <div className="overflow-hidden rounded-xl ring-1 ring-black ring-opacity-5">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead style={{ backgroundColor: BRAND.linkWater }}>
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Type</th>
-                      <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Qty</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>VC</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Hash</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 bg-white">
+            <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+              <Table.ScrollContainer minWidth={560}>
+                <Table striped highlightOnHover verticalSpacing="sm" horizontalSpacing="lg">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Type</Table.Th>
+                      <Table.Th ta="right">Qty</Table.Th>
+                      <Table.Th>Proof</Table.Th>
+                      <Table.Th>Fingerprint</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
                     {events.map((ev) => (
-                      <tr key={ev.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{ev.eventType}</td>
-                        <td className="px-6 py-4 text-sm text-right">{ev.quantity}</td>
-                        <td className="px-6 py-4 text-sm">{ev.vcId ? <span className="inline-flex items-center gap-1 text-green-600"><CheckCircleIcon className="h-4 w-4" /><span className="text-xs font-mono">{ev.vcId.slice(0, 8)}...</span></span> : <span className="text-gray-400">—</span>}</td>
-                        <td className="px-6 py-4 text-xs text-gray-400 font-mono">{ev.eventHash?.slice(0, 18)}...</td>
-                      </tr>
+                      <Table.Tr key={ev.id}>
+                        <Table.Td fw={500}>{ev.eventType}</Table.Td>
+                        <Table.Td ta="right">{ev.quantity}</Table.Td>
+                        <Table.Td>
+                          {ev.vcId ? (
+                            <Badge variant="light" color="green" size="sm" leftSection={<IconCircleCheck size={12} />} style={{ textTransform: 'none' }}>
+                              <Text span size="xs" ff="monospace">{ev.vcId.slice(0, 8)}...</Text>
+                            </Badge>
+                          ) : (
+                            <Text span c="dimmed">—</Text>
+                          )}
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="xs" c="dimmed" ff="monospace">{ev.eventHash?.slice(0, 18)}...</Text>
+                        </Table.Td>
+                      </Table.Tr>
                     ))}
-                    {events.length === 0 && !loading && (
-                      <tr><td colSpan={4} className="px-6 py-12 text-center text-sm text-gray-500">No events found</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+                    {events.length === 0 && !loading && <EmptyRow colSpan={4}>No history found</EmptyRow>}
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            </Paper>
+          </SectionCard>
         )}
 
         {activeTab === 'trace' && (
-          <div className="rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-            <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-              <div className="flex items-center gap-3">
-                <DocumentMagnifyingGlassIcon className="h-5 w-5" style={{ color: BRAND.curious }} />
-                <h3 className="text-lg font-semibold" style={{ color: BRAND.text }}>Trace Receipt to Lots</h3>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="flex gap-3 items-end flex-wrap mb-6">
-                <div>
-                  <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Receipt ID</label>
-                  <input className="rounded-lg border-gray-300 shadow-sm" placeholder="Receipt ID" value={traceReceiptId} onChange={(e) => setTraceReceiptId(e.target.value)} />
-                </div>
-                <button onClick={handleTraceReceipt} className="rounded-lg px-4 py-2 text-sm font-medium text-white" style={{ backgroundColor: BRAND.curious }}>Trace</button>
-              </div>
+          <SectionCard icon={<IconFileSearch size={18} />} title="Trace a receipt to its lots">
+            <Group align="flex-end" gap="sm" wrap="wrap" mb="lg">
+              <TextInput label="Receipt ID" placeholder="Receipt ID" value={traceReceiptId} onChange={(e) => setTraceReceiptId(e.currentTarget.value)} />
+              <Button onClick={handleTraceReceipt}>Trace</Button>
+            </Group>
 
-              {traceResult && (
-                <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                  <div className="flex items-center gap-2 mb-4">
-                    {traceResult.chainValid ? <ShieldCheckIcon className="h-5 w-5 text-green-600" /> : <ExclamationTriangleIcon className="h-5 w-5 text-red-600" />}
-                    <span className="font-medium" style={{ color: BRAND.text }}>Receipt: {traceResult.receiptId}</span>
-                    <span className={traceResult.chainValid ? 'text-green-600' : 'text-red-600'}>· Chain {traceResult.chainValid ? 'Valid' : 'Invalid'}</span>
-                  </div>
-                  <ul className="divide-y bg-white rounded-lg overflow-hidden">
-                    {traceResult.fulfillments?.map((f: any, idx: number) => (
-                      <li key={idx} className="p-3 flex justify-between items-center text-sm">
-                        <span style={{ color: BRAND.text }}>Lot {f.lotId}</span>
-                        <span className="text-gray-500">Qty {f.quantity}</span>
-                        {f.grnVcId && <span className="inline-flex items-center gap-1 text-green-600 text-xs"><CheckCircleIcon className="h-4 w-4" />GRN VC</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
+            {traceResult && (
+              <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                <Group gap="xs" px="md" py="sm" bg="var(--mantine-color-default-hover)" style={HEADER_STYLE}>
+                  <ThemeIcon variant="light" size="sm" color={traceResult.chainValid ? 'green' : 'red'}>
+                    {traceResult.chainValid ? <IconShieldCheck size={14} /> : <IconAlertTriangle size={14} />}
+                  </ThemeIcon>
+                  <Text size="sm" fw={600}>Receipt: {traceResult.receiptId}</Text>
+                  <Badge variant="light" size="sm" color={traceResult.chainValid ? 'green' : 'red'}>
+                    {traceResult.chainValid ? 'History checks out' : 'History altered'}
+                  </Badge>
+                </Group>
+                <Stack gap={0}>
+                  {traceResult.fulfillments?.map((f: any, idx: number) => (
+                    <Group
+                      key={idx}
+                      justify="space-between"
+                      wrap="wrap"
+                      gap="sm"
+                      px="md"
+                      py="sm"
+                      style={idx > 0 ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined}
+                    >
+                      <Text size="sm">Lot {f.lotId}</Text>
+                      <Text size="sm" c="dimmed">Qty {f.quantity}</Text>
+                      {f.grnVcId && (
+                        <Badge variant="light" color="green" size="sm" leftSection={<IconCircleCheck size={12} />}>
+                          Goods received proof
+                        </Badge>
+                      )}
+                    </Group>
+                  ))}
+                </Stack>
+              </Paper>
+            )}
+          </SectionCard>
         )}
 
         {activeTab === 'valuation' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="relative overflow-hidden rounded-xl p-6 shadow-sm" style={{ backgroundColor: BRAND.linkWater }}>
-              <dt>
-                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}>
-                  <CurrencyDollarIcon className="h-6 w-6 text-white" />
-                </div>
-                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>Total Inventory Value</p>
-              </dt>
-              <dd className="ml-16">
-                <p className="text-3xl font-bold text-green-600">{formatCurrency(valuation?.totalValue || 0)}</p>
-                <p className="text-xs text-gray-500">{valuation?.currency || 'USD'}</p>
-              </dd>
-            </div>
-            <div className="col-span-2 rounded-xl shadow-sm overflow-hidden" style={{ backgroundColor: 'white' }}>
-              <div className="px-6 py-4" style={{ backgroundColor: BRAND.linkWater }}>
-                <h3 className="font-semibold" style={{ color: BRAND.text }}>Value by Location</h3>
-              </div>
-              <div className="p-6">
-                {valuation?.byLocation?.map((loc: any, idx: number) => (
-                  <div key={idx} className="flex justify-between py-3 border-b last:border-b-0">
-                    <span style={{ color: BRAND.text }}>{loc.location_id}</span>
-                    <span className="font-medium" style={{ color: BRAND.curious }}>{formatCurrency(loc.value || 0, loc.currency)}</span>
-                  </div>
-                ))}
-                {!valuation?.byLocation?.length && <p className="text-gray-500 text-center py-4">No valuation data</p>}
-              </div>
-            </div>
-          </div>
+          <Grid gap="lg">
+            <Grid.Col span={{ base: 12, md: 4 }}>
+              <StatTile
+                label="Total inventory value"
+                value={formatCurrency(valuation?.totalValue || 0)}
+                icon={IconCurrencyDollar}
+                hint={valuation?.currency || 'USD'}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 8 }}>
+              <SectionCard title="Value by location">
+                <Stack gap={0}>
+                  {valuation?.byLocation?.map((loc: any, idx: number) => (
+                    <Group
+                      key={idx}
+                      justify="space-between"
+                      py="sm"
+                      style={idx > 0 ? { borderTop: '1px solid var(--mantine-color-default-border)' } : undefined}
+                    >
+                      <Text size="sm">{loc.location_id}</Text>
+                      <Text size="sm" fw={600}>{formatCurrency(loc.value || 0, loc.currency)}</Text>
+                    </Group>
+                  ))}
+                  {!valuation?.byLocation?.length && <Text c="dimmed" ta="center" py="md">No valuation data</Text>}
+                </Stack>
+              </SectionCard>
+            </Grid.Col>
+          </Grid>
         )}
 
         {activeTab === 'aging' && (
-          <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead style={{ backgroundColor: BRAND.linkWater }}>
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Age Bucket</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Lot Count</th>
-                  <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Value</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {aging.map((bucket, idx) => (
-                  <tr key={idx} className={`hover:bg-gray-50 ${bucket.age_bucket === '90+ days' ? 'bg-red-50' : ''}`}>
-                    <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>
-                      {bucket.age_bucket === '90+ days' && <ExclamationTriangleIcon className="h-4 w-4 inline mr-2 text-red-500" />}
-                      {bucket.age_bucket}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-right">{bucket.lot_count}</td>
-                    <td className="px-6 py-4 text-sm text-right font-medium" style={{ color: BRAND.curious }}>{formatCurrency(bucket.value || 0)}</td>
-                  </tr>
-                ))}
-                {aging.length === 0 && !loading && (
-                  <tr><td colSpan={3} className="px-6 py-12 text-center text-sm text-gray-500">No aging data available</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+            <Table.ScrollContainer minWidth={480}>
+              <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="lg">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Age</Table.Th>
+                    <Table.Th ta="right">Lots</Table.Th>
+                    <Table.Th ta="right">Value</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {aging.map((bucket, idx) => {
+                    const stale = bucket.age_bucket === '90+ days';
+                    return (
+                      <Table.Tr key={idx} bg={stale ? 'var(--mantine-color-red-light)' : undefined}>
+                        <Table.Td fw={500}>
+                          <Group gap={6} wrap="nowrap">
+                            {stale && <Box c="red" style={{ display: 'flex' }}><IconAlertTriangle size={16} /></Box>}
+                            {bucket.age_bucket}
+                          </Group>
+                        </Table.Td>
+                        <Table.Td ta="right">{bucket.lot_count}</Table.Td>
+                        <Table.Td ta="right" fw={500}>{formatCurrency(bucket.value || 0)}</Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                  {aging.length === 0 && !loading && <EmptyRow colSpan={3}>No aging data available</EmptyRow>}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
         )}
+
         {activeTab === 'profit' && (
-          <div className="flex flex-col gap-8">
+          <Stack gap="lg">
             {/* Profit Summary Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Forecasted Profit</p>
-                <h2 className="text-3xl font-black text-green-600">{formatCurrency(profitData?.summary?.totalProfit)}</h2>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Overall Margin</p>
-                <h2 className="text-3xl font-black text-[#2188CA]">{profitData?.summary?.overallMargin?.toFixed(1)}%</h2>
-              </div>
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-blue-50">
-                <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Total Active Stock Items</p>
-                <h2 className="text-3xl font-black text-[#0F3F5E]">{profitData?.summary?.totalItems}</h2>
-              </div>
-            </div>
+            <SimpleGrid cols={{ base: 1, md: 3 }} spacing="sm">
+              <StatTile label="Forecast profit" value={profitData?.summary?.totalProfit != null ? formatCurrency(profitData.summary.totalProfit) : '—'} icon={IconChartBar} />
+              <StatTile
+                label="Overall margin"
+                value={profitData?.summary?.overallMargin != null ? `${profitData.summary.overallMargin.toFixed(1)}%` : '—'}
+                icon={IconChartBar}
+              />
+              <StatTile label="Active stock items" value={profitData?.summary?.totalItems ?? '—'} icon={IconBox} />
+            </SimpleGrid>
 
             {/* Profit per Item Table */}
-            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100">
-              <div className="px-8 py-5 border-b bg-gray-50/50 flex justify-between items-center">
-                <h3 className="font-black text-[#0F3F5E] uppercase text-sm tracking-tighter">Profit Focused Inventory Items</h3>
-                <span className="text-[10px] font-bold text-[#627D98] uppercase tracking-widest">Revenue vs Cost Analysis</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-100">
-                  <thead>
-                    <tr className="text-[10px] text-gray-400 font-black uppercase tracking-widest">
-                      <th className="px-8 py-4 text-left">Item Name</th>
-                      <th className="px-6 py-4 text-right">Qty</th>
-                      <th className="px-6 py-4 text-right">Avg Cost</th>
-                      <th className="px-6 py-4 text-right">Price</th>
-                      <th className="px-6 py-4 text-right">Unit Profit</th>
-                      <th className="px-6 py-4 text-right text-green-600">Total Profit</th>
-                      <th className="px-8 py-4 text-right">Avg Days In Stock</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
+            <SectionCard title="Profit by item" right={<Text size="xs" c="dimmed">Revenue against cost</Text>}>
+              <Table.ScrollContainer minWidth={860}>
+                <Table striped highlightOnHover verticalSpacing="sm">
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>Item</Table.Th>
+                      <Table.Th ta="right">Qty</Table.Th>
+                      <Table.Th ta="right">Avg cost</Table.Th>
+                      <Table.Th ta="right">Price</Table.Th>
+                      <Table.Th ta="right">Unit profit</Table.Th>
+                      <Table.Th ta="right">Total profit</Table.Th>
+                      <Table.Th ta="right">Avg days in stock</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
                     {profitData?.items?.map((item: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-blue-50/30 transition-colors">
-                        <td className="px-8 py-5">
-                          <div className="text-sm font-bold text-[#0F3F5E]">{item.item_name}</div>
-                          <div className="text-[10px] text-gray-400 font-mono">{item.sku}</div>
-                        </td>
-                        <td className="px-6 py-5 text-sm text-right text-gray-500">{item.total_qty}</td>
-                        <td className="px-6 py-5 text-sm text-right text-gray-500">{formatCurrency(item.avg_cost)}</td>
-                        <td className="px-6 py-5 text-sm text-right text-[#0F3F5E] font-medium">{formatCurrency(item.selling_price)}</td>
-                        <td className="px-6 py-5 text-sm text-right text-blue-600 font-bold">{formatCurrency(item.selling_price - item.avg_cost)}</td>
-                        <td className="px-6 py-5 text-sm text-right text-green-600 font-black">{formatCurrency(item.projected_profit)}</td>
-                        <td className="px-8 py-5 text-right">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${item.avg_days_in_stock > 30 ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                            {Math.round(item.avg_days_in_stock)} Days
-                          </span>
-                        </td>
-                      </tr>
+                      <Table.Tr key={idx}>
+                        <Table.Td>
+                          <Text size="sm" fw={600}>{item.item_name}</Text>
+                          <Text size="xs" c="dimmed" ff="monospace">{item.sku}</Text>
+                        </Table.Td>
+                        <Table.Td ta="right" c="dimmed">{item.total_qty}</Table.Td>
+                        <Table.Td ta="right" c="dimmed">{formatCurrency(item.avg_cost)}</Table.Td>
+                        <Table.Td ta="right" fw={500}>{formatCurrency(item.selling_price)}</Table.Td>
+                        <Table.Td ta="right" fw={600}>{formatCurrency(item.selling_price - item.avg_cost)}</Table.Td>
+                        <Table.Td ta="right" fw={700}>{formatCurrency(item.projected_profit)}</Table.Td>
+                        <Table.Td ta="right">
+                          <Badge variant="light" size="sm" color={item.avg_days_in_stock > 30 ? 'red' : 'green'}>
+                            {Math.round(item.avg_days_in_stock)} days
+                          </Badge>
+                        </Table.Td>
+                      </Table.Tr>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+                  </Table.Tbody>
+                </Table>
+              </Table.ScrollContainer>
+            </SectionCard>
+          </Stack>
         )}
 
-        {loading && <div className="text-center py-8 text-gray-500">Loading...</div>}
-      </div>
+        {loading && (
+          <Group justify="center" gap="sm" py="xl">
+            <Loader size="sm" />
+            <Text c="dimmed">Loading...</Text>
+          </Group>
+        )}
+      </Stack>
     </Layout>
   );
 };

@@ -2,6 +2,7 @@ import BaseModal from "@/components/walt/modal/BaseModal";
 import {CredentialsContext} from "@/pages/_app";
 import Button from "../button/Button";
 import React, {useState} from "react";
+import { Group, Stack, Textarea } from "@mantine/core";
 
 type Props = {
   show: boolean;
@@ -24,9 +25,11 @@ export default function EditCredentialModal({ show, onClose }: Props) {
 
   return (
     <BaseModal show={show} securedByWalt={false} onClose={onClose}>
-      <div className="flex flex-col items-center">
-        <div className="w-full">
-          <textarea
+      <Stack gap="lg">
+        <Textarea
+            aria-label="Record JSON"
+            rows={8}
+            styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
             value={JSON.stringify(credentialJson)}
             onChange={(e) => {
               try {
@@ -35,11 +38,9 @@ export default function EditCredentialModal({ show, onClose }: Props) {
                 console.log(error);
               }
             }}
-            className="w-full h-48 border-2 border-gray-300 rounded-md p-2"
             placeholder="Paste your JSON here"
-          />
-        </div>
-        <div className="flex flex-row justify-end gap-2 mt-5">
+        />
+        <Group justify="flex-end" gap="xs">
           <Button onClick={onClose} style="link">
             Cancel
           </Button>
@@ -62,8 +63,8 @@ export default function EditCredentialModal({ show, onClose }: Props) {
           >
             Save
           </Button>
-        </div>
-      </div>
+        </Group>
+      </Stack>
     </BaseModal>
   );
 }

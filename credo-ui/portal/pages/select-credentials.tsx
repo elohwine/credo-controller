@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from "react";
-import { MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import Credential from "@/components/walt/credential/Credential";
 import { AvailableCredential } from "@/types/credentials";
-import Button from "@/components/walt/button/Button";
 import { CredentialsContext, EnvContext } from "@/pages/_app";
 import { useRouter } from "next/router";
 import Layout from "@/components/Layout";
 import axios from "axios";
 import { ensurePortalTenant } from "@/utils/portalTenant";
+import { Box, Button, Group, SimpleGrid, Stack, Text, TextInput, Title } from "@mantine/core";
+import { IconSearch } from "@tabler/icons-react";
 
 type CredentialToIssue = AvailableCredential & {
   selected: boolean;
@@ -150,51 +150,56 @@ export default function SelectCredentials() {
   if (!router.isReady || !verification) return null;
 
   return (
-    <Layout title="Select Credentials">
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        <div className="flex flex-col justify-center items-center mb-10">
-          <h1 className="text-4xl font-bold text-center mt-5" style={{ color: "#0A3D5C" }}>
-            Select Credentials
-          </h1>
-          <p className="mt-4 text-lg" style={{ color: "#2188CA" }}>
-            Choose credential(s) to issue or verify
-          </p>
-        </div>
+    <Layout title="Select records">
+      <Box maw={1024} mx="auto" px="md" py="xl">
+        <Stack align="center" gap="xs" mb={40} mt="md">
+          <Title order={1} ta="center">
+            Select records
+          </Title>
+          <Text size="lg" c="dimmed" ta="center">
+            Choose the record(s) to check
+          </Text>
+        </Stack>
 
-        <main className="flex flex-col items-center gap-5 justify-between">
-          <div className="flex flex-row gap-5 w-full max-w-3xl px-5">
-            <div className="flex flex-row w-full border-b border-b-1 border-gray-200 bg-white rounded-t-lg">
-              <MagnifyingGlassIcon className="h-6 mt-3 ml-3 text-gray-500" />
-              <input
-                type="text"
-                placeholder="Search credentials..."
-                className="w-full mt-1 px-3 border-none outline-none focus:ring-0 bg-white"
-                onChange={handleSearchTermChange}
-              />
-            </div>
+        <Stack component="main" align="center" gap="lg">
+          <Group w="100%" maw={768} px="md" gap="md" wrap="nowrap">
+            <TextInput
+              flex={1}
+              size="md"
+              placeholder="Search records..."
+              aria-label="Search records"
+              leftSection={<IconSearch size={18} />}
+              onChange={handleSearchTermChange}
+            />
             {showButton && (
-              <div className="shrink-0">
-                <Button size="lg" onClick={handleStartIssuance}>
-                  Continue
-                </Button>
-              </div>
+              <Button size="lg" onClick={handleStartIssuance} style={{ flexShrink: 0 }}>
+                Continue
+              </Button>
             )}
-          </div>
+          </Group>
 
           {totalVisible === 0 && (
-            <div className="w-full mt-10 text-center">
-              <p className="text-gray-500">No credentials found matching "{searchTerm}"</p>
-            </div>
+            <Text c="dimmed" ta="center" mt={40}>
+              No records found matching "{searchTerm}"
+            </Text>
           )}
 
-          <div className="w-full max-w-3xl mt-10 space-y-10">
+          <Stack w="100%" maw={768} mt={40} gap={40}>
             {Object.entries(groupedCredentials).map(([typeKey, items]) => (
-              <div key={typeKey} className="space-y-4">
-                <div className="flex items-center justify-between border-b border-gray-200 pb-2">
-                  <h2 className="text-lg font-semibold text-gray-900">{typeKey}</h2>
-                  <span className="text-sm text-gray-500">{items.length}</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-10 gap-x-5">
+              <Stack key={typeKey} gap="md">
+                <Group
+                  justify="space-between"
+                  pb="xs"
+                  style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}
+                >
+                  <Title order={2} size="h4">
+                    {typeKey}
+                  </Title>
+                  <Text size="sm" c="dimmed">
+                    {items.length}
+                  </Text>
+                </Group>
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md" verticalSpacing={40}>
                   {items.map(({ id, title, selected }) => (
                     <Credential
                       id={id}
@@ -204,12 +209,12 @@ export default function SelectCredentials() {
                       key={id}
                     />
                   ))}
-                </div>
-              </div>
+                </SimpleGrid>
+              </Stack>
             ))}
-          </div>
-        </main>
-      </div>
+          </Stack>
+        </Stack>
+      </Box>
     </Layout>
   );
 }

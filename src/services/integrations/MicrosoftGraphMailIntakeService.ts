@@ -5,7 +5,9 @@
  * the delta link only moves forward after every message on the page was saved, so a failed run
  * reads the same messages again. Nothing is booked twice: the email's Internet message id is
  * unique per organisation, and a job naming a store and client PO that is already booked is
- * saved as a possible repeat that the dispatcher must confirm before it starts.
+ * saved as a possible repeat that the dispatcher must confirm before it starts. The job is linked
+ * to the registers on the way in: its store (site, phone, usual branch), a branch or van the email
+ * names, and one of the organisation's problem types. The van follows the worker it is given to.
  *
  * Same approach as the LDK website: an Entra app registration signs in on its own (client
  * credentials, application permission `Mail.Read`, admin consent) and reads one named mailbox.
@@ -28,7 +30,7 @@
 import { randomUUID } from 'crypto'
 
 import { DatabaseManager } from '../../persistence/DatabaseManager'
-import { operationsRegisterService, storeSiteLocation } from '../OperationsRegisterService'
+import { operationsRegisterService } from '../OperationsRegisterService'
 import { jobIntakeRepository, type JobIntakeAttachmentInput } from '../../persistence/JobIntakeRepository'
 import { emailBodyText, parseJobEmail } from './jobEmailParser'
 
@@ -306,27 +308,30 @@ export class MicrosoftGraphMailIntakeService {
       const subject = String(message.subject || '').slice(0, 500)
       const sender = String(message.from?.emailAddress?.address || '').slice(0, 320)
       const parsed = parseJobEmail(subject, String(message.body?.content || ''), message.body?.contentType)
-      const store = operationsRegisterService.matchStore(config.orgTenantId, {
-        storeNumber: parsed.storeNumber,
-        subject,
-        text: emailBodyText(String(message.body?.content || ''), message.body?.contentType),
-        senderEmail: sender,
-      })
-      const storeNumber = store?.storeNumber || parsed.storeNumber
+      const links = operationsRegisterService.linkIntake(
+        config.orgTenantId,
+        {
+          storeNumber: parsed.storeNumber,
+          clientPhone: parsed.clientPhone,
+          location: parsed.location,
+        },
+        {
+          subject,
+          text: emailBodyText(String(message.body?.content || ''), message.body?.contentType),
+          senderEmail: sender,
+          problemTypeGuess: parsed.problemType,
+        },
+      )
       const { attachments, left } = message.hasAttachments
         ? await this.attachments(config, message.id)
         : { attachments: [], left: 0 }
       const note = left > 0 ? `\n\n(${left} attachment(s) in the email were not kept: wrong type or too large.)` : ''
       const input = {
         reference: `EM-${Date.now()}-${randomUUID().slice(0, 6)}`,
-        storeNumber,
+        ...links,
         poNumber: parsed.poNumber,
-        problemType: parsed.problemType,
         description: `${parsed.description}${note}`.slice(0, 4000),
-        clientName: store?.name || message.from?.emailAddress?.name || undefined,
-        clientPhone: parsed.clientPhone || store?.phone,
-        location: parsed.location || (store ? storeSiteLocation(store) : undefined),
-        ...(store?.branch ? { branch: store.branch } : {}),
+        clientName: links.clientName || message.from?.emailAddress?.name || undefined,
         scheduledDate: parsed.scheduledDate,
         amount: parsed.amount || 0,
         currency: parsed.currency || 'USD',

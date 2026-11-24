@@ -1,18 +1,18 @@
 /**
- * CredentialCard - Trustworthy credential display
- * 
+ * CredentialCard - Signed record display
+ *
  * LAYERING:
- * - Mantine: Paper container, Badge, Text typography
- * - Glass: .glass-credential for trust surface
+ * - Mantine: Paper container, Badge, Text typography (theme tokens, light + dark)
  * - React Bits: TiltCard for 3D interaction
- * 
- * USE FOR: Displaying issued credentials, wallet view items
+ *
+ * USE FOR: Displaying issued records, wallet view items
  */
 
 'use client';
 
 import React from 'react';
-import { Paper, Badge, Text, Group, Stack, Box } from '@mantine/core';
+import { Paper, Badge, Text, Group, Stack, Box, ThemeIcon } from '@mantine/core';
+import { IconCheck, IconShieldCheck } from '@tabler/icons-react';
 import { motion } from 'framer-motion';
 import { TiltCard } from '../reactbits';
 import { formatTxnTime } from '@/lib/inboxAttention';
@@ -45,7 +45,7 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
   claims,
   verified = false,
   status = 'valid',
-  className = '',
+  className,
   onClick,
   animated = true,
 }) => {
@@ -53,7 +53,8 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
 
   const cardContent = (
     <Paper
-      className={`glass-credential ${className}`}
+      withBorder
+      className={className || undefined}
       p="lg"
       radius="md"
       onClick={onClick}
@@ -61,56 +62,34 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
     >
       <Stack gap="md">
         {/* Header */}
-        <Group justify="space-between" align="flex-start">
-          <Group gap="sm">
-            <Box
-              className="w-10 h-10 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: 'rgba(33, 136, 202, 0.15)' }}
-            >
-              <svg 
-                className="w-5 h-5"
-                style={{ color: 'var(--mantine-color-brand-5)' }}
-                fill="none" 
-                viewBox="0 0 24 24" 
-                stroke="currentColor"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" 
-                />
-              </svg>
-            </Box>
-            <div>
-              <Text size="md" fw={600} c="gray.9">
+        <Group justify="space-between" align="flex-start" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+            <ThemeIcon variant="light" color="blue" size={40} radius="xl">
+              <IconShieldCheck size={20} />
+            </ThemeIcon>
+            <div style={{ minWidth: 0 }}>
+              <Text size="md" fw={600} truncate>
                 {credentialType}
               </Text>
-              <Text size="sm" c="dimmed">
+              <Text size="sm" c="dimmed" truncate>
                 Issued by {issuer}
               </Text>
             </div>
           </Group>
-          
-          <Group gap="xs">
+
+          <Group gap="xs" wrap="nowrap">
             <Badge color={statusInfo.color} variant="light" size="sm">
               {statusInfo.label}
             </Badge>
             {verified && (
               <motion.div
-                className="glass-badge flex items-center gap-1"
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ type: 'spring', stiffness: 300, delay: 0.2 }}
               >
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path 
-                    fillRule="evenodd" 
-                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" 
-                    clipRule="evenodd" 
-                  />
-                </svg>
-                <Text size="xs">Verified</Text>
+                <Badge color="green" variant="light" size="sm" leftSection={<IconCheck size={12} />}>
+                  Verified
+                </Badge>
               </motion.div>
             )}
           </Group>
@@ -118,11 +97,11 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
 
         {/* Subject */}
         {subject && (
-          <Box className="pb-3 border-b border-white/20">
-            <Text size="xs" c="dimmed" tt="uppercase" className="tracking-wider mb-1">
-              Subject
+          <Box pb="sm" style={{ borderBottom: '1px solid var(--mantine-color-default-border)' }}>
+            <Text size="xs" c="dimmed" tt="uppercase" mb={4} style={{ letterSpacing: '0.05em' }}>
+              Issued to
             </Text>
-            <Text size="sm" ff="mono" className="truncate">
+            <Text size="sm" ff="monospace" truncate>
               {subject}
             </Text>
           </Box>
@@ -132,11 +111,11 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
         {claims && Object.keys(claims).length > 0 && (
           <Stack gap="xs">
             {Object.entries(claims).slice(0, 4).map(([key, value]) => (
-              <Group key={key} justify="space-between">
+              <Group key={key} justify="space-between" wrap="nowrap" gap="sm">
                 <Text size="sm" c="dimmed" tt="capitalize">
                   {key.replace(/([A-Z])/g, ' $1').trim()}
                 </Text>
-                <Text size="sm" fw={500}>
+                <Text size="sm" fw={500} ta="right">
                   {value}
                 </Text>
               </Group>

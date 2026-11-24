@@ -290,6 +290,49 @@ describe('Stores, attendants and vans', () => {
     expect(() => service.linkJob(ORG, 'RUN-LINK', { vanId: van.id })).toThrow('off the road')
   })
 
+  it("links an emailed job request to the store, a named branch and van, and the organisation's own problem type", () => {
+    upsertContact({ orgTenantId: ORG, name: '1535 - Swadlincote', notes: 'Address: Belmont Street', storeNumber: '1535' })
+    addJob('RUN-HIST', { storeNumber: '1535', description: 'Old', branch: 'Luton', problemType: 'Fire alarm' })
+    addJob('RUN-WED', { description: 'Other', branch: 'Wednesbury' })
+    const van = service.saveVan(ORG, 'owner', { registration: 'KN69 SYY', branch: 'Wednesbury' })
+
+    const emailed = service.linkIntake(
+      ORG,
+      { storeNumber: '1535' },
+      { subject: 'PO 4411', text: 'Fire alarm beeping in the stock room\nDepot: Wednesbury\nVan kn69syy please', problemTypeGuess: 'Electrical' },
+    )
+    expect(emailed).toMatchObject({
+      storeNumber: '1535',
+      clientName: '1535 - Swadlincote',
+      location: 'Belmont Street',
+      branch: 'Wednesbury',
+      vanId: van.id,
+      vehicleReference: 'KN69 SYY',
+      problemType: 'Fire alarm',
+    })
+    // A town in an address is not a branch; the store's usual branch is used instead.
+    expect(service.linkIntake(ORG, { storeNumber: '1535' }, { text: 'Site: 4 Wednesbury Road' })).toMatchObject({ branch: 'Luton' })
+    // What the office typed stays.
+    expect(service.linkIntake(ORG, { storeNumber: '1535', problemType: 'plumbing', branch: 'Peterborough' }, { text: 'Fire alarm' }))
+      .toMatchObject({ problemType: 'Plumbing', branch: 'Peterborough' })
+  })
+
+  it("puts the new worker's van on the job, unless the office chose another van", () => {
+    const farai = service.saveVan(ORG, 'owner', { registration: 'AEB 1234', driverUserId: FARAI })
+    const tino = service.saveVan(ORG, 'owner', { registration: 'KN69 SYY', driverUserId: TINO })
+    const spare = service.saveVan(ORG, 'owner', { registration: 'SP4 RE11' })
+    addJob('RUN-VAN', { description: 'Leak' })
+
+    expect(service.linkAssigneeVan(ORG, 'RUN-VAN', FARAI)?.id).toBe(farai.id)
+    // Moved to Tino: Farai's van goes back with Farai, Tino's comes on.
+    expect(service.linkAssigneeVan(ORG, 'RUN-VAN', TINO, FARAI)?.id).toBe(tino.id)
+    expect(service.listJobs(ORG).find((job) => job.runId === 'RUN-VAN')?.vehicle).toBe('KN69 SYY')
+
+    service.linkJob(ORG, 'RUN-VAN', { vanId: spare.id })
+    expect(service.linkAssigneeVan(ORG, 'RUN-VAN', FARAI, TINO)).toBeUndefined()
+    expect(service.listJobs(ORG).find((job) => job.runId === 'RUN-VAN')?.vehicle).toBe('SP4 RE11')
+  })
+
   describe('jobs mailbox', () => {
     const config: MailIntakeConfig = {
       tenantId: 't',

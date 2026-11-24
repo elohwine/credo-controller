@@ -1,4 +1,5 @@
 import React from 'react';
+import { NativeSelect, Stack, Text, TextInput, Textarea } from '@mantine/core';
 
 export type ClaimsSchema = {
     type?: string;
@@ -105,10 +106,12 @@ type Props = {
     schema?: ClaimsSchema;
 };
 
+const DESCRIPTION_BELOW: ('label' | 'input' | 'description' | 'error')[] = ['label', 'input', 'description', 'error'];
+
 export default function VCClaimsForm({ credentialType, claims, onChange, schema: registeredSchema }: Props) {
     if (registeredSchema) {
         return (
-            <div className="space-y-4">
+            <Stack gap="md">
                 {Object.entries(registeredSchema.properties || {}).filter(([key]) => key !== 'id').map(([key, field]) => {
                     const label = field.title || key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (letter) => letter.toUpperCase());
                     const required = registeredSchema.required?.includes(key);
@@ -119,68 +122,86 @@ export default function VCClaimsForm({ credentialType, claims, onChange, schema:
                         else next[key] = value;
                         onChange(next);
                     };
-                    const inputClass = "w-full border border-gray-300 rounded-md p-2 text-sm";
+                    const common = {
+                        id: inputId,
+                        label,
+                        required,
+                        description: field.description,
+                        inputWrapperOrder: DESCRIPTION_BELOW,
+                    };
+                    if (field.type === 'object' || field.type === 'array') {
+                        return (
+                            <Textarea
+                                key={key}
+                                {...common}
+                                aria-label={label}
+                                rows={3}
+                                styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
+                                defaultValue={claims[key] === undefined ? '' : JSON.stringify(claims[key], null, 2)}
+                                placeholder={field.type === 'array' ? 'JSON array' : 'JSON object'}
+                                onChange={(event) => {
+                                    const input = event.currentTarget;
+                                    if (!input.value.trim()) {
+                                        input.setCustomValidity('');
+                                        update(undefined);
+                                        return;
+                                    }
+                                    try {
+                                        const value: unknown = JSON.parse(input.value);
+                                        if (field.type === 'array' ? !Array.isArray(value) : !value || typeof value !== 'object' || Array.isArray(value)) {
+                                            throw new Error(`Enter a JSON ${field.type}.`);
+                                        }
+                                        input.setCustomValidity('');
+                                        update(value);
+                                    } catch {
+                                        input.setCustomValidity(`Enter a valid JSON ${field.type}.`);
+                                        input.reportValidity();
+                                    }
+                                }}
+                            />
+                        );
+                    }
+                    if (field.type === 'boolean') {
+                        return (
+                            <NativeSelect
+                                key={key}
+                                {...common}
+                                value={claims[key] === undefined ? '' : String(claims[key])}
+                                data={[{ value: '', label: 'Select' }, { value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }]}
+                                onChange={(event) => update(event.currentTarget.value === '' ? undefined : event.currentTarget.value === 'true')}
+                            />
+                        );
+                    }
+                    if (field.enum) {
+                        return (
+                            <NativeSelect
+                                key={key}
+                                {...common}
+                                value={claims[key] === undefined ? '' : String(claims[key])}
+                                data={[{ value: '', label: 'Select' }, ...field.enum.map((value) => ({ value: String(value), label: String(value) }))]}
+                                onChange={(event) => {
+                                    const selected = event.currentTarget.value;
+                                    update(field.enum?.find((value) => String(value) === selected));
+                                }}
+                            />
+                        );
+                    }
                     return (
-                        <div key={key} className="flex flex-col gap-1">
-                            <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
-                                {label}{required ? ' *' : ''}
-                            </label>
-                            {field.type === 'object' || field.type === 'array' ? (
-                                <textarea
-                                    id={inputId}
-                                    aria-label={label}
-                                    required={required}
-                                    rows={3}
-                                    className={inputClass}
-                                    defaultValue={claims[key] === undefined ? '' : JSON.stringify(claims[key], null, 2)}
-                                    placeholder={field.type === 'array' ? 'JSON array' : 'JSON object'}
-                                    onChange={(event) => {
-                                        const input = event.currentTarget;
-                                        if (!input.value.trim()) {
-                                            input.setCustomValidity('');
-                                            update(undefined);
-                                            return;
-                                        }
-                                        try {
-                                            const value: unknown = JSON.parse(input.value);
-                                            if (field.type === 'array' ? !Array.isArray(value) : !value || typeof value !== 'object' || Array.isArray(value)) {
-                                                throw new Error(`Enter a JSON ${field.type}.`);
-                                            }
-                                            input.setCustomValidity('');
-                                            update(value);
-                                        } catch {
-                                            input.setCustomValidity(`Enter a valid JSON ${field.type}.`);
-                                            input.reportValidity();
-                                        }
-                                    }}
-                                />
-                            ) : field.type === 'boolean' ? (
-                                <select id={inputId} className={inputClass} required={required} value={claims[key] === undefined ? '' : String(claims[key])}
-                                    onChange={(event) => update(event.target.value === '' ? undefined : event.target.value === 'true')}>
-                                    <option value="">Select</option><option value="true">Yes</option><option value="false">No</option>
-                                </select>
-                            ) : field.enum ? (
-                                <select id={inputId} className={inputClass} required={required} value={claims[key] ?? ''}
-                                    onChange={(event) => update(field.enum?.find((value) => String(value) === event.target.value))}>
-                                    <option value="">Select</option>
-                                    {field.enum.map((value) => <option key={String(value)} value={String(value)}>{String(value)}</option>)}
-                                </select>
-                            ) : (
-                                <input id={inputId} className={inputClass} required={required} value={claims[key] ?? ''}
-                                    type={field.type === 'number' || field.type === 'integer' ? 'number' : field.format === 'date' ? 'date' : field.format === 'email' ? 'email' : 'text'}
-                                    step={field.type === 'integer' ? 1 : 'any'}
-                                    placeholder={field.format === 'date-time' ? 'YYYY-MM-DDTHH:mm:ssZ' : undefined}
-                                    onChange={(event) => update(event.target.value === '' ? undefined : field.type === 'number' || field.type === 'integer' ? Number(event.target.value) : event.target.value)}
-                                />
-                            )}
-                            {field.description && <p className="text-xs text-gray-500">{field.description}</p>}
-                        </div>
+                        <TextInput
+                            key={key}
+                            {...common}
+                            value={claims[key] ?? ''}
+                            type={field.type === 'number' || field.type === 'integer' ? 'number' : field.format === 'date' ? 'date' : field.format === 'email' ? 'email' : 'text'}
+                            step={field.type === 'integer' ? 1 : 'any'}
+                            placeholder={field.format === 'date-time' ? 'YYYY-MM-DDTHH:mm:ssZ' : undefined}
+                            onChange={(event) => update(event.target.value === '' ? undefined : field.type === 'number' || field.type === 'integer' ? Number(event.target.value) : event.target.value)}
+                        />
                     );
                 })}
-            </div>
+            </Stack>
         );
     }
-    // Get schema for this credential type (or default)
+    // Get schema for this record type (or default)
     const schema = CredentialSchemas[credentialType] || DefaultSchema;
 
     const handleFieldChange = (key: string, value: string) => {
@@ -191,43 +212,40 @@ export default function VCClaimsForm({ credentialType, claims, onChange, schema:
     };
 
     return (
-        <div className="space-y-4">
-            <div className="text-sm text-gray-500 mb-4">
-                Enter the credential claims for <span className="font-semibold">{credentialType}</span>
-            </div>
+        <Stack gap="md">
+            <Text size="sm" c="dimmed">
+                Enter the details for <Text span fw={600}>{credentialType}</Text>
+            </Text>
 
-            {schema.map((field) => (
-                <div key={field.key} className="flex flex-col">
-                    <label className="text-sm font-medium text-gray-700 mb-1">
-                        {field.label}
-                        {field.required && <span className="text-red-500 ml-1">*</span>}
-                    </label>
-
-                    {field.type === 'textarea' ? (
-                        <textarea
-                            value={claims[field.key] || ''}
-                            onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                            placeholder={field.placeholder}
-                            className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                            rows={3}
-                        />
-                    ) : (
-                        <input
-                            type={field.type}
-                            value={claims[field.key] || ''}
-                            onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                            placeholder={field.placeholder}
-                            className="w-full border border-gray-300 rounded-md p-2 text-sm focus:ring-2 focus:ring-primary-400 focus:border-transparent"
-                        />
-                    )}
-                </div>
-            ))}
+            {schema.map((field) =>
+                field.type === 'textarea' ? (
+                    <Textarea
+                        key={field.key}
+                        label={field.label}
+                        withAsterisk={'required' in field && !!field.required}
+                        value={claims[field.key] || ''}
+                        onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                        placeholder={field.placeholder}
+                        rows={3}
+                    />
+                ) : (
+                    <TextInput
+                        key={field.key}
+                        label={field.label}
+                        withAsterisk={'required' in field && !!field.required}
+                        type={field.type}
+                        value={claims[field.key] || ''}
+                        onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                        placeholder={field.placeholder}
+                    />
+                )
+            )}
 
             {schema.length === 0 && (
-                <div className="text-gray-500 text-center py-4">
-                    No specific fields defined for this credential type.
-                </div>
+                <Text c="dimmed" ta="center" py="md">
+                    No specific fields defined for this record type.
+                </Text>
             )}
-        </div>
+        </Stack>
     );
 }

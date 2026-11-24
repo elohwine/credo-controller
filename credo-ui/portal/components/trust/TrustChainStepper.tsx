@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Box, Collapse, Group, Paper, Stack, Text, ThemeIcon, Timeline, Title, UnstyledButton } from '@mantine/core';
+import { IconCheck, IconChevronDown, IconChevronUp, IconCircleCheck, IconPoint, IconShieldCheck } from '@tabler/icons-react';
 
 interface ChainNode {
   valid: boolean;
@@ -29,25 +31,30 @@ interface Props {
 const StepIcon = ({ valid, active }: { valid: boolean; active?: boolean }) => {
   if (active) {
     return (
-      <span className="relative z-10 w-8 h-8 flex items-center justify-center bg-blue-600 rounded-full ring-8 ring-white">
-        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </span>
+      <ThemeIcon size={28} radius="xl" color="blue">
+        <IconCircleCheck size={18} />
+      </ThemeIcon>
+    );
+  }
+  if (valid) {
+    return (
+      <ThemeIcon size={28} radius="xl" color="green">
+        <IconCheck size={18} />
+      </ThemeIcon>
     );
   }
   return (
-    <span className={`relative z-10 w-8 h-8 flex items-center justify-center rounded-full ring-8 ring-white ${valid ? 'bg-green-500' : 'bg-gray-200'}`}>
-      {valid ? (
-        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-        </svg>
-      ) : (
-        <span className="w-2.5 h-2.5 bg-gray-400 rounded-full" />
-      )}
-    </span>
+    <ThemeIcon size={28} radius="xl" color="gray" variant="light">
+      <IconPoint size={18} />
+    </ThemeIcon>
   );
 };
+
+const Detail = ({ label, children, title }: { label: string; children: React.ReactNode; title?: string }) => (
+  <Text size="xs" c="dimmed" truncate title={title}>
+    <Text span fw={600} inherit>{label}:</Text> {children}
+  </Text>
+);
 
 export const TrustChainStepper: React.FC<Props> = ({ chain }) => {
   const [expanded, setExpanded] = useState<string | null>('receipt');
@@ -61,96 +68,78 @@ export const TrustChainStepper: React.FC<Props> = ({ chain }) => {
       key: 'quote',
       title: 'Quote Issued',
       node: chain.quote,
+      active: false,
       description: chain.quote.id !== 'none' ? `Order Estimate` : 'No linked quote',
       details: (
-        <div className="text-xs text-gray-500 space-y-1">
-          <p><span className="font-semibold">ID:</span> {chain.quote.id}</p>
-          <p><span className="font-semibold">Items:</span> {chain.quote.itemCount || 0}</p>
-          <p><span className="font-semibold">Total:</span> {chain.quote.total || '0.00'}</p>
-          <p className="truncate" title={chain.quote.hash}><span className="font-semibold">Hash:</span> {chain.quote.hash.substring(0, 10)}...</p>
-        </div>
+        <Stack gap={4}>
+          <Detail label="ID">{chain.quote.id}</Detail>
+          <Detail label="Items">{chain.quote.itemCount || 0}</Detail>
+          <Detail label="Total">{chain.quote.total || '0.00'}</Detail>
+          <Detail label="Hash" title={chain.quote.hash}>{chain.quote.hash.substring(0, 10)}...</Detail>
+        </Stack>
       )
     },
     {
       key: 'invoice',
       title: 'Invoice & Payment',
       node: chain.invoice,
+      active: false,
       description: chain.invoice.id ? `Ref: ${chain.invoice.reference}` : 'Pending linkage',
       details: (
-        <div className="text-xs text-gray-500 space-y-1">
-           <p><span className="font-semibold">Invoice ID:</span> {chain.invoice.id}</p>
-           <p><span className="font-semibold">Amount:</span> {chain.invoice.currency} {chain.invoice.amount}</p>
-           <p><span className="font-semibold">Method:</span> EcoCash</p>
-           <p className="truncate" title={chain.invoice.hash}><span className="font-semibold">Hash:</span> {chain.invoice.hash.substring(0, 10)}...</p>
-        </div>
+        <Stack gap={4}>
+          <Detail label="Invoice ID">{chain.invoice.id}</Detail>
+          <Detail label="Amount">{chain.invoice.currency} {chain.invoice.amount}</Detail>
+          <Detail label="Method">EcoCash</Detail>
+          <Detail label="Hash" title={chain.invoice.hash}>{chain.invoice.hash.substring(0, 10)}...</Detail>
+        </Stack>
       )
     },
     {
       key: 'receipt',
       title: 'Payment Receipt',
       node: chain.receipt,
-      description: 'Cryptographically Verified',
+      description: 'Signature checked',
       active: true,
       details: (
-        <div className="text-xs text-gray-500 space-y-1">
-           <p><span className="font-semibold">Receipt ID:</span> {chain.receipt.id}</p>
-           <p className="text-green-600 font-medium">Chain Intact</p>
-           <p className="truncate" title={chain.receipt.hash}><span className="font-semibold">Linked Hash:</span> {chain.receipt.hash.substring(0, 10)}...</p>
-        </div>
+        <Stack gap={4}>
+          <Detail label="Receipt ID">{chain.receipt.id}</Detail>
+          <Text size="xs" fw={500} c="var(--mantine-color-green-text)">Chain Intact</Text>
+          <Detail label="Linked Hash" title={chain.receipt.hash}>{chain.receipt.hash.substring(0, 10)}...</Detail>
+        </Stack>
       )
     }
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-medium text-gray-900 mb-6 flex items-center">
-        <svg className="w-5 h-5 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-        </svg>
-        Audit Trail
-      </h3>
-      <div className="flow-root">
-        <ul className="-mb-8">
-          {steps.map((step, stepIdx) => (
-            <li key={step.key}>
-              <div className="relative pb-8">
-                {stepIdx !== steps.length - 1 ? (
-                  <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true" />
-                ) : null}
-                <div className="relative flex space-x-3">
-                  <div>
-                    <StepIcon valid={step.node.valid} active={step.active} />
-                  </div>
-                  <div className="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4">
-                    <div className="w-full">
-                      <div className="flex justify-between cursor-pointer" onClick={() => toggle(step.key)}>
-                         <div>
-                            <p className="text-sm font-medium text-gray-900">{step.title}</p>
-                            <p className="text-sm text-gray-500">{step.description}</p>
-                         </div>
-                         <div className="text-gray-400">
-                            {expanded === step.key ? (
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
-                            ) : (
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
-                            )}
-                         </div>
-                      </div>
-                      
-                      {/* Expandable Details */}
-                      {expanded === step.key && (
-                        <div className="mt-3 bg-gray-50 p-3 rounded-md border border-gray-100 transition-opacity duration-300 ease-in-out">
-                             {step.details}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+    <Paper withBorder radius="md" p="lg">
+      <Group gap="xs" mb="lg">
+        <Box c="dimmed" style={{ display: 'flex' }}><IconShieldCheck size={20} /></Box>
+        <Title order={4}>Audit Trail</Title>
+      </Group>
+      <Timeline bulletSize={32} lineWidth={2} active={-1}>
+        {steps.map((step) => (
+          <Timeline.Item key={step.key} bullet={<StepIcon valid={step.node.valid} active={step.active} />}>
+            <UnstyledButton onClick={() => toggle(step.key)} w="100%" aria-expanded={expanded === step.key}>
+              <Group justify="space-between" wrap="nowrap" align="flex-start">
+                <div>
+                  <Text size="sm" fw={500}>{step.title}</Text>
+                  <Text size="sm" c="dimmed">{step.description}</Text>
                 </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
+                <Box c="dimmed" style={{ display: 'flex' }}>
+                  {expanded === step.key ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
+                </Box>
+              </Group>
+            </UnstyledButton>
+
+            {/* Expandable Details */}
+            <Collapse expanded={expanded === step.key}>
+              <Paper withBorder radius="sm" p="sm" mt="sm" bg="var(--mantine-color-default-hover)">
+                {step.details}
+              </Paper>
+            </Collapse>
+          </Timeline.Item>
+        ))}
+      </Timeline>
+    </Paper>
   );
 };

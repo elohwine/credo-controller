@@ -8931,8 +8931,8 @@ export default function FinancePage() {
                                   placeholder="Choose a team member"
                                   description={
                                     pauseReason === 'await_assignment'
-                                      ? 'A customer booked this job. The job card goes to the person you choose.'
-                                      : 'The job card moves to them; the current step stays where it is.'
+                                      ? 'The job card goes to the person you choose, with the van they drive unless you picked another van.'
+                                      : 'The job card moves to them with the van they drive; the current step stays where it is.'
                                   }
                                 />
                                 <Button

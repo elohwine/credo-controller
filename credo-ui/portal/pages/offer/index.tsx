@@ -4,7 +4,7 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useState } from 'react'
-import { Alert, Loader, Text } from '@mantine/core'
+import { Alert, Anchor, Box, Center, Group, Loader, Text } from '@mantine/core'
 import CredentialOfferCard from '@/components/credential/CredentialOfferCard'
 import { useRequireOrgContext } from '@/lib/portalContext'
 import { holderCardName } from '@/lib/holderActivity'
@@ -77,22 +77,22 @@ export default function OfferPage() {
   return (
     <>
       <Head>
-        <title>{`Credential offer | ${PRODUCT_NAME}`}</title>
+        <title>{`Record offer | ${PRODUCT_NAME}`}</title>
       </Head>
-      <div className="min-h-screen bg-white px-4 py-10">
-        <div className="flex justify-center mb-8">
+      <Box mih="100vh" px="md" py={40} bg="var(--mantine-color-body)">
+        <Group justify="center" mb="xl">
           <Link href="/organization/credential-operations">
             <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
           </Link>
-        </div>
-        <div className="max-w-md mx-auto">
-          <Link href="/organization/credential-operations" className="inline-block text-sm text-gray-600 mb-6">
-            &larr; Back to credentials
-          </Link>
+        </Group>
+        <Box maw={448} mx="auto">
+          <Anchor component={Link} href="/organization/credential-operations" size="sm" c="dimmed" display="inline-block" mb="lg">
+            &larr; Back to records
+          </Anchor>
           {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader aria-label="Loading credential offer" />
-            </div>
+            <Center py={64}>
+              <Loader aria-label="Loading offer" />
+            </Center>
           ) : error ? (
             <Alert color="red" title="Offer unavailable">
               {error}
@@ -123,8 +123,8 @@ export default function OfferPage() {
               </>
             )
           )}
-        </div>
-      </div>
+        </Box>
+      </Box>
     </>
   )
 }

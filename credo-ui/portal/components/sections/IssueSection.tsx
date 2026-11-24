@@ -4,14 +4,14 @@ import Dropdown from "@/components/walt/forms/Dropdown";
 import {AuthenticationMethods, AvailableCredential, VpProfiles} from "@/types/credentials";
 import Checkbox from "@/components/walt/forms/Checkbox";
 import InputField from "@/components/walt/forms/Input";
-import Button from "@/components/walt/button/Button";
 import {CredentialsContext, EnvContext} from "@/pages/_app";
 import React, {useState} from "react";
 import {useRouter} from "next/router";
 import {getOfferUrl} from "@/utils/getOfferUrl";
 import {sendToWebWallet} from "@/utils/sendToWebWallet";
 import { appUrls } from '@/lib/appUrls';
-import {LockClosedIcon} from "@heroicons/react/24/outline";
+import { Button, Divider, Group, Stack, Text, Title } from "@mantine/core";
+import { IconLock } from "@tabler/icons-react";
 
 export default function IssueSection() {
   const env = React.useContext(EnvContext);
@@ -111,24 +111,37 @@ export default function IssueSection() {
   }
 
   if (params.ids === undefined) {
-    return <Button onClick={() => router.push('/select-credentials')}>Select Credentials</Button>;
+    return <Button onClick={() => router.push('/select-credentials')}>Select records</Button>;
   }
+
+  const issueDisabled = !(
+    credentialsToIssue.length > 0 &&
+    (credentialsToIssue.length < 2 ||
+      credentialsToIssue.filter(
+        (cred) =>
+          cred.selectedFormat === 'SD-JWT + W3C VC' ||
+          cred.selectedFormat === 'SD-JWT + IETF SD-JWT VC'
+      ).length === credentialsToIssue.length ||
+      credentialsToIssue.filter(
+        (cred) =>
+          !cred.selectedFormat ||
+          cred.selectedFormat === 'JWT + W3C VC'
+      ).length === credentialsToIssue.length)
+  );
 
   return (
     <>
-      <h1 className="text-3xl text-gray-900 text-center font-bold">
-        Customise Issuance
-      </h1>
-      <p className="mt-3 text-gray-600">
-        Adjust credential data, format and issuance security
-      </p>
-      <hr className="mt-8" />
-      <h3 className="text-gray-500 text-left mt-2 font-semibold">
-        Credential Configuration
-      </h3>
-      <div className="mt-12"></div>
-      {/*START*/}
-      <div className="flex flex-col gap-6">
+      <Title order={1} ta="center">
+        Customise issuance
+      </Title>
+      <Text mt="sm" c="dimmed">
+        Adjust record details, format and security
+      </Text>
+      <Divider mt="xl" />
+      <Text c="dimmed" ta="left" mt="xs" fw={600}>
+        Record settings
+      </Text>
+      <Stack gap="lg" mt={48}>
         {credentialsToIssue.map((credential) => (
           <RowCredential
             credentialToEdit={credential}
@@ -137,109 +150,79 @@ export default function IssueSection() {
             key={credential.title}
           />
         ))}
-      </div>
-      {/*END*/}
-      <div className="mt-10"></div>
-      <hr className="text-green-900 border border-[0.5px] border-gray-100" />
-      <h3 className="text-gray-500 text-left mt-2 font-semibold">
-        Security Settings
-      </h3>
-      <div className="mt-5 flex flex-col sm:flex-row justify-between">
-        <div className="mt-2">
-          <div className="flex flex-row gap-2 items-center">
-            <LockClosedIcon className="h-5" />
-            {/* <div className="hidden sm:block bg-primary-400 w-[45px] h-[28px] rounded-lg"></div> */}
-            <span> Authentication Method</span>
-          </div>
-        </div>
-        <Dropdown
-          values={AuthenticationMethods}
-          selected={selectedAuthenticationMethod}
-          setSelected={setSelectedAuthenticationMethod}
-        />
-      </div>
-      <div className="mt-3 flex flex-col sm:flex-row justify-between">
-        <div className="">
+      </Stack>
+      <Divider mt={40} />
+      <Text c="dimmed" ta="left" mt="xs" fw={600}>
+        Security settings
+      </Text>
+      <Stack gap="sm" mt="lg" ta="left">
+        <Group justify="space-between" align="center">
+          <Group gap="xs">
+            <IconLock size={20} />
+            <Text>Sign-in method</Text>
+          </Group>
+          <Dropdown
+            values={AuthenticationMethods}
+            selected={selectedAuthenticationMethod}
+            setSelected={setSelectedAuthenticationMethod}
+          />
+        </Group>
+        <Group justify="space-between" align="center">
           <Checkbox value={requirePin} onChange={setRequirePin}>
             Require User Pin
           </Checkbox>
-        </div>
-        <InputField
-          error={false}
-          label="Test"
-          value={pin}
-          name="test"
-          type="id"
-          placeholder=""
-          onChange={setPin}
-        />
-      </div>
-      <div className="mt-1 flex flex-col sm:flex-row justify-between">
-        <div className="">
+          <InputField
+            error={false}
+            label="Test"
+            value={pin}
+            name="test"
+            type="id"
+            placeholder=""
+            onChange={setPin}
+          />
+        </Group>
+        <Group justify="space-between" align="center">
           <Checkbox
             value={requireVpRequestValue}
             onChange={setRequireVpRequestValue}
           >
-            VP Token Requested Value
+            Requested proof value
           </Checkbox>
-        </div>
-        <InputField
-          error={false}
-          label="Test"
-          value={vpRequestValue}
-          name="test"
-          type="id"
-          placeholder=""
-          onChange={setVpRequestValue}
-        />
-      </div>
-
-      <div className="mt-1 flex flex-col sm:flex-row justify-between">
-        <div className="">
+          <InputField
+            error={false}
+            label="Test"
+            value={vpRequestValue}
+            name="test"
+            type="id"
+            placeholder=""
+            onChange={setVpRequestValue}
+          />
+        </Group>
+        <Group justify="space-between" align="center">
           <Checkbox value={requireVpProfile} onChange={setRequireVpProfile}>
-            VP Token Requested Profile
+            Requested proof profile
           </Checkbox>
-        </div>
-        <Dropdown
-          values={VpProfiles}
-          selected={selectedVpProfile}
-          setSelected={setSelectedVpProfile}
-        />
-      </div>
+          <Dropdown
+            values={VpProfiles}
+            selected={selectedVpProfile}
+            setSelected={setSelectedVpProfile}
+          />
+        </Group>
+      </Stack>
 
-      <hr className="my-5" />
-      <div className="flex flex-row justify-center gap-3 mt-14">
-        <Button onClick={handleCancel} style="link" color="gray">
+      <Divider my="lg" />
+      <Group justify="center" gap="sm" mt={56}>
+        <Button onClick={handleCancel} variant="subtle" color="gray">
           Cancel
         </Button>
-        <Button
-          disabled={
-            !(
-              credentialsToIssue.length > 0 &&
-              (credentialsToIssue.length < 2 ||
-                credentialsToIssue.filter(
-                  (cred) =>
-                    cred.selectedFormat === 'SD-JWT + W3C VC' ||
-                    cred.selectedFormat === 'SD-JWT + IETF SD-JWT VC'
-                ).length === credentialsToIssue.length ||
-                credentialsToIssue.filter(
-                  (cred) =>
-                    !cred.selectedFormat ||
-                    cred.selectedFormat === 'JWT + W3C VC'
-                ).length === credentialsToIssue.length)
-            )
-          }
-          onClick={handleIssue}
-        >
+        <Button disabled={issueDisabled} onClick={handleIssue}>
           Issue
         </Button>
-      </div>
-      <div className="flex flex-col items-center mt-12">
-        <div className="flex flex-row gap-2 items-center content-center text-sm text-center text-gray-500">
-          <p className="">Secured by IdenEx</p>
-          <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
-        </div>
-      </div>
+      </Group>
+      <Group justify="center" gap="xs" mt={48}>
+        <Text size="sm" c="dimmed">Secured by {PRODUCT_NAME}</Text>
+        <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
+      </Group>
     </>
   );
 }

@@ -1,12 +1,12 @@
 import { PRODUCT_NAME } from '@/utils/orgProfile'
 import {useRouter} from "next/router";
-import {ViewfinderCircleIcon} from "@heroicons/react/24/outline";
+import { IconScan, IconRubberStamp } from "@tabler/icons-react";
 import {useEffect, useState} from "react";
 import SelectButton from "@/components/walt/forms/SelectButton";
-import {TbRubberStamp} from "react-icons/tb";
 import IssueSection from "@/components/sections/IssueSection";
 import VerificationSection from "@/components/sections/VerificationSection";
 import {addQueryParamToCurrentURL} from "@/lib/helper/addQueryParamToCurrentURL";
+import { Group, Paper, Stack, UnstyledButton } from "@mantine/core";
 
 const ISSUE_MODE = 'issuance';
 const VERIFY_MODE = 'verification';
@@ -71,36 +71,33 @@ export default function Credentials() {
   }
 
   return (
-    <div className="flex flex-col justify-center items-center">
-      <div
-        className="mt-10 flex flex-row justify-center cursor-pointer"
-        onClick={() => router.push('/')}
-      >
-        <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
-      </div>
-      <div className="mt-10 bg-gray-100 rounded-lg py-2.5 px-5">
-        <div className="flex flex-row gap-5">
+    <Stack align="center" gap="lg" py="xl" px="sm">
+      <UnstyledButton onClick={() => router.push('/')} aria-label={`${PRODUCT_NAME} home`}>
+        <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto', display: 'block' }} />
+      </UnstyledButton>
+      <Paper radius="md" p={6} bg="var(--mantine-color-default-hover)">
+        <Group gap="xs">
           <SelectButton
-            icon={TbRubberStamp}
+            icon={IconRubberStamp}
             selected={issuanceMode}
             onClick={handlePortalModeChange}
           >
             Issue
           </SelectButton>
           <SelectButton
-            icon={ViewfinderCircleIcon}
+            icon={IconScan}
             selected={verificationMode}
             onClick={handlePortalModeChange}
           >
             Verify
           </SelectButton>
-        </div>
-      </div>
+        </Group>
+      </Paper>
 
-      <div className="w-11/12 md:w-7/12 text-center shadow-2xl rounded-lg mt-5 pt-8 pb-8 px-10 bg-white max-w-[960px]">
+      <Paper shadow="xl" radius="md" withBorder py="xl" px={{ base: 'md', sm: 40 }} w={{ base: '92%', md: '58%' }} maw={960} ta="center">
         {issuanceMode && <IssueSection />}
         {verificationMode && <VerificationSection />}
-      </div>
-    </div>
+      </Paper>
+    </Stack>
   );
 }

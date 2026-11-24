@@ -301,12 +301,18 @@ export class WorkflowService {
   }
 
   public async reassignRun(runId: string, assigneeUserId: string, actedByUserId?: string) {
+    const before = workflowRunRepository.findRunById(runId)
+    const previousAssigneeId =
+      String((before?.output as any)?.assignment?.assigneeId || (before?.input as any)?.assigneeId || '').trim() || undefined
     // A booked job has nobody on it yet: choosing the worker runs the normal assign step,
     // which sends their job card and assignment record, and the job carries on from there.
     if (FieldExecutionActions.isAwaitingAssignment(runId)) {
-      return this.assignWaitingJob(runId, assigneeUserId, actedByUserId)
+      const assigned = await this.assignWaitingJob(runId, assigneeUserId, actedByUserId)
+      await this.vanFollowsWorker(runId, before?.tenantId, assigneeUserId, previousAssigneeId)
+      return assigned
     }
     const moved = FieldExecutionActions.reassignRun(runId, assigneeUserId, actedByUserId)
+    await this.vanFollowsWorker(runId, before?.tenantId, assigneeUserId, previousAssigneeId)
     const { workflowVcOfferDispatcher } = await import('./workflow/WorkflowVcOfferDispatcher')
     try {
       const record = await workflowVcOfferDispatcher.transferJobAssignmentRecord(runId)
@@ -317,6 +323,17 @@ export class WorkflowService {
         "The job was reassigned, but its assignment record could not be transferred. Retry the reassignment to deliver the current worker's record.",
         503,
       )
+    }
+  }
+
+  /** The van the new worker drives goes on the job, unless the office chose another one. */
+  private async vanFollowsWorker(runId: string, tenantId: string | undefined, assigneeUserId: string, previousAssigneeId?: string) {
+    if (!tenantId) return
+    try {
+      const { operationsRegisterService } = await import('./OperationsRegisterService')
+      operationsRegisterService.linkAssigneeVan(tenantId, runId, assigneeUserId, previousAssigneeId)
+    } catch (error: any) {
+      this.logger.warn({ runId, error: error?.message }, 'The worker was given the job but their van was not linked to it')
     }
   }
 

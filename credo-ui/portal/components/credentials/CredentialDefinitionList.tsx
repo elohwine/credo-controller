@@ -1,4 +1,5 @@
 import React from 'react';
+import { Badge, Box, Card, Code, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
 
 export interface CredentialDefinition {
   credentialDefinitionId: string;
@@ -38,138 +39,139 @@ const groupByType = (defs: CredentialDefinition[]) => {
   return groups;
 };
 
-// Map credential types to display names and colors
-const typeMetadata: Record<string, { label: string; colorClass: string; iconBg: string }> = {
-  PaymentReceipt: { 
-    label: '💳 Payment & Transaction', 
-    colorClass: 'border-green-500 bg-green-50', 
-    iconBg: 'bg-green-700' 
-  },
-  GenericIDCredential: { 
-    label: '🆔 Identity Documents', 
-    colorClass: 'border-primary-400 bg-primary-50', 
-    iconBg: 'bg-primary-700' 
-  },
-  OpenBadge: { 
-    label: '🏅 Educational Badges', 
-    colorClass: 'border-yellow-500 bg-yellow-50', 
-    iconBg: 'bg-yellow-700' 
-  },
-  MdocHealthSummary: { 
-    label: '🏥 mDoc Health Records', 
-    colorClass: 'border-red-400 bg-red-50', 
-    iconBg: 'bg-red-700' 
-  },
-  EHRSummary: { 
-    label: '⚕️ EHR Clinical Data', 
-    colorClass: 'border-orange-500 bg-orange-50', 
-    iconBg: 'bg-orange-700' 
-  },
+// Map credential types to display names and theme colours
+const typeMetadata: Record<string, { label: string; color: string }> = {
+  PaymentReceipt: { label: '💳 Payment & Transaction', color: 'green' },
+  GenericIDCredential: { label: '🆔 Identity Documents', color: 'blue' },
+  OpenBadge: { label: '🏅 Educational Badges', color: 'yellow' },
+  MdocHealthSummary: { label: '🏥 mDoc Health Records', color: 'red' },
+  EHRSummary: { label: '⚕️ EHR Clinical Data', color: 'orange' },
 };
+
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Group gap="xs" align="flex-start" wrap="nowrap">
+      <Text size="sm" fw={600} miw={80}>
+        {label}
+      </Text>
+      {children}
+    </Group>
+  );
+}
 
 const CredentialDefinitionList: React.FC<CredentialDefinitionListProps> = ({ definitions = [] }) => {
   const grouped = groupByType(definitions || []);
-  
+
   if (!definitions || definitions.length === 0) {
     return (
-      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-        <p className="text-gray-500 text-lg">No credential definitions available.</p>
-        <p className="text-gray-400 text-sm mt-2">Seed models with: <code className="bg-gray-200 px-2 py-1 rounded">yarn seed:models</code></p>
-      </div>
+      <Paper
+        radius="md"
+        py={48}
+        ta="center"
+        bg="var(--mantine-color-default-hover)"
+        style={{ border: '2px dashed var(--mantine-color-default-border)' }}
+      >
+        <Text size="lg" c="dimmed">No record templates available.</Text>
+        <Text size="sm" c="dimmed" mt="xs">
+          Add templates with: <Code>yarn seed:models</Code>
+        </Text>
+      </Paper>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <Stack gap="xl">
       {Object.entries(grouped).map(([type, defs]) => {
-        const meta = typeMetadata[type] || { 
-          label: type, 
-          colorClass: 'border-gray-400 bg-gray-50', 
-          iconBg: 'bg-gray-700' 
-        };
-        
-        return (
-          <div key={type} className="space-y-4">
-            {/* Group Header */}
-            <div className="flex items-center gap-3 pb-2 border-b-2 border-gray-300">
-              <div className={`w-10 h-10 rounded-full ${meta.iconBg} flex items-center justify-center text-white font-bold shadow-md`}>
-                {defs.length}
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900">{meta.label}</h2>
-            </div>
+        const meta = typeMetadata[type] || { label: type, color: 'gray' };
 
-            {/* Credential Definition Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        return (
+          <Stack key={type} gap="md">
+            {/* Group Header */}
+            <Group gap="sm" pb="xs" style={{ borderBottom: '2px solid var(--mantine-color-default-border)' }}>
+              <ThemeIcon variant="light" color={meta.color} size={40} radius="xl" fw={700}>
+                {defs.length}
+              </ThemeIcon>
+              <Title order={2} size="h3">
+                {meta.label}
+              </Title>
+            </Group>
+
+            {/* Template Cards */}
+            <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md">
               {defs.map(def => (
-                <div 
-                  key={def.credentialDefinitionId} 
-                  className={`rounded-lg border-2 ${meta.colorClass} p-5 shadow-sm hover:shadow-lg transition-shadow duration-200`}
+                <Card
+                  key={def.credentialDefinitionId}
+                  withBorder
+                  radius="md"
+                  padding="lg"
+                  shadow="sm"
+                  style={{ borderColor: `var(--mantine-color-${meta.color}-outline)`, borderWidth: 2 }}
                 >
                   {/* Card Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900 truncate" title={def.name}>
+                  <Group justify="space-between" align="flex-start" wrap="nowrap" mb="sm">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <Title order={3} size="h4" lineClamp={1} title={def.name}>
                         {def.name}
-                      </h3>
-                      <p className="text-sm text-gray-600">v{def.version}</p>
+                      </Title>
+                      <Text size="sm" c="dimmed">v{def.version}</Text>
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-white text-gray-700 border border-gray-300 ml-2">
+                    <Badge variant="default" size="sm">
                       {def.format}
-                    </span>
-                  </div>
+                    </Badge>
+                  </Group>
 
                   {/* Metadata */}
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold text-gray-700 min-w-[80px]">Schema:</span>
-                      <span className="text-gray-600 break-all font-mono text-xs" title={def.schemaId}>
+                  <Stack gap="xs">
+                    <MetaRow label="Template:">
+                      <Text size="xs" ff="monospace" c="dimmed" style={{ wordBreak: 'break-all' }} title={def.schemaId}>
                         {def.schemaId.substring(0, 20)}...
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold text-gray-700 min-w-[80px]">Issuer:</span>
-                      <span className="text-gray-600 break-all font-mono text-xs" title={def.issuerDid}>
+                      </Text>
+                    </MetaRow>
+
+                    <MetaRow label="Issued by:">
+                      <Text size="xs" ff="monospace" c="dimmed" style={{ wordBreak: 'break-all' }} title={def.issuerDid}>
                         {def.issuerDid.substring(0, 25)}...
-                      </span>
-                    </div>
+                      </Text>
+                    </MetaRow>
 
-                    <div className="flex items-start gap-2">
-                      <span className="font-semibold text-gray-700 min-w-[80px]">Types:</span>
-                      <div className="flex flex-wrap gap-1">
+                    <MetaRow label="Types:">
+                      <Group gap={4}>
                         {def.credentialType.map((t, idx) => (
-                          <span 
-                            key={idx} 
-                            className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-white text-gray-700 border border-gray-300"
-                          >
+                          <Badge key={idx} variant="default" size="xs" radius="sm" tt="none">
                             {t}
-                          </span>
+                          </Badge>
                         ))}
-                      </div>
-                    </div>
+                      </Group>
+                    </MetaRow>
 
-                    {/* Claims Preview */}
-                    <details className="mt-3">
-                      <summary className="cursor-pointer text-primary-700 hover:text-primary-900 font-semibold text-xs">
-                        View Claims Template ({Object.keys(def.claimsTemplate || {}).length} fields)
-                      </summary>
-                      <pre className="mt-2 p-3 bg-white rounded text-xs overflow-x-auto border border-gray-300 text-gray-800">
+                    {/* Fields Preview */}
+                    <Box component="details" mt="xs">
+                      <Text component="summary" size="xs" fw={600} c="blue" style={{ cursor: 'pointer' }}>
+                        View fields ({Object.keys(def.claimsTemplate || {}).length} fields)
+                      </Text>
+                      <Code block mt="xs" style={{ overflowX: 'auto' }}>
                         {JSON.stringify(def.claimsTemplate, null, 2)}
-                      </pre>
-                    </details>
-                  </div>
+                      </Code>
+                    </Box>
+                  </Stack>
 
                   {/* Footer Timestamp */}
-                  <div className="mt-4 pt-3 border-t border-gray-300 text-xs text-gray-500">
+                  <Text
+                    size="xs"
+                    c="dimmed"
+                    mt="md"
+                    pt="sm"
+                    style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+                  >
                     Created: {new Date(def.createdAt).toLocaleString()}
-                  </div>
-                </div>
+                  </Text>
+                </Card>
               ))}
-            </div>
-          </div>
+            </SimpleGrid>
+          </Stack>
         );
       })}
-    </div>
+    </Stack>
   );
 };
 

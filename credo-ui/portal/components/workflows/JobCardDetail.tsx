@@ -1155,6 +1155,7 @@ export default function JobCardDetail({ job, opened, onClose, onRefresh, initial
                             : 'Move this job to someone else'
                         }
                         placeholder="Choose a member"
+                        description="The van they drive goes on the job, unless you picked another van."
                         value={nextAssignee}
                         onChange={setNextAssignee}
                         data={uniqueOptions([

@@ -284,6 +284,10 @@ function clean(value: unknown, max = 200): string {
     .slice(0, max)
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function isDate(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value))
 }
@@ -699,6 +703,137 @@ export class OperationsRegisterService {
       )
       .run(JSON.stringify(payload), intakeDedupeKey(payload.storeNumber, payload.poNumber) || null, jobId, orgTenantId)
     return this.pendingIntakes(orgTenantId).find((item) => item.id === jobId)!
+  }
+
+  /** The van on the road that this person drives, if the register gives them one. */
+  public driverVan(orgTenantId: string, userId: string | undefined): VanRecord | undefined {
+    if (!userId) return undefined
+    return this.listVans(orgTenantId).find((van) => van.driverUserId === userId && van.status === 'active')
+  }
+
+  /** A van whose registration the text mentions, written with or without spaces. */
+  public matchVan(orgTenantId: string, text: string | undefined): VanRecord | undefined {
+    const squashed = String(text || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    if (!squashed) return undefined
+    return this.listVans(orgTenantId).find((van) => {
+      const registration = van.registration.toUpperCase().replace(/[^A-Z0-9]/g, '')
+      return registration.length >= 5 && squashed.includes(registration)
+    })
+  }
+
+  /**
+   * A known branch the text names on a "Branch:", "Depot:", "Area:" or "Region:" line. Branch names
+   * are often town names, so a town in an address is not read as the branch.
+   */
+  public matchBranch(orgTenantId: string, text: string | undefined, branches?: string[]): string | undefined {
+    const lines = String(text || '').match(/(?:^|\n)\s*(?:branch|depot|area|region)\s*[:\-]\s*[^\n]+/gi) || []
+    if (lines.length === 0) return undefined
+    const known = branches || this.jobChoices(orgTenantId).branches
+    for (const line of lines) {
+      const value = line.replace(/^\s*(?:branch|depot|area|region)\s*[:\-]\s*/i, '').trim().toLowerCase()
+      const found = known.find((branch) => new RegExp(`\\b${escapeRegExp(branch.toLowerCase())}\\b`).test(value))
+      if (found) return found
+    }
+    return undefined
+  }
+
+  /** One of the organisation's own problem types the text names; the longest name wins ("Fire alarm" over "Alarm"). */
+  public matchProblemType(orgTenantId: string, text: string | undefined, fallback?: string, problemTypes?: string[]): string | undefined {
+    const types = problemTypes || this.jobChoices(orgTenantId).problemTypes
+    const haystack = String(text || '').toLowerCase()
+    const named = types
+      .filter((type) => type.toLowerCase() !== 'other')
+      .sort((a, b) => b.length - a.length)
+      .find((type) => new RegExp(`\\b${escapeRegExp(type.toLowerCase())}\\b`).test(haystack))
+    if (named) return named
+    if (!fallback) return undefined
+    return types.find((type) => type.toLowerCase() === fallback.toLowerCase()) || fallback
+  }
+
+  /**
+   * Link a job request from email or another system to the registers, the way the office would on
+   * "New job": its store (with the store's name, phone, site and usual branch), a branch the email
+   * names, a van whose registration it gives, and one of the organisation's problem types. Values
+   * the request already carries are kept.
+   */
+  public linkIntake(
+    orgTenantId: string,
+    payload: {
+      storeNumber?: string
+      branch?: string
+      vanId?: string
+      vehicleReference?: string
+      problemType?: string
+      clientName?: string
+      clientPhone?: string
+      location?: string
+    },
+    hints: { subject?: string; text?: string; senderEmail?: string; problemTypeGuess?: string } = {},
+  ): {
+    storeNumber?: string
+    branch?: string
+    vanId?: string
+    vehicleReference?: string
+    problemType?: string
+    clientName?: string
+    clientPhone?: string
+    location?: string
+  } {
+    const text = `${hints.subject || ''}\n${hints.text || ''}`
+    const store = this.matchStore(orgTenantId, {
+      storeNumber: payload.storeNumber,
+      subject: hints.subject,
+      text: hints.text,
+      senderEmail: hints.senderEmail,
+    })
+    const choices = this.jobChoices(orgTenantId)
+    const givenVan = payload.vanId ? this.getVan(orgTenantId, payload.vanId) : undefined
+    const van =
+      givenVan ||
+      (payload.vanId ? undefined : this.matchVan(orgTenantId, `${payload.vehicleReference || ''}\n${text}`))
+    const usableVan = van && van.status === 'active' ? van : undefined
+    const branch =
+      clean(payload.branch, 100) ||
+      this.matchBranch(orgTenantId, text, choices.branches) ||
+      store?.branch ||
+      usableVan?.branch ||
+      undefined
+    const given = clean(payload.problemType, 120)
+    const problemType = given
+      ? choices.problemTypes.find((type) => type.toLowerCase() === given.toLowerCase()) || given
+      : this.matchProblemType(orgTenantId, text, hints.problemTypeGuess, choices.problemTypes)
+    const storeNumber = store?.storeNumber || normalizeStoreNumber(payload.storeNumber) || undefined
+    return {
+      ...(storeNumber ? { storeNumber } : {}),
+      ...(branch ? { branch } : {}),
+      ...(usableVan ? { vanId: usableVan.id, vehicleReference: usableVan.registration } : {}),
+      ...(problemType ? { problemType } : {}),
+      ...(payload.clientName || store?.name ? { clientName: payload.clientName || store?.name } : {}),
+      ...(payload.clientPhone || store?.phone ? { clientPhone: payload.clientPhone || store?.phone } : {}),
+      ...(payload.location || store ? { location: payload.location || (store ? storeSiteLocation(store) : undefined) } : {}),
+    }
+  }
+
+  /**
+   * When a worker is given a job, their van goes with it: a job with no van, or still on the
+   * previous worker's van, takes the van the new worker drives. A van the office chose stays.
+   */
+  public linkAssigneeVan(orgTenantId: string, jobId: string, assigneeUserId: string, previousAssigneeId?: string): VanRecord | undefined {
+    const van = this.driverVan(orgTenantId, assigneeUserId)
+    if (!van) return undefined
+    const row = this.db
+      .prepare('SELECT input FROM workflow_runs WHERE id = ? AND tenant_id = ?')
+      .get(jobId, orgTenantId) as { input?: string } | undefined
+    if (!row) return undefined
+    const currentVanId = clean(parse(row.input)?.vanId, 80)
+    if (currentVanId === van.id) return van
+    if (currentVanId) {
+      const current = this.getVan(orgTenantId, currentVanId)
+      const followsPreviousWorker = Boolean(previousAssigneeId) && current?.driverUserId === previousAssigneeId
+      if (current && !followsPreviousWorker) return undefined
+    }
+    this.linkJob(orgTenantId, jobId, { vanId: van.id })
+    return van
   }
 
   public storeFile(orgTenantId: string, rawStoreNumber: string): StoreFile | undefined {

@@ -1,7 +1,9 @@
-import Spacer, {SpacerProps} from "@/components/walt/spacer/Spacer";
+import { Space } from "@mantine/core";
+import {SpacerProps} from "@/components/walt/spacer/Spacer";
 
 type Props = Pick<SpacerProps, 'size'>;
 
+/** Vertical gap; `size` keeps the legacy 0.25rem step. */
 export default function HSpacer({ size }: Props) {
-  return <Spacer type="horizontal" size={size} />;
+  return <Space h={`${size * 0.25}rem`} />;
 }

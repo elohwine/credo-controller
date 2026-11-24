@@ -1,20 +1,32 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import Layout from '@/components/Layout';
-import {
-    CubeIcon,
-    TagIcon,
-    CheckCircleIcon,
-    XCircleIcon,
-    MagnifyingGlassIcon,
-    Bars3Icon,
-    Squares2X2Icon,
-    ArrowUpTrayIcon,
-    PlusIcon,
-    ListBulletIcon
-} from '@heroicons/react/24/outline';
-import { BRAND, formatCurrency } from '@/lib/theme';
+import { formatCurrency } from '@/lib/theme';
 import { EnvContext } from '@/pages/_app';
-import { Loader } from '@mantine/core';
+import {
+    AspectRatio,
+    Badge,
+    Box,
+    Button,
+    Card,
+    Center,
+    Group,
+    Image,
+    Loader,
+    Modal,
+    NumberInput,
+    Paper,
+    SegmentedControl,
+    Select,
+    SimpleGrid,
+    Stack,
+    Table,
+    Text,
+    TextInput,
+    Textarea,
+    ThemeIcon,
+    Title,
+} from '@mantine/core';
+import { IconBox, IconLayoutGrid, IconList, IconPlus, IconSearch, IconTag, IconUpload } from '@tabler/icons-react';
 
 interface CatalogItem {
     id: string;
@@ -30,89 +42,106 @@ interface CatalogItem {
 }
 
 const CategorySection: React.FC<{ title: string, items: CatalogItem[], viewMode: 'grid' | 'list' }> = ({ title, items, viewMode }) => (
-    <div className="mb-10">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: BRAND.text }}>
-            <span className="w-1.5 h-6 rounded-full" style={{ backgroundColor: BRAND.curious }}></span>
-            {title}
-            <span className="text-sm font-normal text-gray-400 ml-2">({items.length})</span>
-        </h2>
+    <Stack gap="md">
+        <Group gap="xs" wrap="nowrap">
+            <Box w={6} h={24} bg="blue" style={{ borderRadius: 'var(--mantine-radius-xl)' }} />
+            <Title order={3}>{title}</Title>
+            <Text size="sm" c="dimmed">({items.length})</Text>
+        </Group>
 
         {viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="lg">
                 {items.map(item => (
-                    <div key={item.id} className="group bg-white rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-transparent hover:border-gray-100 overflow-hidden flex flex-col">
-                        <div className="aspect-[4/3] bg-gray-100 relative overflow-hidden">
-                            {item.images && item.images.length > 0 ? (
-                                <img src={item.images[0]} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                            ) : (
-                                <div className="flex items-center justify-center h-full text-gray-300">
-                                    <CubeIcon className="w-12 h-12" />
-                                </div>
-                            )}
-                            <div className="absolute top-2 right-2">
-                                <span className="bg-white/90 backdrop-blur text-xs font-bold px-2 py-1 rounded-md shadow-sm" style={{ color: BRAND.text }}>
-                                    {formatCurrency(item.price, item.currency)}
-                                </span>
-                            </div>
-                        </div>
-                        <div className="p-4 flex-1 flex flex-col">
-                            <h3 className="font-semibold text-lg mb-1 line-clamp-1" style={{ color: BRAND.text }}>{item.title}</h3>
-                            <p className="text-sm text-gray-500 line-clamp-2 mb-3 flex-1">{item.description || 'No description'}</p>
-
-                            <div className="flex items-center justify-between text-xs text-gray-400 mt-auto pt-3 border-t border-gray-50">
-                                <span className="font-mono">{item.sku || 'No SKU'}</span>
-                                {item.category && (
-                                    <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
-                                        <TagIcon className="w-3 h-3" />
-                                        {item.category}
-                                    </span>
+                    <Card key={item.id} withBorder radius="md" padding="md" h="100%">
+                        <Card.Section pos="relative">
+                            <AspectRatio ratio={4 / 3}>
+                                {item.images && item.images.length > 0 ? (
+                                    <Image src={item.images[0]} alt={item.title} fit="cover" />
+                                ) : (
+                                    <Center bg="var(--mantine-color-default-hover)" c="dimmed">
+                                        <IconBox size={48} stroke={1.4} />
+                                    </Center>
                                 )}
-                            </div>
-                        </div>
-                    </div>
+                            </AspectRatio>
+                            <Badge
+                                variant="default"
+                                size="lg"
+                                radius="sm"
+                                style={{ position: 'absolute', top: 8, right: 8, boxShadow: 'var(--mantine-shadow-xs)' }}
+                            >
+                                {formatCurrency(item.price, item.currency)}
+                            </Badge>
+                        </Card.Section>
+                        <Stack gap={4} mt="md" style={{ flex: 1 }}>
+                            <Text fw={600} size="lg" lineClamp={1}>{item.title}</Text>
+                            <Text size="sm" c="dimmed" lineClamp={2} style={{ flex: 1 }}>{item.description || 'No description'}</Text>
+                        </Stack>
+                        <Group
+                            justify="space-between"
+                            mt="sm"
+                            pt="sm"
+                            wrap="nowrap"
+                            style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}
+                        >
+                            <Text size="xs" c="dimmed" ff="monospace">{item.sku || 'No SKU'}</Text>
+                            {item.category && (
+                                <Badge variant="light" color="blue" size="sm" leftSection={<IconTag size={12} />}>
+                                    {item.category}
+                                </Badge>
+                            )}
+                        </Group>
+                    </Card>
                 ))}
-            </div>
+            </SimpleGrid>
         ) : (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                        <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Price</th>
-                        </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                        {items.map(item => (
-                            <tr key={item.id} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="flex items-center">
-                                        <div className="h-10 w-10 flex-shrink-0 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden">
-                                            {item.images?.[0] ? <img src={item.images[0]} className="w-full h-full object-cover" /> : <CubeIcon className="w-6 h-6 text-gray-400" />}
-                                        </div>
-                                        <div className="ml-4">
-                                            <div className="text-sm font-medium text-gray-900">{item.title}</div>
-                                            <div className="text-sm text-gray-500 truncate max-w-xs">{item.description}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-800">
-                                        {item.category || 'Uncategorized'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{item.sku || '-'}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: BRAND.curious }}>
-                                    {formatCurrency(item.price, item.currency)}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                <Table.ScrollContainer minWidth={640}>
+                    <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="lg">
+                        <Table.Thead>
+                            <Table.Tr>
+                                <Table.Th>Item</Table.Th>
+                                <Table.Th>Category</Table.Th>
+                                <Table.Th>SKU</Table.Th>
+                                <Table.Th>Price</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {items.map(item => (
+                                <Table.Tr key={item.id}>
+                                    <Table.Td>
+                                        <Group gap="md" wrap="nowrap">
+                                            {item.images?.[0] ? (
+                                                <Image src={item.images[0]} alt="" w={40} h={40} radius="md" fit="cover" />
+                                            ) : (
+                                                <ThemeIcon variant="light" color="gray" size={40} radius="md">
+                                                    <IconBox size={22} stroke={1.5} />
+                                                </ThemeIcon>
+                                            )}
+                                            <Box style={{ minWidth: 0 }}>
+                                                <Text size="sm" fw={500}>{item.title}</Text>
+                                                <Text size="sm" c="dimmed" truncate="end" maw={320}>{item.description}</Text>
+                                            </Box>
+                                        </Group>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Badge variant="light" color="blue">
+                                            {item.category || 'Uncategorized'}
+                                        </Badge>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Text size="sm" c="dimmed" ff="monospace">{item.sku || '-'}</Text>
+                                    </Table.Td>
+                                    <Table.Td>
+                                        <Text size="sm" fw={500} c="blue">{formatCurrency(item.price, item.currency)}</Text>
+                                    </Table.Td>
+                                </Table.Tr>
+                            ))}
+                        </Table.Tbody>
+                    </Table>
+                </Table.ScrollContainer>
+            </Paper>
         )}
-    </div>
+    </Stack>
 );
 
 export default function CatalogPage() {
@@ -246,15 +275,15 @@ export default function CatalogPage() {
 
     return (
         <Layout title="Catalog">
-            <div className="px-4 sm:px-6 lg:px-8 py-8 transition-all duration-500 ease-in-out">
+            <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
                 {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8 gap-4">
+                <Group justify="space-between" align="flex-start" gap="md">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight" style={{ color: BRAND.text }}>Catalog</h1>
-                        <p className="mt-1 text-gray-500">Manage products, prices, and categories</p>
+                        <Title order={2}>Catalog</Title>
+                        <Text size="sm" c="dimmed" mt={4}>Manage products, prices, and categories</Text>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <Group gap="sm">
                         <input
                             type="file"
                             ref={fileInputRef}
@@ -262,68 +291,68 @@ export default function CatalogPage() {
                             accept=".csv"
                             onChange={handleImport}
                         />
-                        <button
+                        <Button
+                            variant="default"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={importing}
-                            className="inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 hover:shadow-sm transition-all shadow-sm"
+                            loading={importing}
+                            leftSection={<IconUpload size={18} />}
                         >
-                            {importing ? <Loader size="xs" color="gray" className="mr-2" /> : <ArrowUpTrayIcon className="h-5 w-5 mr-2 text-gray-500" />}
                             Import CSV
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                            color="blue"
                             onClick={() => setShowCreateModal(true)}
-                            className="inline-flex items-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 transition-all hover:scale-105 hover:shadow-blue-500/40"
-                            style={{ backgroundColor: BRAND.curious }}
+                            leftSection={<IconPlus size={18} />}
                         >
-                            <PlusIcon className="h-5 w-5 mr-2" />
                             Add Item
-                        </button>
-                    </div>
-                </div>
+                        </Button>
+                    </Group>
+                </Group>
 
                 {/* Controls */}
-                <div className="flex flex-col sm:flex-row gap-4 mb-8 sticky top-0 z-10 bg-gray-50/80 backdrop-blur pb-4 pt-2">
-                    <div className="relative flex-1">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
-                        </div>
-                        <input
-                            type="text"
-                            placeholder="Search catalog..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="block w-full rounded-xl border-gray-200 pl-10 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 transition-all"
-                        />
-                    </div>
+                <Group
+                    gap="md"
+                    py="xs"
+                    wrap="wrap"
+                    style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--mantine-color-body)' }}
+                >
+                    <TextInput
+                        placeholder="Search catalog..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.currentTarget.value)}
+                        leftSection={<IconSearch size={18} />}
+                        size="md"
+                        style={{ flex: 1, minWidth: 220 }}
+                    />
 
-                    <div className="flex bg-white rounded-xl shadow-sm border border-gray-200 p-1">
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={`p-2 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-gray-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                        >
-                            <Squares2X2Icon className="h-5 w-5" />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('list')}
-                            className={`p-2 rounded-lg transition-all ${viewMode === 'list' ? 'bg-gray-100 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}
-                        >
-                            <ListBulletIcon className="h-5 w-5" />
-                        </button>
-                    </div>
-                </div>
+                    <SegmentedControl
+                        value={viewMode}
+                        onChange={(value) => setViewMode(value as 'grid' | 'list')}
+                        data={[
+                            { value: 'grid', label: <Center aria-label="Grid view"><IconLayoutGrid size={18} /></Center> },
+                            { value: 'list', label: <Center aria-label="List view"><IconList size={18} /></Center> },
+                        ]}
+                    />
+                </Group>
 
                 {isLoading ? (
-                    <div className="flex justify-center py-20">
-                        <Loader size="xl" color={BRAND.curious} />
-                    </div>
+                    <Center py={80}>
+                        <Loader size="xl" color="blue" />
+                    </Center>
                 ) : filteredItems.length === 0 ? (
-                    <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-gray-300">
-                        <CubeIcon className="mx-auto h-12 w-12 text-gray-300" />
-                        <h3 className="mt-2 text-sm font-semibold text-gray-900">No items found</h3>
-                        <p className="mt-1 text-sm text-gray-500">{searchTerm ? 'Try a different search term.' : 'Get started by creating a new item or importing one.'}</p>
-                    </div>
+                    <Paper withBorder radius="lg" py={80} px="md" style={{ borderStyle: 'dashed' }}>
+                        <Stack align="center" gap="xs">
+                            <ThemeIcon variant="light" color="gray" size={56} radius="xl">
+                                <IconBox size={30} stroke={1.4} />
+                            </ThemeIcon>
+                            <Text fw={600} size="sm">No items found</Text>
+                            <Text size="sm" c="dimmed" ta="center">
+                                {searchTerm ? 'Try a different search term.' : 'Get started by creating a new item or importing one.'}
+                            </Text>
+                        </Stack>
+                    </Paper>
                 ) : (
-                    <div>
+                    <Stack gap={40}>
                         {categories.map(category => (
                             <CategorySection
                                 key={category}
@@ -332,70 +361,86 @@ export default function CatalogPage() {
                                 viewMode={viewMode}
                             />
                         ))}
-                    </div>
+                    </Stack>
                 )}
 
                 {/* Create Modal */}
-                {showCreateModal && (
-                    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                        <div className="bg-white rounded-2xl p-8 max-w-lg w-full shadow-2xl transform transition-all scale-100 animate-in fade-in zoom-in duration-200">
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="p-3 rounded-xl bg-blue-50 text-blue-600">
-                                    <CubeIcon className="h-8 w-8" />
-                                </div>
-                                <div>
-                                    <h3 className="text-2xl font-bold" style={{ color: BRAND.text }}>Add Product</h3>
-                                    <p className="text-sm text-gray-500">Create a new item in your catalog</p>
-                                </div>
+                <Modal
+                    opened={showCreateModal}
+                    onClose={() => setShowCreateModal(false)}
+                    size="lg"
+                    radius="md"
+                    title={
+                        <Group gap="md" wrap="nowrap">
+                            <ThemeIcon variant="light" color="blue" size={48} radius="md">
+                                <IconBox size={28} stroke={1.5} />
+                            </ThemeIcon>
+                            <div>
+                                <Title order={3}>Add Product</Title>
+                                <Text size="sm" c="dimmed">Create a new item in your catalog</Text>
                             </div>
-                            <form onSubmit={handleCreateItem} className="space-y-5">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1.5 text-gray-700">Product Name</label>
-                                    <input type="text" required value={newItem.title} onChange={e => setNewItem({ ...newItem, title: e.target.value })} className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 py-2.5" placeholder="e.g., Wireless Headphones" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-5">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1.5 text-gray-700">SKU</label>
-                                        <input type="text" value={newItem.sku} onChange={e => setNewItem({ ...newItem, sku: e.target.value })} className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 py-2.5" placeholder="SKU-123" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1.5 text-gray-700">Category</label>
-                                        <input type="text" value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })} className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 py-2.5" placeholder="Electronics" />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-5">
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1.5 text-gray-700">Price</label>
-                                        <div className="relative">
-                                            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                                                <span className="text-gray-500 sm:text-sm">$</span>
-                                            </div>
-                                            <input type="number" step="0.01" required value={newItem.price} onChange={e => setNewItem({ ...newItem, price: parseFloat(e.target.value) })} className="w-full rounded-xl border-gray-300 shadow-sm pl-7 focus:border-blue-500 focus:ring-blue-500/20 py-2.5" placeholder="0.00" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium mb-1.5 text-gray-700">Currency</label>
-                                        <select value={newItem.currency} onChange={e => setNewItem({ ...newItem, currency: e.target.value })} className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 py-2.5">
-                                            <option value="USD">USD</option>
-                                            <option value="ZWL">ZWL</option>
-                                            <option value="ZAR">ZAR</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-1.5 text-gray-700">Description</label>
-                                    <textarea value={newItem.description} onChange={e => setNewItem({ ...newItem, description: e.target.value })} rows={3} className="w-full rounded-xl border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500/20 py-2.5" placeholder="Detailed product description..." />
-                                </div>
+                        </Group>
+                    }
+                >
+                    <form onSubmit={handleCreateItem}>
+                        <Stack gap="md">
+                            <TextInput
+                                label="Product Name"
+                                required
+                                value={newItem.title}
+                                onChange={e => setNewItem({ ...newItem, title: e.currentTarget.value })}
+                                placeholder="e.g., Wireless Headphones"
+                            />
+                            <SimpleGrid cols={2} spacing="md">
+                                <TextInput
+                                    label="SKU"
+                                    value={newItem.sku}
+                                    onChange={e => setNewItem({ ...newItem, sku: e.currentTarget.value })}
+                                    placeholder="SKU-123"
+                                />
+                                <TextInput
+                                    label="Category"
+                                    value={newItem.category}
+                                    onChange={e => setNewItem({ ...newItem, category: e.currentTarget.value })}
+                                    placeholder="Electronics"
+                                />
+                            </SimpleGrid>
+                            <SimpleGrid cols={2} spacing="md">
+                                <NumberInput
+                                    label="Price"
+                                    required
+                                    min={0}
+                                    step={0.01}
+                                    decimalScale={2}
+                                    leftSection={<Text size="sm" c="dimmed">$</Text>}
+                                    value={newItem.price}
+                                    onChange={value => setNewItem({ ...newItem, price: typeof value === 'number' ? value : parseFloat(value) })}
+                                    placeholder="0.00"
+                                />
+                                <Select
+                                    label="Currency"
+                                    value={newItem.currency}
+                                    onChange={value => setNewItem({ ...newItem, currency: value || 'USD' })}
+                                    data={['USD', 'ZWL', 'ZAR']}
+                                    allowDeselect={false}
+                                />
+                            </SimpleGrid>
+                            <Textarea
+                                label="Description"
+                                value={newItem.description}
+                                onChange={e => setNewItem({ ...newItem, description: e.currentTarget.value })}
+                                rows={3}
+                                placeholder="Detailed product description..."
+                            />
 
-                                <div className="flex justify-end gap-3 pt-6">
-                                    <button type="button" onClick={() => setShowCreateModal(false)} className="rounded-xl px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">Cancel</button>
-                                    <button type="submit" disabled={isLoading} className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/20 hover:shadow-blue-500/30 transition-all hover:translate-y-[-1px]" style={{ backgroundColor: BRAND.curious }}>{isLoading ? 'Creating...' : 'Create Product'}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )}
-            </div>
+                            <Group justify="flex-end" gap="sm" pt="md">
+                                <Button type="button" variant="subtle" color="gray" onClick={() => setShowCreateModal(false)}>Cancel</Button>
+                                <Button type="submit" color="blue" loading={isLoading}>Create Product</Button>
+                            </Group>
+                        </Stack>
+                    </form>
+                </Modal>
+            </Stack>
         </Layout>
     );
 }

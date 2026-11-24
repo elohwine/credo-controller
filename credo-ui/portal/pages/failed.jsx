@@ -1,6 +1,7 @@
 import { PRODUCT_NAME } from '@/utils/orgProfile'
-import {XCircleIcon} from "@heroicons/react/24/outline";
 import {useState} from "react";
+import { Box, Center, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from '@mantine/core';
+import { IconCircleX } from '@tabler/icons-react';
 
 export default function Failed() {
   const [verificationPolicies, setVerificationPolicies] = useState([
@@ -10,47 +11,59 @@ export default function Failed() {
   ]);
 
   return (
-    <div className="h-screen flex justify-center items-center bg-gray-50">
-      <div className="relative w-full h-full sm:h-auto sm:w-10/12 md:w-8/12 lg:w-6/12 text-center shadow-2xl rounded-lg pt-8 pb-8 px-10 bg-white">
-        <h1 className="text-3xl text-gray-900 text-center font-bold mb-10">
-          Presented Credentials
-        </h1>
-        <div className="flex flex-col items-center">
-          <div className="w-80 h-60 sm:h-[225px] sm:w-[400px]">
-            <div className="flex h-full w-full flex-col drop-shadow-sm rounded-xl py-7 px-8 text-gray-100 overflow-hidden bg-gradient-to-r from-red-700 to-red-900 z-[-2]">
-              <div className="flex flex-row">
-                <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
-              </div>
-              <div className="mb-8 mt-12">
-                <h6 className={'text-2xl font-bold '}>Failed to verify</h6>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="mt-10 px-12">
-          <div className="xs:grid xs:grid-cols-2 items-center justify-center">
-            {verificationPolicies.map((policy, index) => {
-              return (
-                <div
-                  key={policy}
-                  className={`flex items-center gap-3 ${
-                    index % 2 == 1 ? 'justify-self-end' : ''
-                  }`}
-                >
-                  <XCircleIcon className="h-4 text-red-600" />
-                  <div>{policy}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        <div className="flex flex-col items-center mt-12">
-          <div className="flex flex-row gap-2 items-center content-center text-sm text-center" style={{ color: '#7B8794' }}>
-            <p className="">Secured by {PRODUCT_NAME}</p>
+    <Center mih="100vh" p={{ base: 0, sm: 'md' }} bg="var(--mantine-color-body)">
+      <Paper
+        shadow="xl"
+        radius="md"
+        withBorder
+        py="xl"
+        px={{ base: 'md', sm: 40 }}
+        w={{ base: '100%', sm: '83%', md: '66%', lg: '50%' }}
+        ta="center"
+      >
+        <Title order={1} mb={40}>
+          Shared records
+        </Title>
+        <Center>
+          <Paper
+            radius="lg"
+            shadow="sm"
+            py={28}
+            px="xl"
+            w={{ base: 320, sm: 400 }}
+            h={{ base: 240, sm: 225 }}
+            ta="left"
+            style={{
+              overflow: 'hidden',
+              color: 'var(--mantine-color-white)',
+              background: 'linear-gradient(to right, var(--mantine-color-red-7), var(--mantine-color-red-9))',
+            }}
+          >
+            <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 35, width: 'auto' }} />
+            <Title order={3} c="white" mt={48}>
+              Failed to verify
+            </Title>
+          </Paper>
+        </Center>
+        <Box mt={40} px={{ base: 0, sm: 'xl' }}>
+          <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+            {verificationPolicies.map((policy) => (
+              <Group key={policy} gap="sm">
+                <ThemeIcon variant="light" color="red" size="sm" radius="xl">
+                  <IconCircleX size={14} />
+                </ThemeIcon>
+                <Text>{policy}</Text>
+              </Group>
+            ))}
+          </SimpleGrid>
+        </Box>
+        <Stack align="center" mt={48}>
+          <Group gap="xs">
+            <Text size="sm" c="dimmed">Secured by {PRODUCT_NAME}</Text>
             <img src="/brand-logo.svg" alt={PRODUCT_NAME} style={{ height: 15, width: 'auto' }} />
-          </div>
-        </div>
-      </div>
-    </div>
+          </Group>
+        </Stack>
+      </Paper>
+    </Center>
   );
 }

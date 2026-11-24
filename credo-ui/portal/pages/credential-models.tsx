@@ -4,6 +4,8 @@ import axios from 'axios';
 import Head from 'next/head';
 import { CredentialsContext, EnvContext } from '@/pages/_app';
 import CredentialDefinitionList from '@/components/credentials/CredentialDefinitionList';
+import { Alert, Badge, Button, Code, Divider, Group, Loader, Paper, Stack, Text, Title } from '@mantine/core';
+import { IconAlertCircle, IconInfoCircle, IconRefresh } from '@tabler/icons-react';
 
 interface CredentialDefinition {
   credentialDefinitionId: string;
@@ -90,124 +92,65 @@ export default function CredentialModelsPage() {
   return (
     <>
       <Head>
-        <title>{`Credential Models - ${PRODUCT_NAME} Portal`}</title>
-        <meta name="description" content="Browse and manage credential definition models" />
+        <title>{`Record templates - ${PRODUCT_NAME} Portal`}</title>
+        <meta name="description" content="Browse and manage record templates" />
       </Head>
 
-      <div className="py-6">
-        <div className="bg-white border border-[#D0E6F3] rounded-xl p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
+      <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
+        <Paper withBorder radius="md" p="lg">
+          <Group justify="space-between" align="flex-start" gap="md">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Credential Models</h1>
-              <p className="mt-1 text-sm text-gray-600">
-                Browse and manage verifiable credential definitions by category
-              </p>
+              <Title order={2}>Record templates</Title>
+              <Text size="sm" c="dimmed" mt={4}>
+                Browse and manage the templates used to create signed records, grouped by category
+              </Text>
             </div>
-            <div className="flex items-center gap-3">
-              <span
-                className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold"
-                style={{ backgroundColor: '#D0E6F3', color: '#0F3F5E' }}
-              >
-                {definitions.length} {definitions.length === 1 ? 'Model' : 'Models'}
-              </span>
-              <button
+            <Group gap="sm">
+              <Badge variant="light" size="lg">
+                {definitions.length} {definitions.length === 1 ? 'Template' : 'Templates'}
+              </Badge>
+              <Button
+                variant="default"
+                radius="xl"
+                leftSection={<IconRefresh size={18} />}
                 onClick={() => window.location.reload()}
-                className="inline-flex items-center px-4 py-2 border rounded-full text-sm font-semibold bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2"
-                style={{ borderColor: '#D0E6F3', color: '#0F3F5E', boxShadow: 'none' }}
               >
-                <svg
-                  className="-ml-1 mr-2 h-5 w-5"
-                  style={{ color: '#2188CA' }}
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
                 Refresh
-              </button>
-            </div>
-          </div>
-        </div>
+              </Button>
+            </Group>
+          </Group>
+        </Paper>
 
-        <main className="py-8">
-          {isLoading && (
-            <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-700"></div>
-              <p className="ml-4 text-gray-600 text-lg">Loading credential models...</p>
-            </div>
-          )}
+        {isLoading && (
+          <Group justify="center" py="xl" gap="md">
+            <Loader size="lg" />
+            <Text c="dimmed" size="lg">
+              Loading record templates...
+            </Text>
+          </Group>
+        )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg
-                    className="h-5 w-5 text-red-400"
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">Error loading credentials</h3>
-                  <p className="mt-1 text-sm text-red-700">{error}</p>
-                </div>
-              </div>
-            </div>
-          )}
+        {error && (
+          <Alert color="red" variant="light" icon={<IconAlertCircle size={20} />} title="Error loading templates">
+            {error}
+          </Alert>
+        )}
 
-          {!isLoading && !error && <CredentialDefinitionList definitions={definitions || []} />}
-        </main>
+        {!isLoading && !error && <CredentialDefinitionList definitions={definitions || []} />}
 
-        {/* Footer Info */}
-        <footer className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 mt-12 border-t border-gray-200">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg
-                  className="h-5 w-5 text-blue-400"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fillRule="evenodd"
-                    d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </div>
-              <div className="ml-3 flex-1">
-                <h3 className="text-sm font-medium text-blue-800">Credential Model Management</h3>
-                <div className="mt-2 text-sm text-blue-700">
-                  <p>
-                    To seed additional credential models, run:{' '}
-                    <code className="bg-blue-100 px-2 py-1 rounded font-mono text-xs">
-                      yarn seed:models --apiKey test-api-key-12345
-                    </code>
-                  </p>
-                  <p className="mt-2">
-                    Models are tenant-isolated and stored in SQLite. Supported types: Payment, Identity, Educational Badges, Health Records (mDoc & EHR).
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </footer>
-      </div>
+        <Divider mt="xl" />
+        <Alert color="blue" variant="light" icon={<IconInfoCircle size={20} />} title="Managing templates">
+          <Stack gap="xs">
+            <Text size="sm">
+              To add more templates, run: <Code>yarn seed:models --apiKey test-api-key-12345</Code>
+            </Text>
+            <Text size="sm">
+              Templates are kept separate for each organization and stored in SQLite. Supported types: Payment,
+              Identity, Educational Badges, Health Records (mDoc &amp; EHR).
+            </Text>
+          </Stack>
+        </Alert>
+      </Stack>
     </>
   );
 }

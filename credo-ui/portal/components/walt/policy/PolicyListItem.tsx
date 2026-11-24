@@ -1,4 +1,4 @@
-import Checkbox from "@/components/walt/forms/Checkbox";
+import { Checkbox } from "@mantine/core";
 
 type Props = {
   name: string;
@@ -8,9 +8,11 @@ type Props = {
 
 export default function PolicyListItem({ name, value, onChange }: Props) {
   return (
-    <div className="flex flex-row">
-      <Checkbox value={value} onChange={onChange} />
-      <span>{name}</span>
-    </div>
+    <Checkbox
+      checked={value}
+      onChange={(e) => onChange(e.currentTarget.checked)}
+      label={name}
+      radius="sm"
+    />
   );
 }

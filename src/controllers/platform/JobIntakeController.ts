@@ -118,7 +118,8 @@ export class JobIntakeController {
     if (body.sourceType === 'email' || body.sourceMessageId) {
       throw new StatusException('Email intake is not enabled on this endpoint.', 400)
     }
-    const input = { ...body, reference: `FR-${Date.now()}-${randomUUID().slice(0, 8)}` }
+    const links = operationsRegisterService.linkIntake(principal.tenantId, body, { text: body.description })
+    const input = { ...body, ...links, reference: `FR-${Date.now()}-${randomUUID().slice(0, 8)}` }
     const db = DatabaseManager.getDatabase()
     const action = 'job-intake:create'
     const idempotency = IdempotencyGuard.guard(db, request, principal.tenantId, action)
@@ -226,7 +227,10 @@ export class JobIntakeController {
         )
       }
       const changes: Partial<JobIntakeInput> = {}
-      const vanId = String(body?.vanId || '').trim()
+      // No van chosen and none on the request: the van the worker drives goes with them.
+      const vanId =
+        String(body?.vanId || '').trim() ||
+        (payload.vanId ? '' : operationsRegisterService.driverVan(principal.tenantId, assigneeId)?.id || '')
       if (vanId) {
         const van = operationsRegisterService.getVan(principal.tenantId, vanId)
         if (!van) throw new StatusException('That van is not on the register.', 400)

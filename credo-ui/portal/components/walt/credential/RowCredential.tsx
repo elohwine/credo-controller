@@ -1,6 +1,7 @@
 import { AvailableCredential, CredentialFormats, DIDMethods } from "@/types/credentials";
 import EditCredentialModal from "../modal/EditCredentialModal";
-import { PencilSquareIcon } from "@heroicons/react/24/outline";
+import { ActionIcon, Box, Group, Text } from "@mantine/core";
+import { IconPencil } from "@tabler/icons-react";
 import Dropdown from "@/components/walt/forms/Dropdown";
 import React from "react";
 
@@ -53,37 +54,47 @@ export default function RowCredential({
 
   return (
     <>
-      <div className="lg:flex flex-row gap-5 justify-between">
-        <div className="flex flex-row gap-5 items-center">
-          <div className="hidden sm:block bg-primary-400 w-[45px] h-[28px] rounded-lg"></div>
-          <span className="text-gray-900 text-lg text-left">
+      <Group justify="space-between" gap="md" align="center">
+        <Group gap="md" wrap="nowrap">
+          <Box
+            visibleFrom="sm"
+            w={45}
+            h={28}
+            bg="var(--mantine-primary-color-light)"
+            style={{ borderRadius: 'var(--mantine-radius-md)', flexShrink: 0 }}
+          />
+          <Text size="lg" ta="left">
             {credentialToEdit.title}
-          </span>
-          <PencilSquareIcon
+          </Text>
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="sm"
+            aria-label={`Edit ${credentialToEdit.title}`}
             onClick={() => {
               setModalVisible(true);
             }}
-            className="h-4 text-gray-500 hover:text-primary-400 cursor-pointer"
-          />
-        </div>
-        <div className="flex flex-row items-center gap-3 lg:w-5/12">
-          <div className="hidden lg:block w-[2px] h-[2px] bg-gray-200"></div>
-          <div className="w-full">
+          >
+            <IconPencil size={16} />
+          </ActionIcon>
+        </Group>
+        <Group gap="sm" wrap="nowrap" w={{ base: '100%', lg: '42%' }}>
+          <Box flex={1}>
             <Dropdown
               values={CredentialFormats}
               selected={selectedFormat}
               setSelected={setSelectedFormat}
             />
-          </div>
-          <div className="w-full">
+          </Box>
+          <Box flex={1}>
             <Dropdown
               values={DIDMethods}
               selected={selectedDID}
               setSelected={setSelectedDID}
             />
-          </div>
-        </div>
-      </div>
+          </Box>
+        </Group>
+      </Group>
       <EditCredentialModal
         show={modalVisible}
         onClose={() => {
@@ -96,4 +107,3 @@ export default function RowCredential({
     </>
   );
 }
-

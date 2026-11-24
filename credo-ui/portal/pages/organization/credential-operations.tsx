@@ -317,8 +317,8 @@ export default function CredentialOperationsPage() {
     <Layout title="Manage records">
       <Stack gap="xl" maw={1080} mx="auto" py="lg">
         <Box ta="center">
-          <Title order={1} c="#0A3D5C">
-            Credentials
+          <Title order={1}>
+            Records
           </Title>
           <Text c="dimmed" mt="sm">
             Issue and manage {ctx.activeOrg?.name || 'your organization'} records.
@@ -343,7 +343,7 @@ export default function CredentialOperationsPage() {
 
         <Tabs value={tab} onChange={setTab}>
           <Tabs.List justify="center" mb="xl">
-            <Tabs.Tab value="credentials">Credential types</Tabs.Tab>
+            <Tabs.Tab value="credentials">Record types</Tabs.Tab>
             <Tabs.Tab value="offers">Offers ({lifecycle.offers.length})</Tabs.Tab>
             <Tabs.Tab value="issued">Issued ({lifecycle.issued.length})</Tabs.Tab>
           </Tabs.List>
@@ -569,7 +569,7 @@ export default function CredentialOperationsPage() {
           <Tabs.Panel value="offers">
             <Card withBorder radius="lg" p="lg">
               <Title order={4} mb="sm">
-                Credential offers
+                Record offers
               </Title>
               {loading ? (
                 <Loader size="sm" />
@@ -652,7 +652,7 @@ export default function CredentialOperationsPage() {
           <Tabs.Panel value="issued">
             <Card withBorder radius="lg" p="lg">
               <Title order={4} mb="sm">
-                Issued credentials
+                Issued records
               </Title>
               {loading ? (
                 <Loader size="sm" />
