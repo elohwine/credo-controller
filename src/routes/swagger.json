@@ -34642,6 +34642,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "staffCardOfferUri": {
+                      "type": "string"
+                    },
                     "name": {
                       "type": "string"
                     },

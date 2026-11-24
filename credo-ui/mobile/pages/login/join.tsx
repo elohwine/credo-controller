@@ -74,6 +74,16 @@ export default function JoinPage() {
       const { rememberCurrentAccount } = await import('@/lib/savedAccounts');
       rememberCurrentAccount(phone.trim());
       void import('@/lib/offline/walletSnapshotSync').then(({ syncWalletSnapshot }) => syncWalletSnapshot()).catch(() => undefined);
+      // Joining is the yes: save the staff card now. If it fails it stays in Inbox and the guide points there.
+      if (res.data.staffCardOfferUri) {
+        await api
+          .post(
+            '/api/wallet/credentials/accept-offer',
+            { offerUri: res.data.staffCardOfferUri },
+            { headers: { Authorization: `Bearer ${res.data.token}` }, timeout: 20000 },
+          )
+          .catch(() => undefined);
+      }
       router.replace('/inbox');
     } catch (err: any) {
       setError(err.response?.data?.message ?? err.message ?? 'Could not accept the invite');
@@ -100,6 +110,7 @@ export default function JoinPage() {
               <Title order={4}>Join {invite.orgName}</Title>
               <Text size="sm" c="dimmed">
                 You were added as {roleLabel(invite.role)}. Confirm your name and choose your own PIN. Only you will know it.
+                Joining saves your staff card from {invite.orgName}; it lets you sign off the jobs you handle.
               </Text>
             </Stack>
             <TextInput label="Your name" description="This is how your team sees you." value={name} onChange={(e) => setName(e.target.value)} required />

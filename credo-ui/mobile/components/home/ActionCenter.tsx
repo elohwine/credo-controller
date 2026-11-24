@@ -12,6 +12,7 @@ import { Text } from '@mantine/core';
 import { isEmployeeOrgRole, getActiveOrgId, getOrgRoleClaim, getUserRole } from '@/lib/auth';
 import QRCode from 'react-qr-code';
 import RequestSheet from '@/components/shared/RequestSheet';
+import { roleLabel } from '../../../shared/orgPeople';
 
 interface ActionCenterProps {
     contextMode: 'personal' | 'org';
@@ -228,15 +229,15 @@ function OrganisationCard({
                         backfaceVisibility: 'hidden',
                         WebkitBackfaceVisibility: 'hidden',
                         background: isDark
-                            ? 'linear-gradient(135deg, #3d2a00 0%, #1a1100 100%)'
-                            : 'linear-gradient(135deg, #5c3f00 0%, #2f2000 100%)',
+                            ? 'linear-gradient(135deg, #0b2a44 0%, #0a1d30 100%)'
+                            : 'linear-gradient(135deg, #165f93 0%, #0c3554 100%)',
                         borderRadius: 20,
                         padding: '18px 20px',
                         display: 'flex',
                         flexDirection: 'column',
                         justifyContent: 'space-between',
                         boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                        border: '1px solid rgba(251, 191, 36, 0.25)',
+                        border: '1px solid rgba(111, 180, 220, 0.25)',
                     }}
                 >
                     {/* Top row */}
@@ -246,8 +247,8 @@ function OrganisationCard({
                             style={{
                                 width: 48,
                                 height: 48,
-                                borderRadius: '50%',
-                                background: 'linear-gradient(135deg, #fbbf24 0%, #d97706 100%)',
+                                borderRadius: 14,
+                                background: 'linear-gradient(135deg, #6FB4DC 0%, #2188CA 100%)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
@@ -263,8 +264,8 @@ function OrganisationCard({
                         {/* Role badge */}
                         <Box
                             style={{
-                                background: 'rgba(251, 191, 36, 0.15)',
-                                border: '1px solid rgba(251, 191, 36, 0.35)',
+                                background: 'rgba(111, 180, 220, 0.16)',
+                                border: '1px solid rgba(111, 180, 220, 0.4)',
                                 borderRadius: 20,
                                 padding: '4px 10px',
                                 display: 'flex',
@@ -277,26 +278,26 @@ function OrganisationCard({
                                     width: 7,
                                     height: 7,
                                     borderRadius: '50%',
-                                    background: '#fbbf24',
+                                    background: '#9fd0ec',
                                     flexShrink: 0,
                                 }}
                             />
-                            <Text size="xs" fw={600} style={{ color: '#fbbf24', textTransform: 'capitalize' }}>
-                                {String(role || 'Member').replace(/[_-]+/g, ' ')}
+                            <Text size="xs" fw={600} style={{ color: '#cfe8f6' }}>
+                                {roleLabel(role || undefined)}
                             </Text>
                         </Box>
                     </Group>
 
-                    {/* Bottom — name + id + summary */}
+                    {/* Bottom — name + summary */}
                     <Box>
-                        <Text fw={800} size="lg" style={{ color: '#fff', lineHeight: 1.2 }}>
+                        <Text fw={800} size="lg" style={{ color: '#fff', lineHeight: 1.2 }} lineClamp={1}>
                             {displayName}
                         </Text>
-                        <Group gap={4} align="center" mt={8}>
+                        <Group gap={4} align="center" mt={8} wrap="nowrap">
                             <Text size="xs" style={{ color: 'rgba(255,255,255,0.8)' }}>
                                 {inboxCount > 0
-                                    ? `${inboxCount} wallet item${inboxCount !== 1 ? 's' : ''} waiting`
-                                    : 'Organisation identity'}
+                                    ? `Organisation account · ${inboxCount} waiting in Inbox`
+                                    : 'Organisation account'}
                             </Text>
                             <Text
                                 size="10px"
@@ -327,9 +328,9 @@ function OrganisationCard({
                         boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
                     }}
                 >
-                    <QRCode value={qrValue} size={110} fgColor="#2f2000" bgColor="#fff" />
+                    <QRCode value={qrValue} size={110} fgColor="#0c3554" bgColor="#fff" />
                     <Text size="xs" c="dimmed" ta="center">
-                        Show to pair this Organisation
+                        Show this to identify {displayName}
                     </Text>
                 </Box>
             </Box>
@@ -402,7 +403,7 @@ export default function ActionCenter({
                 </Group>
                 <Text size="xs" c="dimmed">
                     {isOrg
-                        ? 'Scan checks a record someone shows you. Make a request starts a purchase, a job, or a bill this organisation can run. It does not ask another supplier. Only what was turned on in setup is offered.'
+                        ? 'Scan checks a record someone shows you. Make a request starts a job, a purchase or a bill for this organisation.'
                         : 'Scan checks a record someone shows you. Make a request asks your organisation for time off or an expense, or asks a business you deal with for a quote, a bill or a service.'}
                 </Text>
                 {/* The org home's "Requests and documents" card already links to requests. */}

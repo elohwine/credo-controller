@@ -262,6 +262,51 @@ export class DatabaseManager {
     this.logger.info('All migrations applied successfully')
     this.repairPresentationProtocolColumns(db)
     this.repairDiscoveryColumns(db)
+    this.repairPayrollTaxSchema(db)
+  }
+
+  /**
+   * 013_create_tax_compliance shares version 13 with 013_create_inventory, so the runner never
+   * applied it: tax filings and completing a pay period both failed. Create what it would have.
+   */
+  private static repairPayrollTaxSchema(db: Database.Database): void {
+    const runs = db.prepare('PRAGMA table_info(payroll_runs)').all() as Array<{ name: string }>
+    if (runs.length === 0) return
+    const names = new Set(runs.map((column) => column.name))
+    for (const [column, definition] of [
+      ['total_nssa', 'REAL DEFAULT 0'],
+      ['total_paye', 'REAL DEFAULT 0'],
+      ['total_aids_levy', 'REAL DEFAULT 0'],
+      ['run_vc_id', 'TEXT'],
+      ['run_vc_offer_uri', 'TEXT'],
+    ]) {
+      if (names.has(column)) continue
+      db.exec(`ALTER TABLE payroll_runs ADD COLUMN ${column} ${definition}`)
+      this.logger.info(`Added missing column payroll_runs.${column}`)
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS tax_compliance (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL DEFAULT 'default',
+        tax_type TEXT NOT NULL,
+        period TEXT NOT NULL,
+        amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        filing_date TEXT,
+        reference_number TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        related_payroll_run_id TEXT,
+        compliance_vc_id TEXT,
+        proof_of_payment_ref TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(related_payroll_run_id) REFERENCES payroll_runs(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_tax_compliance_tenant ON tax_compliance(tenant_id);
+      CREATE INDEX IF NOT EXISTS idx_tax_compliance_period ON tax_compliance(period);
+      CREATE INDEX IF NOT EXISTS idx_tax_compliance_type ON tax_compliance(tax_type);
+      CREATE INDEX IF NOT EXISTS idx_tax_compliance_status ON tax_compliance(status);
+    `)
   }
 
   /**

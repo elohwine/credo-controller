@@ -104,6 +104,16 @@ function writeList(accounts: SavedAccount[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts))
 }
 
+/** The saved-accounts list itself changed in another tab (not the signed-in session). */
+export function isSavedAccountsKey(key: string | null): boolean {
+  return key === STORAGE_KEY
+}
+
+/** A storage change that alters who is signed in or which organisation is open. `null` is a full clear. */
+export function isSessionStorageKey(key: string | null): boolean {
+  return key === null || SESSION_KEYS.includes(key)
+}
+
 function snapshotSession(): Record<string, string> {
   const session: Record<string, string> = {}
   for (const key of SESSION_KEYS) {
@@ -265,7 +275,19 @@ export function rememberCurrentAccount(label?: string): void {
   )
   const session = snapshotSession()
   const person = savedAccountPersonKey(session, id)
-  const accounts = readList().filter(
+  // Unchanged: do not write. Every write reaches the other open tabs as a storage event, and
+  // they answer by saving again, so rewriting timestamps here kept tabs re-rendering each other.
+  const saved = readList()
+  const first = saved[0]
+  if (
+    first &&
+    first.id === id &&
+    !first.signedOut &&
+    first.label === nextLabel &&
+    JSON.stringify(first.session) === JSON.stringify(session)
+  )
+    return
+  const accounts = saved.filter(
     (account) => account.id !== id && savedAccountPersonKey(account.session, account.id) !== person,
   )
   accounts.unshift({ id, label: nextLabel, savedAt: new Date().toISOString(), checkedAt: new Date().toISOString(), session })

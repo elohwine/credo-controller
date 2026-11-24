@@ -74,9 +74,13 @@ export function Row({ title, detail, trailing, onClick, surface }: { title: Reac
   const body = (
     <Group justify="space-between" wrap="nowrap" gap="sm" style={{ minHeight: surface === 'phone' ? 56 : 44 }}>
       <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-        <Text fw={500} size={surface === 'phone' ? 'md' : 'sm'} truncate>
-          {title}
-        </Text>
+        {typeof title === 'string' ? (
+          <Text fw={500} size={surface === 'phone' ? 'md' : 'sm'} truncate>
+            {title}
+          </Text>
+        ) : (
+          title
+        )}
         {detail && (
           <Text size="sm" c="dimmed" lineClamp={2}>
             {detail}

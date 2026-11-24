@@ -2,35 +2,15 @@ import { PRODUCT_NAME } from '@/utils/orgProfile'
 import React, { useState, useEffect, useContext } from 'react';
 import Layout from '@/components/Layout';
 import QRCode from 'react-qr-code';
-import {
-    PlayIcon,
-    DocumentTextIcon,
-    CurrencyDollarIcon,
-    CheckCircleIcon,
-    ClockIcon,
-    ExclamationTriangleIcon,
-    ChevronRightIcon,
-    BuildingLibraryIcon,
-    DocumentCheckIcon,
-    QrCodeIcon,
-    DevicePhoneMobileIcon,
-    ClipboardDocumentIcon
-} from '@heroicons/react/24/outline';
+import { Anchor, Badge, Button, Center, Group, Modal, Paper, SimpleGrid, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core';
+import { IconBuildingBank, IconChevronRight, IconCopy, IconFileCheck, IconPlayerPlay, IconReceipt, IconSend, IconUsers, IconWallet } from '@tabler/icons-react';
+import { StatTile } from '../../../shared/StatTile';
+import { feedback } from '@/lib/feedback';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { EnvContext } from '@/pages/_app';
 import { getOrgScopedToken } from '@/utils/organizationContext';
 import { useRequireOrgContext } from '@/lib/portalContext';
-
-// Credentis brand colors
-const BRAND = {
-    curious: '#2188CA',
-    linkWater: '#D0E6F3',
-    viking: '#6FB4DC',
-    cornflower: '#88C4E3',
-    dark: '#0A3D5C',
-    text: 'var(--brand-text)',
-};
 
 interface PayrollRun {
     id: string;
@@ -69,25 +49,21 @@ interface TaxCompliance {
     complianceVcId?: string;
 }
 
-const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
-    const styles: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-        completed: { bg: 'bg-green-100', text: 'text-green-800', icon: <CheckCircleIcon className="h-4 w-4" /> },
-        active: { bg: 'bg-green-100', text: 'text-green-800', icon: <CheckCircleIcon className="h-4 w-4" /> },
-        draft: { bg: 'bg-gray-100', text: 'text-gray-800', icon: <ClockIcon className="h-4 w-4" /> },
-        processing: { bg: 'bg-yellow-100', text: 'text-yellow-800', icon: <ClockIcon className="h-4 w-4" /> },
-        paid: { bg: 'bg-blue-100', text: 'text-blue-800', icon: <CurrencyDollarIcon className="h-4 w-4" /> },
-        pending: { bg: 'bg-orange-100', text: 'text-orange-800', icon: <ExclamationTriangleIcon className="h-4 w-4" /> },
-        filed: { bg: 'bg-blue-100', text: 'text-blue-800', icon: <DocumentCheckIcon className="h-4 w-4" /> },
-        confirmed: { bg: 'bg-green-100', text: 'text-green-800', icon: <CheckCircleIcon className="h-4 w-4" /> },
-    };
-    const style = styles[status] || styles.pending;
-    return (
-        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${style.bg} ${style.text}`}>
-            {style.icon}
-            {status.charAt(0).toUpperCase() + status.slice(1)}
-        </span>
-    );
+const STATUS_LOOK: Record<string, { label: string; color: string }> = {
+    draft: { label: 'Calculated', color: 'gray' },
+    processing: { label: 'Processing', color: 'yellow' },
+    completed: { label: 'Payslips sent', color: 'teal' },
+    paid: { label: 'Paid', color: 'blue' },
+    pending: { label: 'Pending', color: 'orange' },
+    filed: { label: 'Filed', color: 'blue' },
+    confirmed: { label: 'Confirmed', color: 'teal' },
+    active: { label: 'Active', color: 'teal' },
 };
+
+function StatusBadge({ status }: { status: string }) {
+    const look = STATUS_LOOK[status] || { label: status.charAt(0).toUpperCase() + status.slice(1), color: 'gray' };
+    return <Badge variant="light" color={look.color} size="sm">{look.label}</Badge>;
+}
 
 export default function PayrollPage() {
     const [runs, setRuns] = useState<PayrollRun[]>([]);
@@ -230,7 +206,7 @@ export default function PayrollPage() {
             }
         } catch (error) {
             console.error('Failed to reoffer credential:', error);
-            alert('Failed to reoffer credential. Please try again.');
+            feedback.error('Could not create the payslip link. Try again.');
         } finally {
             setIsLoading(false);
         }
@@ -240,217 +216,176 @@ export default function PayrollPage() {
         return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 }).format(amount);
     };
 
-    const stats = [
-        { label: 'People working', value: employees.filter(e => e.status === 'active').length, icon: <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg> },
-        { label: 'Payroll Runs', value: runs.length, icon: <DocumentTextIcon className="h-6 w-6" /> },
-        { label: 'Total Net Paid', value: formatCurrency(runs.filter(r => r.status === 'completed').reduce((a, r) => a + r.totalNet, 0)), icon: <CurrencyDollarIcon className="h-6 w-6" /> },
-        { label: 'Tax Filings', value: taxRecords.length, icon: <BuildingLibraryIcon className="h-6 w-6" /> }
-    ];
+    const activePeople = employees.filter(e => e.status === 'active').length;
+    const netPaid = runs.filter(r => r.status === 'completed').reduce((a, r) => a + r.totalNet, 0);
+    const lastRun = runs[0];
 
     return (
         <Layout title="Payroll">
-            <div className="px-4 sm:px-6 lg:px-8 py-6">
-                {/* Header */}
-                <div className="sm:flex sm:items-center sm:justify-between mb-8">
+            <Stack gap="lg" p={{ base: 'sm', sm: 'lg' }}>
+                <Group justify="space-between" align="flex-start" wrap="wrap" gap="sm">
                     <div>
-                        <h1 className="text-3xl font-bold" style={{ color: 'var(--mantine-color-text)' }}>Payroll</h1>
-                        <p className="mt-2 text-sm" style={{ color: BRAND.curious }}>Run payroll, issue payslips and manage tax filings. Employee records and staff access are managed in <Link href="/hr?tab=team" className="font-medium underline">HR operations</Link>.</p>
+                        <Title order={2}>Payroll</Title>
+                        <Text size="sm" c="dimmed" mt={4}>
+                            Calculate each pay period, send payslips and keep NSSA and PAYE filings. People and their pay details live in{' '}
+                            <Anchor component={Link} href="/hr?tab=team" size="sm">Team</Anchor>.
+                        </Text>
                     </div>
-                    <div className="mt-4 sm:mt-0 flex gap-3">
-                        <button onClick={() => setShowRunModal(true)} className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all hover:shadow-md" style={{ backgroundColor: BRAND.curious }}>
-                            <PlayIcon className="h-5 w-5 mr-2" />
-                            Run Payroll
-                        </button>
-                    </div>
-                </div>
+                    <Button leftSection={<IconPlayerPlay size={16} />} onClick={() => setShowRunModal(true)}>Run payroll</Button>
+                </Group>
 
-                {/* Stats */}
-                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-                    {stats.map((stat, idx) => (
-                        <div key={idx} className="relative overflow-hidden rounded-xl p-6 shadow-sm hover:shadow-md transition-all" style={{ backgroundColor: BRAND.linkWater }}>
-                            <dt>
-                                <div className="absolute rounded-lg p-3" style={{ backgroundColor: BRAND.curious }}><span className="text-white">{stat.icon}</span></div>
-                                <p className="ml-16 truncate text-sm font-medium" style={{ color: BRAND.text }}>{stat.label}</p>
-                            </dt>
-                            <dd className="ml-16 flex items-baseline"><p className="text-2xl font-semibold" style={{ color: BRAND.text }}>{stat.value}</p></dd>
-                        </div>
-                    ))}
-                </div>
+                <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+                    <StatTile label="People on payroll" value={activePeople} icon={IconUsers} hint="Active staff records" onClick={() => void router.push('/hr?tab=team')} />
+                    <StatTile
+                        label="Last pay period"
+                        value={lastRun?.period || '—'}
+                        icon={IconReceipt}
+                        alert={lastRun?.status === 'draft'}
+                        color="orange"
+                        hint={lastRun ? (lastRun.status === 'draft' ? 'Payslips not sent yet' : STATUS_LOOK[lastRun.status]?.label || lastRun.status) : 'No pay periods yet'}
+                    />
+                    <StatTile label="Net paid" value={formatCurrency(netPaid)} icon={IconWallet} hint={`${runs.filter(r => r.status === 'completed').length} completed periods`} />
+                    <StatTile label="Tax filings" value={taxRecords.length} icon={IconBuildingBank} hint="NSSA and PAYE" onClick={() => setActiveTab('compliance')} />
+                </SimpleGrid>
 
-                {/* Tabs */}
-                <div className="border-b border-gray-200 mb-6">
-                    <nav className="-mb-px flex space-x-8">
-                        {[{ id: 'runs', label: 'Payroll Runs', icon: <DocumentTextIcon className="h-5 w-5" /> }, { id: 'compliance', label: 'Tax Compliance', icon: <BuildingLibraryIcon className="h-5 w-5" /> }].map((tab) => (
-                            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`group inline-flex items-center border-b-2 py-4 px-1 text-sm font-medium transition-colors ${activeTab === tab.id ? 'border-current' : 'border-transparent hover:border-gray-300'}`} style={{ color: activeTab === tab.id ? BRAND.curious : '#6B7280', borderColor: activeTab === tab.id ? BRAND.curious : undefined }}>
-                                {tab.icon}<span className="ml-2">{tab.label}</span>
-                            </button>
-                        ))}
-                    </nav>
-                </div>
+                <Tabs value={activeTab} onChange={(v) => v && setActiveTab(v as 'runs' | 'compliance')}>
+                    <Tabs.List>
+                        <Tabs.Tab value="runs" leftSection={<IconReceipt size={16} />}>Pay periods</Tabs.Tab>
+                        <Tabs.Tab value="compliance" leftSection={<IconBuildingBank size={16} />}>Tax filings</Tabs.Tab>
+                    </Tabs.List>
 
-                {/* Payroll Runs Tab */}
-                {activeTab === 'runs' && (
-                    <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead style={{ backgroundColor: BRAND.linkWater }}>
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Period</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Gross</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Net</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Deductions</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>RunVC</th>
-                                    <th className="px-6 py-3 text-right text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 bg-white">
-                                {runs.length === 0 ? (
-                                    <tr><td colSpan={7} className="px-6 py-12 text-center text-sm text-gray-500">No payroll runs yet. Click "Run Payroll" to create one.</td></tr>
-                                ) : runs.map((run) => (
-                                    <tr key={run.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}>{run.period}</td>
-                                        <td className="px-6 py-4 text-sm"><StatusBadge status={run.status} /></td>
-                                        <td className="px-6 py-4 text-sm text-gray-700">{formatCurrency(run.totalGross)}</td>
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(run.totalNet)}</td>
-                                        <td className="px-6 py-4 text-xs text-gray-500">
-                                            <div>NSSA: {formatCurrency(run.totalNssa || 0)}</div>
-                                            <div>PAYE: {formatCurrency(run.totalPaye || 0)}</div>
-                                            <div>AIDS: {formatCurrency(run.totalAidsLevy || 0)}</div>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm">
-                                            {run.runVcId ? (
-                                                <div className="flex items-center gap-2">
-                                                    <span className="inline-flex items-center gap-1 text-green-600"><CheckCircleIcon className="h-4 w-4" /><span className="text-xs font-mono">{run.runVcId.substring(0, 8)}...</span></span>
-                                                    <button onClick={() => handleReoffer(run.id)} className="text-xs font-medium" style={{ color: BRAND.curious }} title="Reoffer credential"><QrCodeIcon className="h-4 w-4" /></button>
-                                                </div>
-                                            ) : <span className="text-gray-400">—</span>}
-                                        </td>
-                                        <td className="px-6 py-4 text-right text-sm">
-                                            <div className="flex justify-end gap-2">
-                                                {run.status === 'draft' && <button onClick={() => handleIssuePayslips(run.id)} disabled={isLoading} className="rounded-md px-2.5 py-1.5 text-xs font-medium text-white" style={{ backgroundColor: BRAND.curious }}><DocumentCheckIcon className="h-4 w-4 mr-1 inline" />Issue VCs</button>}
-                                                {run.status === 'completed' && (
-                                                    <>
-                                                        <button onClick={() => handleIssueTaxCompliance(run.id, 'NSSA')} disabled={isLoading} className="rounded-md border px-2.5 py-1.5 text-xs font-medium" style={{ borderColor: BRAND.curious, color: BRAND.curious }}>File NSSA</button>
-                                                        <button onClick={() => handleIssueTaxCompliance(run.id, 'PAYE')} disabled={isLoading} className="rounded-md border px-2.5 py-1.5 text-xs font-medium" style={{ borderColor: BRAND.curious, color: BRAND.curious }}>File PAYE</button>
-                                                    </>
-                                                )}
-                                                <Link href={`/payroll/${run.id}`} className="inline-flex items-center text-xs font-medium" style={{ color: BRAND.curious }}>Details<ChevronRightIcon className="h-4 w-4 ml-0.5" /></Link>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <Tabs.Panel value="runs" pt="md">
+                        <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                            <Table.ScrollContainer minWidth={760}>
+                                <Table verticalSpacing="sm" highlightOnHover>
+                                    <Table.Thead>
+                                        <Table.Tr>
+                                            <Table.Th>Period</Table.Th>
+                                            <Table.Th>Status</Table.Th>
+                                            <Table.Th ta="right">Gross</Table.Th>
+                                            <Table.Th ta="right">Net</Table.Th>
+                                            <Table.Th>Deductions</Table.Th>
+                                            <Table.Th ta="right">Actions</Table.Th>
+                                        </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                        {runs.length === 0 ? (
+                                            <Table.Tr>
+                                                <Table.Td colSpan={6}>
+                                                    <Center py="xl"><Text size="sm" c="dimmed">No pay periods yet. Choose Run payroll to calculate the first one.</Text></Center>
+                                                </Table.Td>
+                                            </Table.Tr>
+                                        ) : runs.map((run) => (
+                                            <Table.Tr key={run.id}>
+                                                <Table.Td><Text size="sm" fw={600}>{run.period}</Text></Table.Td>
+                                                <Table.Td><StatusBadge status={run.status} /></Table.Td>
+                                                <Table.Td ta="right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(run.totalGross)}</Table.Td>
+                                                <Table.Td ta="right" fw={600} style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(run.totalNet)}</Table.Td>
+                                                <Table.Td>
+                                                    <Text size="xs" c="dimmed">
+                                                        NSSA {formatCurrency(run.totalNssa || 0)} · PAYE {formatCurrency(run.totalPaye || 0)} · AIDS levy {formatCurrency(run.totalAidsLevy || 0)}
+                                                    </Text>
+                                                </Table.Td>
+                                                <Table.Td>
+                                                    <Group gap={6} justify="flex-end" wrap="nowrap">
+                                                        {run.status === 'draft' && (
+                                                            <Button size="xs" leftSection={<IconSend size={14} />} loading={isLoading} onClick={() => handleIssuePayslips(run.id)}>Send payslips</Button>
+                                                        )}
+                                                        {run.status === 'completed' && (
+                                                            <>
+                                                                <Button size="xs" variant="default" disabled={isLoading} onClick={() => handleIssueTaxCompliance(run.id, 'NSSA')}>File NSSA</Button>
+                                                                <Button size="xs" variant="default" disabled={isLoading} onClick={() => handleIssueTaxCompliance(run.id, 'PAYE')}>File PAYE</Button>
+                                                            </>
+                                                        )}
+                                                        {run.runVcId && (
+                                                            <Button size="xs" variant="subtle" disabled={isLoading} onClick={() => handleReoffer(run.id)}>Share</Button>
+                                                        )}
+                                                        <Button size="xs" variant="subtle" component={Link} href={`/payroll/${run.id}`} rightSection={<IconChevronRight size={14} />}>Details</Button>
+                                                    </Group>
+                                                </Table.Td>
+                                            </Table.Tr>
+                                        ))}
+                                    </Table.Tbody>
+                                </Table>
+                            </Table.ScrollContainer>
+                        </Paper>
+                    </Tabs.Panel>
+
+                    <Tabs.Panel value="compliance" pt="md">
+                        <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+                            <Table.ScrollContainer minWidth={640}>
+                                <Table verticalSpacing="sm" highlightOnHover>
+                                    <Table.Thead>
+                                        <Table.Tr>
+                                            <Table.Th>Tax</Table.Th>
+                                            <Table.Th>Period</Table.Th>
+                                            <Table.Th ta="right">Amount</Table.Th>
+                                            <Table.Th>Reference</Table.Th>
+                                            <Table.Th>Status</Table.Th>
+                                            <Table.Th>Record</Table.Th>
+                                        </Table.Tr>
+                                    </Table.Thead>
+                                    <Table.Tbody>
+                                        {taxRecords.length === 0 ? (
+                                            <Table.Tr>
+                                                <Table.Td colSpan={6}>
+                                                    <Center py="xl"><Text size="sm" c="dimmed">No filings yet. File NSSA or PAYE from a pay period whose payslips were sent.</Text></Center>
+                                                </Table.Td>
+                                            </Table.Tr>
+                                        ) : taxRecords.map((tax) => (
+                                            <Table.Tr key={tax.id}>
+                                                <Table.Td><Text size="sm" fw={600}>{tax.taxType}</Text></Table.Td>
+                                                <Table.Td>{tax.period}</Table.Td>
+                                                <Table.Td ta="right" style={{ fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(tax.amount, tax.currency)}</Table.Td>
+                                                <Table.Td><Text size="xs" ff="monospace" c="dimmed">{tax.referenceNumber || '—'}</Text></Table.Td>
+                                                <Table.Td><StatusBadge status={tax.status} /></Table.Td>
+                                                <Table.Td>
+                                                    {tax.complianceVcId
+                                                        ? <Group gap={4} c="teal"><IconFileCheck size={16} /><Text size="xs">Signed</Text></Group>
+                                                        : <Text size="xs" c="dimmed">—</Text>}
+                                                </Table.Td>
+                                            </Table.Tr>
+                                        ))}
+                                    </Table.Tbody>
+                                </Table>
+                            </Table.ScrollContainer>
+                        </Paper>
+                    </Tabs.Panel>
+                </Tabs>
+            </Stack>
+
+            <Modal opened={showRunModal} onClose={() => setShowRunModal(false)} title="Run payroll" centered>
+                <form onSubmit={handleRunPayroll}>
+                    <Stack gap="md">
+                        <TextInput type="month" label="Pay period" required value={newRun.period} onChange={(e) => setNewRun({ ...newRun, period: e.currentTarget.value })} />
+                        <Text size="sm" c="dimmed">
+                            Calculates pay for everyone active on payroll, with NSSA (4.5%), PAYE and AIDS levy deducted. Nothing is sent until you choose Send payslips.
+                        </Text>
+                        <Group justify="flex-end">
+                            <Button variant="default" onClick={() => setShowRunModal(false)}>Cancel</Button>
+                            <Button type="submit" loading={isLoading}>Calculate</Button>
+                        </Group>
+                    </Stack>
+                </form>
+            </Modal>
+
+            <Modal opened={showReofferModal && Boolean(reofferUri)} onClose={() => setShowReofferModal(false)} title="Share payslip record" centered>
+                {reofferUri && (
+                    <Stack gap="md" align="stretch">
+                        <Text size="sm" c="dimmed">Scan with the {PRODUCT_NAME} app, or copy the link and send it.</Text>
+                        <Center p="md" bg="white" style={{ borderRadius: 'var(--mantine-radius-md)' }}>
+                            <QRCode value={reofferUri} size={200} />
+                        </Center>
+                        <Button
+                            variant="light"
+                            leftSection={<IconCopy size={16} />}
+                            onClick={() => { void navigator.clipboard.writeText(reofferUri); feedback.success('Link copied'); }}
+                        >
+                            Copy link
+                        </Button>
+                    </Stack>
                 )}
-
-                {/* Tax Compliance Tab */}
-                {activeTab === 'compliance' && (
-                    <div className="overflow-hidden rounded-xl shadow ring-1 ring-black ring-opacity-5">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead style={{ backgroundColor: BRAND.linkWater }}>
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Tax Type</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Period</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Amount</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Reference</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>Status</th>
-                                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase" style={{ color: BRAND.text }}>ComplianceVC</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200 bg-white">
-                                {taxRecords.length === 0 ? (
-                                    <tr><td colSpan={6} className="px-6 py-12 text-center text-sm text-gray-500">No tax compliance records. Issue tax compliance VCs from completed payroll runs.</td></tr>
-                                ) : taxRecords.map((tax) => (
-                                    <tr key={tax.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.text }}><BuildingLibraryIcon className="h-4 w-4 inline mr-1" style={{ color: BRAND.curious }} />{tax.taxType}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-700">{tax.period}</td>
-                                        <td className="px-6 py-4 text-sm font-medium" style={{ color: BRAND.curious }}>{formatCurrency(tax.amount, tax.currency)}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-500 font-mono">{tax.referenceNumber || '—'}</td>
-                                        <td className="px-6 py-4 text-sm"><StatusBadge status={tax.status} /></td>
-                                        <td className="px-6 py-4 text-sm">{tax.complianceVcId ? <span className="inline-flex items-center gap-1 text-green-600"><CheckCircleIcon className="h-4 w-4" /><span className="text-xs font-mono">{tax.complianceVcId.substring(0, 8)}...</span></span> : <span className="text-gray-400">—</span>}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-
-                {/* Run Payroll Modal */}
-                {showRunModal && (
-                    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[100]">
-                        <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="p-2 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}><PlayIcon className="h-6 w-6" style={{ color: BRAND.curious }} /></div>
-                                <h3 className="text-xl font-semibold" style={{ color: BRAND.text }}>Run Payroll</h3>
-                            </div>
-                            <form onSubmit={handleRunPayroll} className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-1" style={{ color: BRAND.text }}>Pay Period (YYYY-MM)</label>
-                                    <input type="month" required value={newRun.period} onChange={e => setNewRun({ ...newRun, period: e.target.value })} className="w-full rounded-lg border-gray-300 shadow-sm focus:ring-2 focus:border-transparent" />
-                                </div>
-                                <div className="p-4 rounded-lg" style={{ backgroundColor: BRAND.linkWater }}>
-                                    <p className="text-sm" style={{ color: BRAND.text }}><strong>Note:</strong> This will calculate payroll for all active employees, including NSSA (4.5%), PAYE, and AIDS Levy deductions.</p>
-                                </div>
-                                <div className="flex justify-end gap-3 pt-4">
-                                    <button type="button" onClick={() => setShowRunModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-                                    <button type="submit" disabled={isLoading} className="rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ backgroundColor: BRAND.curious }}>{isLoading ? 'Processing...' : 'Calculate Payroll'}</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                )}
-
-                {/* Reoffer VC Modal */}
-                {showReofferModal && reofferUri && (
-                    <div className="fixed inset-0 z-[100] overflow-y-auto">
-                        <div className="flex min-h-full items-center justify-center p-4">
-                            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setShowReofferModal(false)}></div>
-                            <div className="relative bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
-                                <h2 className="text-2xl font-bold mb-6" style={{ color: BRAND.text }}>
-                                    Scan to Claim Credential
-                                </h2>
-                                <div className="bg-white p-6 rounded-lg border-2 mb-6" style={{ borderColor: BRAND.linkWater }}>
-                                    <QRCode value={reofferUri} size={200} className="mx-auto" />
-                                </div>
-                                <div className="space-y-3">
-                                    <button
-                                        onClick={() => {
-                                            const deeplink = reofferUri.replace('openid-credential-offer://?credential_offer_uri=', 'credentis://offer?uri=');
-                                            window.open(deeplink.startsWith('http') ? deeplink : reofferUri, '_blank');
-                                        }}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-white font-medium"
-                                        style={{ backgroundColor: BRAND.curious }}
-                                    >
-                                        <DevicePhoneMobileIcon className="h-5 w-5" />
-                                        Open in Wallet
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            navigator.clipboard.writeText(reofferUri);
-                                        }}
-                                        className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium"
-                                        style={{ color: BRAND.curious, backgroundColor: BRAND.linkWater }}
-                                    >
-                                        <ClipboardDocumentIcon className="h-5 w-5" />
-                                        Copy offer URL
-                                    </button>
-                                    <button
-                                        onClick={() => setShowReofferModal(false)}
-                                        className="w-full px-4 py-3 rounded-lg font-medium text-gray-600 hover:bg-gray-100"
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                                <div className="mt-6 pt-6 border-t border-gray-200 text-center">
-                                    <p className="text-xs text-gray-500">Powered by <span className="font-semibold" style={{ color: BRAND.curious }}>{PRODUCT_NAME}</span></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </div>
+            </Modal>
         </Layout>
     );
 }
-

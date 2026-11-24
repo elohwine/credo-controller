@@ -27,6 +27,7 @@ import { container, injectable, inject } from 'tsyringe'
 
 import { RestMultiTenantAgentModules } from '../cliAgent'
 import { PLATFORM_IDENTITY_VC_TYPE } from '../config/credentials/PlatformIdentityVC'
+import { EMPLOYEE_OFFER_SOURCE_TYPE } from '../config/credentials/EmployeeVC'
 import { DatabaseManager } from '../persistence/DatabaseManager'
 import { getTenantById } from '../persistence/TenantRepository'
 import { deploymentSecret } from '../utils/deploymentSecret'
@@ -688,7 +689,7 @@ export class SSIAuthService {
     phone: string
     pin: string
     whatsappAlerts?: boolean
-  }): Promise<{ token: string; tenantId: string; name: string }> {
+  }): Promise<{ token: string; tenantId: string; name: string; staffCardOfferUri?: string }> {
     const { OrganizationService } = await import('./OrganizationService')
     const invite = memberInviteService.findOpenByCode(input.code)
     if (!invite) throw new Error('This invite link has expired or was replaced by a newer one')
@@ -749,7 +750,19 @@ export class SSIAuthService {
       custodyRebindService.scheduleRebind(user.tenant_id),
     )
     const token = await this.generateSessionToken(user.id, user.tenant_id, user.did)
-    return { token, tenantId: user.tenant_id, name }
+    // Joining is the person's yes to this organisation, so the join page saves the staff card it
+    // offered them through the normal accept path. If that fails, the card still waits in Inbox.
+    const staffCard = db
+      .prepare(
+        `SELECT offer_uri FROM wallet_pending_offers
+          WHERE tenant_id = ? AND source_type = ? AND source_id = ?
+            AND accepted_at IS NULL AND resolved_at IS NULL
+          ORDER BY datetime(created_at) DESC LIMIT 1`,
+      )
+      .get(user.tenant_id, EMPLOYEE_OFFER_SOURCE_TYPE, `${invite.org_tenant_id}:${user.id}`) as
+      | { offer_uri?: string }
+      | undefined
+    return { token, tenantId: user.tenant_id, name, staffCardOfferUri: staffCard?.offer_uri || undefined }
   }
 
   /**

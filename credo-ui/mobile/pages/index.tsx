@@ -979,6 +979,8 @@ export default function HomePage() {
                 {getGreeting()}
                 {userName ? `, ${userName.split(' ')[0]}` : ''}
               </Title>
+              {/* In an organisation the card below names it and the role; the badges would only repeat it. */}
+              {!isOrgContext && (
               <Group gap={6} mt={4} wrap="wrap">
                 <Badge
                   color="teal"
@@ -999,6 +1001,7 @@ export default function HomePage() {
                   </Badge>
                 )}
               </Group>
+              )}
             </Box>
             <Button
               variant="subtle"
@@ -1015,6 +1018,19 @@ export default function HomePage() {
 
         {isOrgContext ? (
           <>
+        {/* Same order as the personal home: who you are acting as, what you can do, then the work. */}
+        <ActionCenter
+          contextMode="org"
+          inboxCount={inboxCount}
+          pendingOfferCount={pendingOfferCount}
+          proofCount={proofCount}
+          assignedFieldTaskCount={assignedFieldTaskCount}
+          orgLabel={orgLabel}
+          activeWorkflowTypes={activeWorkflowTypes}
+          userName={userName}
+          userAccountId={userAccountId}
+          expiringCount={expiringCount}
+        />
         {jobsApi && (
           <Box>
             <Group justify="space-between" mb={8} align="center">
@@ -1049,21 +1065,6 @@ export default function HomePage() {
           </Box>
         )}
             {!jobsApi && inboxCard}
-            <Text fw={700} size="sm" mb={-8}>
-              Organisation
-            </Text>
-        <ActionCenter
-          contextMode={isOrgContext ? 'org' : 'personal'}
-          inboxCount={inboxCount}
-          pendingOfferCount={pendingOfferCount}
-          proofCount={proofCount}
-          assignedFieldTaskCount={assignedFieldTaskCount}
-          orgLabel={orgLabel}
-          activeWorkflowTypes={activeWorkflowTypes}
-          userName={userName}
-          userAccountId={userAccountId}
-          expiringCount={expiringCount}
-        />
           </>
         ) : (
           <>

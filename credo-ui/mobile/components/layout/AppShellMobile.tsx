@@ -24,6 +24,10 @@ interface AppShellMobileProps {
   minimalHeader?: boolean;
 }
 
+const RESUME_CHECK_INTERVAL_MS = 30_000;
+const CONTEXT_RELOAD_KEY = 'credoContextReloadAt';
+const CONTEXT_RELOAD_GUARD_MS = 60_000;
+
 export default function AppShellMobile({ children, inboxCount, minimalHeader = false }: AppShellMobileProps) {
   const router = useRouter();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
@@ -58,6 +62,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
   useEffect(() => {
     let cancelled = false;
     let syncing = false;
+    let lastBootstrap = 0;
 
     const refreshAuthState = () => {
       if (cancelled) return;
@@ -75,6 +80,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
     const bootstrap = async () => {
       if (syncing) return;
       syncing = true;
+      lastBootstrap = Date.now();
       setMounted(true);
       // Paint the saved context straight away so the header and the tabs agree while the
       // server check runs; the check only corrects it afterwards.
@@ -85,12 +91,19 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
       // Saved accounts that were never opened since their name was known get it from their own identity card.
       void loadSavedAccountNames(API_BASE_URL).then(() => { if (!cancelled) setAccounts(listSavedAccounts()); }).catch(() => undefined);
       if (!cancelled && changed) {
-        window.location.reload();
+        // One reload per change. If the server keeps disagreeing, reloading again would only loop.
+        const lastReload = Number(sessionStorage.getItem(CONTEXT_RELOAD_KEY) || 0);
+        if (Date.now() - lastReload > CONTEXT_RELOAD_GUARD_MS) {
+          sessionStorage.setItem(CONTEXT_RELOAD_KEY, String(Date.now()));
+          window.location.reload();
+        }
       }
     };
 
+    // Focus and visibility fire together and often (keyboard, notification shade); one check is enough.
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === 'hidden') return;
+      if (Date.now() - lastBootstrap < RESUME_CHECK_INTERVAL_MS) return;
       void bootstrap();
     };
 
@@ -311,10 +324,11 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
     });
   }, [settingsOpen]);
 
-  const loadOrgs = async () => {
+  const orgsLoadedAt = useRef(0);
+  const loadOrgs = async (force = false) => {
     if (orgsLoading) return;
+    if (!force && Date.now() - orgsLoadedAt.current < RESUME_CHECK_INTERVAL_MS) return;
     setOrgsLoading(true);
-    setOrgsError(null);
     const token = getPersonalWalletToken();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
@@ -332,6 +346,8 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
         return res.data;
       }, getPersonalWalletToken);
       setOrgs(data.map(mapOrg));
+      setOrgsError(null);
+      orgsLoadedAt.current = Date.now();
     } catch (error) {
       console.warn('Could not refresh switcher organisations', error);
       const cached = readMemberships(localStorage, getPersonalWalletToken());
@@ -482,7 +498,10 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
               )}
               <Menu
                 opened={orgMenuOpen}
-                onClose={() => setOrgMenuOpen(false)}
+                onChange={(open) => {
+                  setOrgMenuOpen(open);
+                  if (open) void loadOrgs();
+                }}
                 position="bottom-start"
                 withinPortal
                 shadow="md"
@@ -492,7 +511,6 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                   <UnstyledButton
                     aria-label="Switch account or organisation"
                     style={{ flex: 1, minWidth: 0, minHeight: 48 }}
-                    onClick={() => { loadOrgs(); setOrgMenuOpen(true); }}
                   >
                     <Group gap="xs" wrap="nowrap">
                     <Avatar size={34} color="credentis" radius="md" style={{ flexShrink: 0 }}>
@@ -513,10 +531,10 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
                   </UnstyledButton>
                 </Menu.Target>
                 <Menu.Dropdown>
-                {orgsLoading && (
+                {orgsLoading && orgs.length === 0 && (
                   <Menu.Item disabled>Loading organisations…</Menu.Item>
                 )}
-                {orgsError && <Menu.Item color="orange" onClick={() => void loadOrgs()}>{orgsError}</Menu.Item>}
+                {orgsError && <Menu.Item color="orange" closeMenuOnClick={false} onClick={() => void loadOrgs(true)}>{orgsError}</Menu.Item>}
                 <Menu.Item
                   leftSection={<IconUser size={14} />}
                   rightSection={!orgLabel ? <IconCheck size={14} color="#2188ca" /> : null}
@@ -674,7 +692,7 @@ export default function AppShellMobile({ children, inboxCount, minimalHeader = f
             {orgsLoading && orgs.length === 0 && (
               <Text size="xs" c="dimmed" px="xs">Loading organisations…</Text>
             )}
-            {orgsError && <Button variant="subtle" color="orange" onClick={() => void loadOrgs()}>{orgsError}</Button>}
+            {orgsError && <Button variant="subtle" color="orange" onClick={() => void loadOrgs(true)}>{orgsError}</Button>}
             {switchableOrgs.filter((org) => org.name !== orgLabel).map((org) => (
               <Button
                 key={org.id}

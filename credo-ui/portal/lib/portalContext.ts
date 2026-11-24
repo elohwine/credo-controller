@@ -49,7 +49,11 @@ export function usePortalContext(): PortalContextState {
   })
 
   useEffect(() => {
-    const sync = () => setState(readPortalContext())
+    const sync = () => {
+      const next = readPortalContext()
+      // Storage events fire for every key; keep the same state object when the context is unchanged.
+      setState((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+    }
     sync()
     setMounted(true)
     window.addEventListener('storage', sync)

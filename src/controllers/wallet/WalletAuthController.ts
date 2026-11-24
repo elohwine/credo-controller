@@ -352,7 +352,7 @@ export class WalletAuthController extends Controller {
   @Post('/invite/accept')
   public async acceptInvite(
     @Body() body: AcceptInviteRequest,
-  ): Promise<{ token: string; tenantId: string; name: string }> {
+  ): Promise<{ token: string; tenantId: string; name: string; staffCardOfferUri?: string }> {
     try {
       return await this.ssiAuthService.acceptInvite(body)
     } catch (e: any) {

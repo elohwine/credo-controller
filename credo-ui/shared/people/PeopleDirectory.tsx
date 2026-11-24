@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Accordion,
   Alert,
+  Avatar,
   Badge,
   Button,
   Checkbox,
@@ -10,13 +12,15 @@ import {
   NumberInput,
   Paper,
   Radio,
+  SegmentedControl,
   Select,
+  SimpleGrid,
   Stack,
   TagsInput,
   Text,
   TextInput,
 } from '@mantine/core'
-import { IconCircleCheck, IconClock, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
+import { IconCircleCheck, IconClock, IconSearch, IconSend, IconTrash, IconUserPlus } from '@tabler/icons-react'
 
 import { MemberWorkFile, Row } from '../operations/OperationsRegisters'
 import type { EmployeeQualification, EmployeeRecord, OperationsApi, TeamMember } from '../operations/operationsApi'
@@ -31,7 +35,6 @@ import {
   cardPurpose,
   cardResendHint,
   memberAccessBadge,
-  readyCount,
   type MemberCardKind,
   type MemberOnboarding,
   type StaffCardChangeRule,
@@ -84,6 +87,21 @@ function accessLabel(row: PersonRow): { label: string; color: string } {
   }
 }
 
+type AccessFilter = 'all' | 'none' | 'waiting' | 'ready'
+
+/** Which filter group a person falls in: no app access, started but not finished, or ready. */
+function accessGroup(row: PersonRow): Exclude<AccessFilter, 'all'> {
+  if (!row.member) return 'none'
+  if (row.member.invitePending) return 'waiting'
+  if (row.onboarding) return row.onboarding.summary === 'ready' ? 'ready' : 'waiting'
+  return row.member.status === 'active' ? 'ready' : 'waiting'
+}
+
+function initials(name: string): string {
+  const parts = name.replace(/[^\p{L}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?'
+}
+
 function qualificationAlerts(qualifications: EmployeeQualification[] = []): Array<{ label: string; color: string }> {
   const today = new Date().toISOString().slice(0, 10)
   const cutoffDate = new Date(`${today}T00:00:00.000Z`)
@@ -127,6 +145,8 @@ export function PeopleDirectory({
   const [cardRule, setCardRule] = useState<StaffCardChangeRule>(DEFAULT_STAFF_CARD_CHANGE)
   const [loading, setLoading] = useState(true)
   const [sheet, setSheet] = useState<{ kind: 'person'; key: string } | { kind: 'add' } | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<AccessFilter>('all')
   const canManage = ACCESS_ROLES.includes(role)
   const size = surface === 'phone' ? 'md' : 'sm'
 
@@ -203,16 +223,28 @@ export function PeopleDirectory({
     onChanged?.()
   }
   const open = sheet?.kind === 'person' ? rows.find((row) => row.key === sheet.key) : undefined
-  const counts = readyCount(onboarding)
+  const groups = useMemo(() => {
+    const tally = { none: 0, waiting: 0, ready: 0 }
+    for (const row of rows) tally[accessGroup(row)] += 1
+    return tally
+  }, [rows])
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (filter !== 'all' && accessGroup(row) !== filter) return false
+      if (!needle) return true
+      return [row.name, row.employee?.staffNumber, row.employee?.phone, row.member?.phone, row.member ? roleLabel(row.member.role) : '']
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(needle))
+    })
+  }, [rows, query, filter])
 
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center" wrap="nowrap">
         <Text size="sm" c="dimmed">
-          {onboarding.length
-            ? counts.ready === counts.total
-              ? 'Everyone has what they need in the app.'
-              : `${counts.ready} of ${counts.total} are ready in the app. Open a person to see what is missing.`
+          {rows.length
+            ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'} · ${groups.ready} ready in the app${groups.none ? ` · ${groups.none} not invited yet` : ''}`
             : 'Everyone on your team, in one list.'}
         </Text>
         {canManage && (
@@ -228,54 +260,97 @@ export function PeopleDirectory({
         )}
       </Group>
 
+      {rows.length > 6 && (
+        <Group gap="sm" wrap="wrap" align="center">
+          <TextInput
+            size={size}
+            placeholder="Search name, phone, staff number or role"
+            leftSection={<IconSearch size={16} />}
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+            style={{ flex: '1 1 240px' }}
+          />
+          <SegmentedControl
+            size={surface === 'phone' ? 'sm' : 'xs'}
+            value={filter}
+            onChange={(value) => setFilter(value as AccessFilter)}
+            data={[
+              { value: 'all', label: `All ${rows.length}` },
+              { value: 'none', label: `Not invited ${groups.none}` },
+              { value: 'waiting', label: `Waiting ${groups.waiting}` },
+              { value: 'ready', label: `Ready ${groups.ready}` },
+            ]}
+          />
+        </Group>
+      )}
+
       {loading && !rows.length ? (
         <Loader size="sm" />
       ) : rows.length === 0 ? (
         <Text size="sm" c="dimmed">
           {canManage ? 'No one yet. Add the first person.' : 'No one else is on the team yet.'}
         </Text>
+      ) : visible.length === 0 ? (
+        <Text size="sm" c="dimmed">No one matches.</Text>
       ) : (
-        <Stack gap="xs">
-          {rows.map((row) => {
+        <SimpleGrid cols={surface === 'phone' ? 1 : { base: 1, md: 2, xl: 3 }} spacing="xs">
+          {visible.map((row) => {
             const access = accessLabel(row)
             return (
               <Row
                 key={row.key}
                 surface={surface}
-                title={row.name}
-                detail={[
-                  row.employee?.staffNumber,
-                  row.member ? roleLabel(row.member.role) : undefined,
-                  row.employee?.phone || row.member?.phone,
-                  showPay && row.employee && row.employee.baseSalary > 0
-                    ? `${row.employee.baseSalary.toLocaleString()} ${row.employee.currency}`
-                    : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                title={
+                  <Group gap="sm" wrap="nowrap">
+                    <Avatar size={surface === 'phone' ? 36 : 32} radius="xl" color="initials" name={row.name}>
+                      {initials(row.name)}
+                    </Avatar>
+                    <Stack gap={0} style={{ minWidth: 0 }}>
+                      <Text fw={500} size={surface === 'phone' ? 'md' : 'sm'} truncate>
+                        {row.name}
+                      </Text>
+                      <Text size="xs" c="dimmed" truncate>
+                        {[
+                          row.member ? roleLabel(row.member.role) : undefined,
+                          row.employee?.staffNumber,
+                          row.employee?.phone || row.member?.phone,
+                          showPay && row.employee && row.employee.baseSalary > 0
+                            ? `${row.employee.baseSalary.toLocaleString()} ${row.employee.currency}`
+                            : undefined,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || 'No contact saved'}
+                      </Text>
+                    </Stack>
+                  </Group>
+                }
                 trailing={
-                  <Group gap={4} justify="flex-end">
+                  <Group gap={4} justify="flex-end" wrap="nowrap">
                     {qualificationAlerts(row.employee?.qualifications).map((alert) => (
                       <Badge key={alert.label} variant="light" color={alert.color}>
                         {alert.label}
                       </Badge>
                     ))}
-                  <Badge variant="light" color={access.color}>
-                    {access.label}
-                  </Badge>
+                    <Badge variant="light" color={access.color} style={{ flexShrink: 0 }}>
+                      {access.label}
+                    </Badge>
                   </Group>
                 }
                 onClick={() => setSheet({ kind: 'person', key: row.key })}
               />
             )
           })}
-        </Stack>
+        </SimpleGrid>
       )}
 
       {canManage && rows.length > 0 && (
-        <Paper withBorder radius="md" p="md">
+        <Accordion variant="contained" radius="md">
+          <Accordion.Item value="card-rule">
+            <Accordion.Control>
+              <Text size="sm" fw={500}>When a role changes</Text>
+            </Accordion.Control>
+            <Accordion.Panel>
           <Stack gap="xs">
-            <Text fw={500}>When a role changes</Text>
             <Text size="sm" c="dimmed">
               The person gets a new staff card in their app inbox. Choose what happens to the one they already hold.
             </Text>
@@ -304,7 +379,9 @@ export function PeopleDirectory({
               When someone leaves, their staff card stops working straight away.
             </Text>
           </Stack>
-        </Paper>
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
       )}
 
       <Drawer

@@ -1,12 +1,12 @@
 import { feedback } from '@/lib/feedback';
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Badge, Divider, Group, Loader, Menu, ScrollArea, Text, UnstyledButton } from '@mantine/core'
 import { IconBuilding, IconCheck, IconChevronDown, IconPlus, IconUser, IconWallet } from '@tabler/icons-react'
 import { useRouter } from 'next/router'
 import axios from 'axios'
 import { clearPortalTask, CONTEXT_UPDATED_EVENT, OPEN_ORG_SWITCHER_EVENT } from '@/lib/portalContext'
 import { roleLabel } from '../../shared/orgPeople'
-import { beginAddAccount, currentAccountId, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts'
+import { beginAddAccount, currentAccountId, isSavedAccountsKey, isSessionStorageKey, listSavedAccounts, loadSavedAccountNames, rememberCurrentAccount, restoreAccount } from '@/lib/savedAccounts'
 import { isOrgContextActive } from '@/utils/portalTenant'
 import { captureOrganizationSwitchContext } from '../../shared/taskContext'
 import { readMemberships, persistMemberships, refreshMemberships } from '../../shared/organizationMemberships'
@@ -27,6 +27,8 @@ function canOpenOrg(org: OrgInfo): boolean {
 interface OrgSwitcherProps {
   compact?: boolean
 }
+
+const ORG_REFRESH_INTERVAL_MS = 30_000
 
 const ORG_TOKEN_KEY = 'credoOrgToken'
 const ACTIVE_ORG_KEY = 'credoActiveOrg'
@@ -133,6 +135,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
   const [roleChangedOrg, setRoleChangedOrg] = useState<OrgInfo | null>(null)
 
   const holderBackend = process.env.NEXT_PUBLIC_VC_REPO || 'http://localhost:3000'
+  const loadingRef = useRef(false)
+  const loadedAtRef = useRef(0)
 
   // "No organization selected" prompts across the portal can open this picker directly.
   useEffect(() => {
@@ -142,7 +146,9 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     return () => window.removeEventListener(OPEN_ORG_SWITCHER_EVENT, open)
   }, [])
 
-  const loadOrganizations = useCallback(() => {
+  // Focus, page changes and opening the picker only refresh a list older than this; a real
+  // context change (sign-in, switch) always refreshes.
+  const loadOrganizations = useCallback((force = false) => {
     if (typeof window === 'undefined') return
     setActiveOrg(getActiveOrg())
     const token = getPersonalToken()
@@ -151,9 +157,10 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
       setLoadError('Sign in to your personal account to load organisations.')
       return
     }
+    if (!force && (loadingRef.current || Date.now() - loadedAtRef.current < ORG_REFRESH_INTERVAL_MS)) return
 
+    loadingRef.current = true
     setLoading(true)
-    setLoadError(null)
     refreshMemberships(localStorage, token, async () => {
       const res = await axios.get(`${holderBackend}/api/organizations`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -161,6 +168,8 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
       return res.data
     }, getPersonalToken)
       .then((orgs) => {
+        loadedAtRef.current = Date.now()
+        setLoadError(null)
         setOrganizations(orgs)
 
         const current = getActiveOrg()
@@ -186,7 +195,11 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
           const live = orgs.find((org: OrgInfo) => org.orgTenantId === current.orgTenantId)
           const orgToken = localStorage.getItem(ORG_TOKEN_KEY)
           const tokenRole = String((orgToken ? decodeJwtPayload(orgToken) : null)?.orgRole || '')
-          if (live && live.role && tokenRole && tokenRole !== live.role) {
+          // Re-open at most once per role change in this tab: if the server keeps issuing the old
+          // role, reloading again would only loop.
+          const resyncKey = `credoOrgRoleResync:${current.orgTenantId}:${live?.role || ''}`
+          if (live && live.role && tokenRole && tokenRole !== live.role && !sessionStorage.getItem(resyncKey)) {
+            sessionStorage.setItem(resyncKey, '1')
             setRoleChangedOrg(live)
           } else if (live && (live.role !== current.role || live.name !== current.name)) {
             const next = { ...current, role: live.role, name: live.name }
@@ -202,7 +215,10 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
         setOrganizations(cachedOrgs)
         setLoadError(cachedOrgs.length ? 'Saved organisations; could not refresh. Retry.' : 'Could not load organisations. Retry.')
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        loadingRef.current = false
+        setLoading(false)
+      })
   }, [holderBackend])
 
   // The Layout (and this picker) survives client-side navigation, so the org list must be
@@ -213,31 +229,42 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
     rememberCurrentAccount()
     setAccounts(listSavedAccounts())
     setActiveAccountId(currentAccountId())
-    loadOrganizations()
-    const onContext = () => {
-      rememberCurrentAccount()
+    loadOrganizations(true)
+    const refreshAccounts = () => {
       setAccounts(listSavedAccounts())
       setActiveAccountId(currentAccountId())
+    }
+    const onContext = () => {
+      rememberCurrentAccount()
+      refreshAccounts()
+      loadOrganizations(true)
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (isSavedAccountsKey(event.key)) refreshAccounts()
+      else if (isSessionStorageKey(event.key)) onContext()
+    }
+    const resume = () => {
+      if (document.visibilityState === 'hidden') return
+      refreshAccounts()
       loadOrganizations()
     }
-    window.addEventListener('storage', onContext)
+    const onRoute = () => loadOrganizations()
+    window.addEventListener('storage', onStorage)
     window.addEventListener(CONTEXT_UPDATED_EVENT, onContext)
-    const resume = () => { if (document.visibilityState !== 'hidden') onContext() }
     window.addEventListener('focus', resume)
     document.addEventListener('visibilitychange', resume)
-    router.events.on('routeChangeComplete', onContext)
+    router.events.on('routeChangeComplete', onRoute)
     return () => {
-      window.removeEventListener('storage', onContext)
+      window.removeEventListener('storage', onStorage)
       window.removeEventListener(CONTEXT_UPDATED_EVENT, onContext)
       window.removeEventListener('focus', resume)
       document.removeEventListener('visibilitychange', resume)
-      router.events.off('routeChangeComplete', onContext)
+      router.events.off('routeChangeComplete', onRoute)
     }
   }, [loadOrganizations, router])
 
   useEffect(() => {
     if (opened) {
-      rememberCurrentAccount()
       setAccounts(listSavedAccounts())
       setActiveAccountId(currentAccountId())
       loadOrganizations()
@@ -413,7 +440,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               </Badge>
             )}
             <Box style={{ flexGrow: 1 }} />
-            {switching || loading ? <Loader size={14} /> : <IconChevronDown size={14} style={{ opacity: 0.5 }} />}
+            {switching || (loading && organizations.length === 0) ? <Loader size={14} /> : <IconChevronDown size={14} style={{ opacity: 0.5 }} />}
           </Group>
         </UnstyledButton>
       </Menu.Target>
@@ -446,7 +473,7 @@ export default function OrgSwitcher({ compact }: OrgSwitcherProps) {
               Loading organizations…
             </Menu.Item>
           )}
-          {loadError && <Menu.Item color="orange" onClick={() => loadOrganizations()}>{loadError}</Menu.Item>}
+          {loadError && <Menu.Item color="orange" closeMenuOnClick={false} onClick={() => loadOrganizations(true)}>{loadError}</Menu.Item>}
           {!loading && organizations.length === 0 && (
             <Menu.Item disabled>
               <Text size="sm">No organizations yet</Text>

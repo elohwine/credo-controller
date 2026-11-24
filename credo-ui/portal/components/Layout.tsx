@@ -13,6 +13,7 @@ import {
     Button,
     Group,
     NavLink,
+    ScrollArea,
     Text,
     useMantineColorScheme,
 } from '@mantine/core';
@@ -213,7 +214,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
         }, ...(hasPeople ? [{
             label: 'HR operations',
             items: [
-                { label: 'Team & employee records', href: '/hr?tab=team', icon: <IconUsers size={18} /> },
+                { label: 'Team', href: '/hr?tab=team', icon: <IconUsers size={18} /> },
                 { label: 'Payroll', href: '/payroll', icon: <IconReceipt size={18} /> },
                 { label: 'Time off & expenses', href: '/hr/operations', icon: <IconReceipt size={18} /> },
                 { label: 'Staff requests', href: '/requests?tab=people', icon: <IconChecklist size={18} /> },
@@ -310,6 +311,8 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                 </Group>
             </AppShell.Header>
             {!publicPage && <AppShell.Navbar p="sm">
+                {/* The org menu is taller than many screens: it scrolls on its own instead of the page behind it. */}
+                <AppShell.Section grow component={ScrollArea} type="scroll" scrollbarSize={6} offsetScrollbars style={{ overscrollBehavior: 'contain' }}>
                 <Box style={{ visibility: mounted ? 'visible' : 'hidden' }}>
                     {!task && groups.map((group) => (
                         <Box key={group.label} mb="md">
@@ -337,6 +340,7 @@ const Layout = ({ children, title = `${PRODUCT_NAME} Portal` }: LayoutProps) => 
                         </Box>
                     ))}
                 </Box>
+                </AppShell.Section>
             </AppShell.Navbar>}
             <AppShell.Main>
                 <LayoutNestingContext.Provider value={true}>
